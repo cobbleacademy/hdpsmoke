@@ -8,10 +8,13 @@ triggerScriptPath: /Users/nnagaraju/IDEAWorkspace/drake/scripts
 steps:
   - name: readfile
     model: source
-    format: text
+    format: wholefile
     label: filestream
     options:
-      path: input/catalog
+      fileFormat: text
+      contentType: xml
+      xmlRootTag: catalog
+      path: input/multiple
     attributes:
       logStatus: 'true'
       statusComment: process started
@@ -26,7 +29,7 @@ steps:
     command: com.drake.editor.DefaultEditorBuilder
     label: transfilestream
     attributes:
-      category: toxmlschema
+      category: jsonschema
       fromColumn: value
       toAlias: json
       schemaCommand: com.drake.schema.DefaultSchemaBuilder
@@ -42,13 +45,13 @@ steps:
         select book.id as id,book.author as author,book.title as title,book.genre as genre,book.price as price,
         book.publish_date as publish_date,book.description as description,
         process_epoch,process_dt,process_hr
-        from (select explode(catalog.book) as book,process_epoch,process_dt,process_hr from ctlg) a
+        from (select catalog.book as book,process_epoch,process_dt,process_hr from ctlg) a
   - name: sinkhive
     model: sink
     from: transfilestream
     format: csv
     options:
-      path: output/catalog_dom
+      path: output/catalog_multi_dom
       checkpointLocation: output/cpctlg
     attributes:
       trigger: 10 seconds
