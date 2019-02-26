@@ -3,7 +3,7 @@ import org.apache.spark.sql.types.{ArrayType,BinaryType,IntegerType,LongType,Str
 def getSchema(): StructType = {
   val schema = new StructType()
     .add("catalog", new StructType()
-        .add("book", ArrayType(new StructType()
+        .add("book", new StructType()
             .add("id", StringType)
             .add("author", StringType)
             .add("title", StringType)
@@ -11,7 +11,7 @@ def getSchema(): StructType = {
             .add("price", StringType)
             .add("publish_date", StringType)
             .add("description", StringType)
-            ))
+            )
             )
 
   schema
