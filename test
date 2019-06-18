@@ -1,0 +1,42 @@
+resourcing,guiding proj goal,write dd,planning,std up calls on challenges
+
+Tech. Lead - core competencies
+Hadoop 1.x vs 2.x
+flume interceptors
+PIG Group vs Cogroup
+HBase minor compaction vs major
+combiner vs partitioner
+From RDBMS Table to Hive Table
+Incremental approach
+Sqoop jobs
+CDC techniques
+Spark Catalyst Optimizer
+Spark job tuning
+which version, how big is the cluster
+distcp?
+fsimage & edit logs
+Sqoop 
+  Source table to Hive partition
+Hive
+  Managed vs External
+HBase
+  Scan/Get/Put/Delete
+Shell
+  Success/Num of Args
+Spark
+  Tuning/Transform vs Action
+
+Hive Tran table - how it works on multiple inserts
+   how many files it generates
+How you run the process in the background
+Get Hive beeline single value into Unix Variable
+
+
+Fs Image + Edit logs in V2 (Journal approach)
+Hadoop arch - how the reading process from end-end
+Hadoop 1 vs 2
+Hive Tran table inserts/ (4 inserts 2 buckets - get to one set of files)
+XML Hive process - get <price> element
+Hive output into 1 unix variable
+Sqoop Incr approach
+Spark trasf/action + accumulator/broadcast variables + group by/aggregate by
