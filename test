@@ -40,3 +40,30 @@ XML Hive process - get <price> element
 Hive output into 1 unix variable
 Sqoop Incr approach
 Spark trasf/action + accumulator/broadcast variables + group by/aggregate by
+
+
+// Start writing your ScalaFiddle code here
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.Period
+
+val processDates="2018-10-14,2018-10-19"
+processDates.split(",").foreach(println)
+
+processDates.split(",").foreach(t =>{
+  val revDate = t.replace('-','/')
+  println(s"process dates: $revDate")
+})
+
+val fromDateStr="2018-01-01"
+val toDateStr="2018-01-20"
+val df = DateTimeFormatter.ofPattern("yyyy/MM/dd");
+val from=LocalDate.parse(fromDateStr.replace('-','/'),df)
+val to=LocalDate.parse(toDateStr.replace('-','/'),df)
+val numberOfDays:Int = Period.between(from, to).getDays()
+val dateRanges: Array[Int] = (0 to numberOfDays).toArray
+dateRanges.foreach(d =>{
+  val plusD = from.plusDays(d).format(df)
+  println(s"range date: $plusD")
+})
+
