@@ -43,9 +43,9 @@ Spark trasf/action + accumulator/broadcast variables + group by/aggregate by
 
 
 // Start writing your ScalaFiddle code here
-import java.time.LocalDate
+import java.time.{LocalDate,Period}
+import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
-import java.time.Period
 
 val processDates="2018-10-14,2018-10-19"
 processDates.split(",").foreach(println)
@@ -56,14 +56,14 @@ processDates.split(",").foreach(t =>{
 })
 
 val fromDateStr="2018-01-01"
-val toDateStr="2018-01-20"
-val df = DateTimeFormatter.ofPattern("yyyy/MM/dd");
+val toDateStr="2018-02-10"
+val df = DateTimeFormatter.ofPattern("yyyy/MM/dd")
 val from=LocalDate.parse(fromDateStr.replace('-','/'),df)
 val to=LocalDate.parse(toDateStr.replace('-','/'),df)
-val numberOfDays:Int = Period.between(from, to).getDays()
-val dateRanges: Array[Int] = (0 to numberOfDays).toArray
+val numberOfDays:Long = ChronoUnit.DAYS.between(from, to)
+println(s"number of days: $numberOfDays")
+val dateRanges: Array[Long] = (0L to numberOfDays).toArray
 dateRanges.foreach(d =>{
   val plusD = from.plusDays(d).format(df)
   println(s"range date: $plusD")
 })
-
