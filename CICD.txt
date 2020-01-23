@@ -1,0 +1,40 @@
+CICD Pipeline
+--------------
+
+Continuous Integration and Continuous Delivery - A development practice to build, test and deploy the software with speed and reliably.
+
+Continuous Integration CI: Developers integrate the code changes into version control which triggers the automated code scan and test cases execution helps to detect the problems sooner. With this integration the problems are detected early and build will be ready for deployment.
+
+Continuous Integration happens when code is pushed to git master branch which runs test cases, upon successful test the code will be integrated with master branch.
+
+The goal of CI is to establish a consistent and automated way to build, package and test applications.
+
+CI steps
+	- Developer pushes the code to version control system to integrate with master branch
+	- Triggers test cases execution
+	- On Fail, the problems detected early to fix
+	- On Successful, the code confirms to the expected changes
+
+
+Continuous Delivery CD: It is an ability to get all type of changes like bug fixes, configurations and features into production environment quickly. This can be achieved only when the changes are in deployable state.
+	- It is the process of continuously creating releasable artifacts
+
+Automation is an important approach to make process sustainable.
+
+The goal of CD to automate the delivery of applications to selected infrastructure platforms.
+
+Feature flags: A configuration mechanism to turn features on and off at run time. Features under development are wrapped with feature flags in the code and deployed with master branch  to production, will be turned off until the feature is ready to be used.
+
+
+Bad Practices:
+	- Compiling the code from developers machine
+	- Copying artifacts from developers site
+	
+Best Practices:
+	- Code check-in
+	- Automation build
+	- Automation test runs
+	- Check-in frequently
+	- Apply feature flags
+
+CICD consists of set of operating principles and collection of practices allows the Dev teams to deliver the code changes frequently and reliably.
