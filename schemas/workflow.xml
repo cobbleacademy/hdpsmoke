@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow-app 
+    xmlns="uri:oozie:workflow:0.5"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="uri:oozie:workflow:0.5 http://oozie.apache.org/schemas/workflow-0.5
+    uri:oozie:hive-action:0.5  http://oozie.apache.org/schemas/hive-action-0.5
+    uri:oozie:email-action:0.2 http://oozie.apache.org/schemas/email-action-0.2
+    uri:oozie:sqoop-action:0.4 http://oozie.apache.org/schemas/sqoop-action-0.4
+    uri:oozie:shell-action:0.3 http://oozie.apache.org/schemas/shell-action-0.3
+    uri:oozie:ssh-action:0.2 http://oozie.apache.org/schemas/ssh-action-0.2
+    uri:oozie:sla:0.2 http://oozie.apache.org/schemas/sla-0.2"
+    name="${bunitProcess}"
+>
+  <credentials>
+	<credential name='hcatCred' type='hcat'>
+		<property>
+			<name>hcat.metastore.uri</name>
+			<value>${hcatUrl}</value>
+		</property>
+		<property>
+			<name>hcat.metastore.principal</name>
+			<value>${hcatServerPrincipal}</value>
+		</property>
+	</credential>
+
+    <credential name="hiveCred" type="hive2">
+      <property>
+        <name>hive2.jdbc.url</name>
+        <value>${jdbcUrl}</value>
+      </property>
+      <property>
+        <name>hive2.server.principal</name>
+        <value>${hive2ServerPrincipal}</value>
+      </property>
+    </credential> 
+  </credentials>
+
+    <start to="cont-model-computation"/>
+    
+	<!-- Below action will run hive scripts for Transaction Model Table creation -->
+    <action name="cont-model-computation" cred="hiveCred">
+        <hive2 xmlns="uri:oozie:hive2-action:0.1">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <configuration>
+                <property>
+                    <name>mapreduce.job.queue.name</name>
+                    <value>${queueName}</value>
+                </property>
+               <property>
+                    <name>mapreduce.map.memory.mb</name>
+                    <value>${hiveMemory}</value>
+                </property>					
+            </configuration>
+			<jdbc-url>${jdbcUrl}</jdbc-url>
+            <script>continuum_model.hql</script>
+            <param>b2bmktgSchema=${b2bmktgSchema}</param>
+            <param>b360Schema=${b360Schema}</param>			
+            <param>marketoSchema=${marketoSchema}</param>
+			<param>b2bmktgDBLocation=${b2bmktgDBLocation}</param>				
+        </hive2>
+        <ok to="endEmail"/>
+        <error to="failEmail"/>
+    </action>	
+	
+    <!-- Notification on Success -->
+    <action name="endEmail">
+			<email xmlns="uri:oozie:email-action:0.2">
+                    <to>${emailToAddress}</to>
+                    <subject>Status: ${wf:id()}</subject>
+                    <body>${wf:id()}: The ${bunitProcess} worfklow has been completed successfully.</body>
+					<content_type>text/plain</content_type>
+            </email>
+            <ok to="end"/>
+            <error to="end"/>
+    </action>	
+	
+    <!-- Notification on Failure -->
+    <action name="failEmail">
+			<email xmlns="uri:oozie:email-action:0.2">
+                    <to>${emailToAddress}</to>
+                    <subject>Status: ${wf:id()}</subject>
+                    <body>${wf:id()}:  The ${bunitProcess} workflow failed with error message: ${wf:errorMessage(wf:lastErrorNode())}.</body>
+					<content_type>text/plain</content_type>
+            </email>
+        <ok to="fail"/>
+        <error to="fail"/>
+    </action>
+
+    <kill name="fail">
+        <message>${bunitProcess} workflow failed, error message: [${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+    <end name="end"/>
+
+</workflow-app>
