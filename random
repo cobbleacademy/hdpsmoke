@@ -1,0 +1,23 @@
+- Prepare array of struct with different size and modify a value in each struct using mapping doc and generate new array of struct
+
+[{a:1,b:2,c:3},{a:5}] using (1->100,5->20) => [{a:100,b:2,c:3},{a:20}]
+
+- Build an EventHub to receive events thru Event Subscription and invoke action
+
+(Systems subscribe to event-hub which in-turn calls program/action)
+
+- Build a process to reconcile the data between 2 layers
+
+— Generate live graph on streaming data to find number of active users for an application
+
+- Build an algorithm to sovle overlapping of numbers for given key
+
+A   1   -   9
+A   5   -  15
+A  10   -  55
+B   1   -  50
+B  40  - 100
+C   1   -   9
+C   0   -  10
+C   5   -  12
+
