@@ -1,0 +1,87 @@
+I have my IT experience majorly in JAVA/J2EE and BigData technologies. 
+In JAVA/J2EE developed several products/frameworks/applications.
+In the products area developed StarBEAM datawarehouse tool using Swing/Applet/WebServices
+In the framework area developed CFR Part-11 framework using JSF/EJB/WebServices
+Implemented the framework and developed CAPA applications using JSF/EJB/WebServices
+In BigData technology worked on different areas.
+One of the area is building clusters varying from Apache vanilla, Hortonworks and Cloudera stacks
+	Installing components hdfs/yarn/pig/hive/sqoop/spark/impala/zookeeper/kafka/flume etc
+	Applying security and encryption on data at-rest/in-motion using encryption zone and TLS certs
+	(Cloudera - Gazzang)
+	
+Another area is data ingestion into data lake from multiple sources 
+ Relational databases,SalesForce,adobe,marketo,twitter using tools
+ Keep the cleansed data ready for business use cases
+Another area is developing Business use cases using rules or datascience models
+
+***Privacera***
+Secure data sharing across all business units with fine-grained access controls 
+  down to file-, row-, and column-levels
+Protects data with dynamic encryption, masking, and anonymization
+Seamless integration with no performance impact
+Reduced manual burdens on data teams with a centralized location to enforce consistent 
+  controls across Azure cloud services, including including 
+  ADLS, PowerBI, Cosmos, Synapse, and Azure Databricks
+Full transparency of data access and usage
+Trusted compliance with privacy and industry regulations like GDPR, LGPD, CCPA, HIPAA, and more
+Enables complete visibility of data usage with rich auditing and reporting-- all from a centralized location.
+
+***DLP***
+Data --- motion/rest/inuse/in device/computer
+---->
+Data Identification or Classification (PII/GDPR)
+data moves internally a lot - not routed where it shouldn't go
+data at rest, -- databases/apps/devices/cloud storage/
+end-point -- computes/mobile devices/tablets -- block data from being copied
+data leak -- monitor for unusual behavior
+
+
+***CASB***
+Enterprise --- Cloud
+Data exchange -- should be prevented if malicious data/attack detected
+---->
+control point of data in the cloud with wide range of security policies
+inline proxy - stop data upload to cloud
+data at rest or file uploads
+
+
+***Qualys***
+Web App/SQL Injection/Cross Site Scripting - monitor webapp firewall
+---->
+Virtual Appliance Scanner - Vulnerability Scanning -- EC2/AWS - to check if AWS policies are followed
+Virtual Firewall Scanner - routers/switches/hubs/servers/databases/workstation/printers/devices
+Container Scanner - Scan docker registry or running containers
+
+
+
+***Zscaler***
+users (from anywhere or device) ------ application/resources/web apps/saas apps
+---->
+Rich Authentication and Software Policy approach
+Software defined policies - connect users apps
+Access Policy - which apps are visible or dark
+on-net off-net - identical protection
+Right User to Right application in secured way
+---->
+Platform has 2 approaches
+ZIA - Zscaler Internet Access
+provides secure access to Internet/SaaS applications
+to ensure no bad data comes in and leaves out
+---
+Inline content inspection/ real-time threat correlation / threat feeds
+
+ZPA - Zscaler Private Access
+Provides access to Internal Application either on cloud or datacenter without VPN
+---
+users never on the corporate network
+apps are invisible not exposed to internet
+secured without a VPN
+segment apps
+
+
+Splunk -Zscaler Cloud
+----------------------
+Splunk provides centralized log ingestion and analytics against Zscaler logs and normalized into Splunk’s schema.
+Splunk ingests Zscaler high fidelity telemetry giving security teams visibility into their zero trust environment while enabling them to detect and eliminate emerging threats.
+Splunk’s zero trust analytics dashboard provides robust analytics with Risk Based Alerting and User Entity Behavior Analytics to detect anamolies and abnormal patterns.
+Splunk Phantom integrates with Zscaler API to automatically trigger event triage investigations and response actions.
