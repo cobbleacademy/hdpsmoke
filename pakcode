@@ -1,0 +1,177 @@
+      bds.setUrl(startAttrs.getOrElse("url", ""))
+      if (startAttrs.get("username").isDefined) bds.setUsername(startAttrs.get("username").get)
+      if (startAttrs.get("password").isDefined) bds.setPassword(startAttrs.get("password").get)
+
+
+    /**
+      * Loops thru iterator of Rows and returns status of Iterator of spark type Row object
+      * @param schema
+      * @param partAttrs
+      * @param partRows
+      *
+      * @return
+      */
+    override def runPartSql(schema: StructType, partAttrs: Map[String, String], partRows: Iterator[Row]): String = {
+      //
+      var retStat = "Partition Rows Inserted: "
+      var retCnt = 0
+      val dbtable = partAttrs.getOrElse("dbtable", "")
+      val valuesStr = schema.fieldNames.map(_ => "?").mkString(",")
+      val prepdQry = s"insert into $dbtable values ( $valuesStr )"
+      println(s"Prepared runPartSql: $prepdQry")
+      logger.info(s"Prepared runPartSql: $prepdQry")
+      val pstmt: PreparedStatement = datasource.getConnection.prepareStatement(prepdQry)
+      partRows.foreach(f => {
+        var colPos = 1
+        schema.fields.foreach(sf => {
+          sf.dataType match {
+            case BooleanType => pstmt.setBoolean(colPos, f.getBoolean(colPos-1))
+            case TimestampType => pstmt.setTimestamp(colPos, f.getTimestamp(colPos-1))
+            case DateType => pstmt.setDate(colPos, f.getDate(colPos-1))
+            case IntegerType => pstmt.setInt(colPos, f.getInt(colPos-1))
+            case LongType => pstmt.setLong(colPos, f.getLong(colPos-1))
+            case FloatType => pstmt.setFloat(colPos, f.getFloat(colPos-1))
+            case DoubleType => pstmt.setDouble(colPos, f.getDouble(colPos-1))
+            case StringType => pstmt.setString(colPos, f.getString(colPos-1))
+          }
+          colPos += 1
+        })
+        logger.info(s"Executing runPartSql: $prepdQry")
+        val updtCnt = pstmt.executeUpdate()
+        retCnt += updtCnt
+        logger.info(s"Executing runPartSql: $prepdQry == $updtCnt")
+      })
+
+      //
+      pstmt.getConnection.commit()
+      pstmt.close()
+      //
+      retStat += retCnt
+
+      //
+      retStat
+    }
+
+
+
+  /**
+    * Loops thru iterator of Rows and returns status of Iterator of spark type Row object
+    * @param schema
+    * @param partAttrs
+    * @param partRows
+    *
+    * @return
+    */
+  def runPartSql(schema: StructType, partAttrs: Map[String, String], partRows: Iterator[Row]): String
+
+
+
+
+      } else if ("writebroadcastjdbc".equals(currCategory)) {
+        applyCurrentTempView(startAttrs, startDF)
+        //
+        val bcName = startAttrs.getOrElse("broadcastName", "")
+        val bcSchema = startDF.schema
+        var resultStat: ArrayBuffer[String] = ArrayBuffer[String]()
+
+        //
+        startDF.foreachPartition(f => {
+          //
+          val bcJDBCConn = BroadcastWrapper.getJDBCConnectionBroadBroadcast(bcName, forName, (forName + occurrence), startAttrs)
+          //
+          val resFrom = bcJDBCConn.runPartSql(bcSchema, startAttrs, f)
+          resultStat += resFrom
+        })
+
+        //
+        categoryDfCurrVar = resultStat.toSeq.toDF
+
+        //
+        applyTempView(startAttrs, categoryDfCurrVar)
+
+
+
+    var jdbcConnVar: Broadcast[JDBCConnectionModel] = null
+    if (!jdbcBCMap.isDefinedAt(bcName)) {
+      val lcl = SparkHelper.getSparkSession().sparkContext.broadcast(JDBCConnectionModel(name, forName, startAttrs))
+      jdbcBCMap += (bcName -> lcl)
+    }
+    val jdbcConn = jdbcBCMap.getOrElse(bcName,jdbcConnVar)
+
+
+
+
+
+
+
+
+
+
+---
+process: JDBCFlow
+mode: batch
+steps:
+  - name: readfile
+    model: source
+    format: jdbc
+    label: jdbcstream
+    options:
+      driver: "org.sqlite.JDBC"
+      url: "jdbc:sqlite:/Users/nnagaraju/AppDev/sublimeworkspace/expappjs/database/db.sqlite"
+      dbtable: 'items'
+      user: ""
+      password: ""
+      numPartitions: '1'
+    attributes:
+      logStatus: 'true'
+      statusComment: process started
+      statusPath: output/load_status
+    post:
+      category: sh
+      name: get_file_info.sh
+      path: scripts
+  - name: transbroadjdbc
+    model: transformation
+    from: jdbcstream
+    label: transbroadjdbcstream
+    command: com.drake.editor.DefaultEditorBuilder
+    attributes:
+      category: createbroadcastjdbc
+      broadcastName: bcsqlite
+      driver: "org.sqlite.JDBC"
+      url: "jdbc:sqlite:/Users/nnagaraju/AppDev/sublimeworkspace/expappjs/database/db.sqlite"
+      maxSize: "10"
+  - name: transcheckpointjdbc
+    model: transformation
+    from: transbroadjdbcstream
+    label: transcheckpointjdbcstream
+    command: com.drake.editor.DefaultEditorBuilder
+    attributes:
+      category: checkpointreader
+      format: orc
+      path: stage/datamart/items
+  - name: transeditbcjdbc
+    model: transformation
+    from: transcheckpointjdbcstream
+    label: transeditbcjdbcstream
+    command: com.drake.editor.DefaultEditorBuilder
+    attributes:
+      category: writebroadcastjdbc
+      broadcastName: bcsqlite
+      dbtable: bcitems
+  - name: transjdbc
+    model: transformation
+    from: transeditbcjdbcstream
+    label: transjdbcstream
+    command: com.drake.editor.DefaultEditorBuilder
+  - name: sinkjdbcfile
+    model: sink
+    from: transjdbcstream
+    format: orc
+    options:
+      path: stage/datamart/items
+    attributes:
+      saveMode: Overwrite
+      trigger: 10 seconds
+
+
