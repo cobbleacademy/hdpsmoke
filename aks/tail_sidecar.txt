@@ -1,0 +1,241 @@
+
+
+
+
+
+
+
+
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    name: webapp-1
+  name: webapp-1
+  namespace: default
+
+spec:
+# Init container fo creating the log directory and file
+# on the emptyDir volume, which will be passed to the containers
+  initContainers:
+  - name: create-log-file
+    image: busybox
+    command:
+      - sh 
+      - -c
+      - |
+          #!/bin/sh
+          mkdir -p /var/log/k8slog
+          touch /var/log/k8slog/application.log
+# Mount varlog volume to the Init container
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+
+  containers:
+  - image: kodekloud/event-simulator
+    imagePullPolicy: Always
+    name: simple-webapp
+    command:
+      - sh
+      - -c
+      - |
+          i=0
+          while true; do
+            echo "$i: $(date)" >> /var/log/k8slog/application.log
+            echo "$(date) INFO $i"
+            i=$((i+1))
+          sleep 1
+          done
+# Mount varlog volume to simple-webapp container
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+  - name: count-log-1
+    image: busybox
+    command:
+      - sh
+      - -c
+      - |
+          tail -f -n 1 /var/log/k8slog/application.log
+# Mount varlog volume to count-log-1 container
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+# Define na emptyDir shared volume
+  volumes:
+  - name: varlog
+    emptyDir: {} 
+-----------------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2021-10-25T07:54:07Z"
+  labels:
+    name: webapp-1
+  name: webapp-1
+  namespace: default
+  resourceVersion: "3241"
+  uid: 8cc29748-7879-4726-ac60-497ee41f7bd6
+spec:
+  containers:
+  - image: kodekloud/event-simulator
+    imagePullPolicy: Always
+    name: simple-webapp
+    - /bin/sh
+    - -c
+    - >
+      i=0;
+      while true;
+      do
+        echo "$i: $(date)" >> /var/log/k8slog/application.log
+        echo "$(date) INFO $i" >>;
+        i=$((i+1));
+       sleep 1;
+      done
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+  - name: count-log-1
+    image: busybox
+    args: [/bin/sh, -c, 'tail -n+1 /var/log/k8slog/application.log']
+    volumeMounts:
+    - name: varlog
+      mountPath: /var/log
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+    resources: {}
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: default-token-fgstk
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  nodeName: controlplane
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - name: varlog
+    mountPath: /var/log
+  - name: default-token-fgstk
+    secret:
+      defaultMode: 420
+      secretName: default-token-fgstk
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2021-10-25T07:54:07Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+-----------------------------------------
+event-simulator-pod.yaml
+-----------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: event-simulator
+spec:
+  containers:
+  - name: event-simulator
+    image: kodekloud/event-simulator
+  - name: image-processor
+    image: busybox
+    args: [/bin/sh, -c,
+            'i=0; while true; do echo "$i: $(date)"; i=$((i+1)); sleep 1; done']
+-----------------------------------------
+event-simulator.py
+-----------------------------------------
+import time
+import random
+import logging
+import os
+from logging.config import dictConfig
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+users = ["USER1", "USER2", "USER3", "USER4"]
+
+events = ["logged in", "logged out", "is viewing page1", "is viewing page2", "is viewing page3"]
+
+# Special message to print at regular interval
+special_message = {
+    5: "USER5 Failed to Login as the account is locked due to MANY FAILED ATTEMPTS.",
+    8: "{0} Order failed as the item is OUT OF STOCK."
+}
+
+
+PRINT_SPECIAL_MESSAGE = "PRINT_SPECIAL_MESSAGE" in os.environ and os.environ["PRINT_SPECIAL_MESSAGE"] or True
+OVERRIDE_USER = "OVERRIDE_USER" in os.environ and os.environ["OVERRIDE_USER"] or "USER7"
+LOG_HANDLERS = "LOG_HANDLERS" in os.environ and os.environ["LOG_HANDLERS"] or "file,console"
+
+dictConfig({
+    'version': 1,
+    'formatters': {'default': {
+        'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
+    }},
+    'handlers': {
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': '/log/app.log',
+            'maxBytes': 5242880,
+            'backupCount': 3,
+            'formatter': 'default'
+        },
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'default'
+        }},
+    'root': {
+        'level': 'INFO',
+        'handlers': LOG_HANDLERS.split(",")
+    }
+})
+
+i = 0
+
+while True:
+    r1 = random.randint(0, len(users)-1)
+    r2 = random.randint(0, len(events)-1)
+    message = "{0} {1}".format(users[r1], events[r2])
+    logging.info(message)
+    time.sleep(1)
+
+    i = i + 1
+
+    if PRINT_SPECIAL_MESSAGE != "FALSE":
+        for key in special_message:
+            mod_5 = i % key
+            if mod_5 == 0:
+                logging.warning(special_message[key].format(OVERRIDE_USER))
+
+-----------------------------------------
+Dockerfile
+-----------------------------------------
+FROM mcr.microsoft.com/aks/e2e/python-alpine
+
+RUN mkdir /log
+
+ADD event-simulator.py .
+
+ENTRYPOINT python event-simulator.py
