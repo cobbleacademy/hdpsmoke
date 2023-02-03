@@ -1,0 +1,197 @@
+package com.akkarestload.service
+
+
+import akka.actor.ActorSystem
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl._
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.{ContentTypes, HttpEntity}
+import akka.http.scaladsl.server.Directives._
+import java.nio.file.Paths
+
+import com.akkarestload.client.Converter
+
+import scala.io.StdIn
+
+object FileDownloadWebService {
+  def main(args: Array[String]) {
+
+    implicit val system = ActorSystem("crypto-system")
+    implicit val materializer = ActorMaterializer()
+    implicit val ec = system.dispatcher
+
+    val route =
+      path("hello") {
+        get {
+          complete( HttpEntity( ContentTypes.`text/html(UTF-8)`,
+            "Hello from Akka-HTTP!"
+          ) )
+        }
+      } ~
+      path("getfile") {
+        get {
+          extract(_.request.uri.query()) { params => {
+            val filename = params.get("filename").get
+            val eargs = Array(s"inputenc/${filename}",s"b64enc/${filename}.b64.chunk")
+            Converter.main_encrypt_live_file(eargs)
+            val dargs = Array(s"b64enc/${filename}.b64.chunk",s"outputdec/${filename}.dec.chunk")
+            Converter.main_decrypt_live_file(dargs)
+//            complete(HttpEntity(ContentTypes.`application/octet-stream`,
+//              FileIO.fromPath(Paths.get(s"outputdec/${filename}.dec.chunk"))
+//            ))
+            getFromFile(s"outputdec/${filename}.dec.chunk")
+//              val qstr = params.get("k").get
+//              complete( HttpEntity( ContentTypes.`text/html(UTF-8)`,
+//                s"Hello from Akka-HTTP! $qstr"
+//              ) )
+            }
+          }
+        }
+      } ~
+      path("download") {
+        post {
+          formField('filename) { filename: String => {
+              val dargs = Array(s"b64enc/${filename}.b64.chunk",s"outputdec/${filename}.dec.chunk")
+              Converter.main_decrypt_file(dargs)
+              complete(HttpEntity(ContentTypes.`application/octet-stream`,
+                FileIO.fromPath(Paths.get(s"outputdec/${filename}.dec.chunk"), 100000)
+              ))
+            }
+          }
+        }
+      }
+
+    val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+
+    println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+    StdIn.readLine()
+
+    bindingFuture
+      .flatMap(_.unbind())
+      .onComplete(_ => system.terminate())
+  }
+}
+
+
+
+
+
+package com.akkarestload.client
+
+import akka.actor.ActorSystem
+import akka.stream.scaladsl._
+import akka.{Done, NotUsed}
+import akka.stream.{ActorMaterializer, IOResult}
+import akka.util.ByteString
+import java.io._
+import java.nio.file.{Files, Paths}
+import java.util.Base64
+
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.common.{EntityStreamingSupport, JsonEntityStreamingSupport}
+import akka.http.scaladsl.marshalling.{Marshal, Marshalling}
+import akka.http.scaladsl.model._
+
+import scala.annotation.tailrec
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration._
+import scala.util.Random
+import spray.json._
+
+/**
+  * A converter to perform stream operations
+  */
+object Converter {
+
+  implicit val system = ActorSystem("system")
+  implicit val executionContext = system.dispatcher
+  implicit val materializer = ActorMaterializer()
+
+  implicit val jsonStreamingSupport: JsonEntityStreamingSupport = EntityStreamingSupport.json()
+
+  val sampledata: Tweet = Tweet(1, "Today is Shiny day!")
+  //sampledata.toJson
+
+  val BUF_LEN = 72
+  val b64coder = Base64.getEncoder
+  val b64decoder = Base64.getDecoder
+  val chunkSize = 2000
+  val requestChunks = 2000
+  val waveSize = 24
+
+  def encodeBase64String(in: ByteString): String = {
+
+    val b64String = b64coder.encodeToString(in.toArray)
+
+    //ByteString(b64String)
+    b64String
+  }
+
+  def decodeBase64ByteString(in: String): ByteString = {
+
+    ByteString(b64decoder.decode(in))
+  }
+
+
+  def main_encrypt_live_file(args: Array[String]): Unit = {
+    //
+    if (args != null && args.length >= 2) {
+      val inPath = args(0)
+      val outPath = args(1)
+      val t0 = System.nanoTime()
+
+      //
+      val done: Future[IOResult] = FileIO
+        .fromPath(Paths.get(inPath))
+        .via(new Chunker(4080))
+        .map(encodeBase64String)
+        .map(ds => ByteString(ds + "\n"))
+        .runWith(FileIO.toPath(Paths.get(outPath)))
+
+
+      done.onComplete(_ => {
+        val t1 = System.nanoTime()
+        println("Elapsed time: " + (t1 - t0) + "ns " + (t1-t0)/1000000 + " ms " )
+      })
+
+      Await.result(done, Duration.Inf)
+    }
+
+  }
+
+  def main_decrypt_live_file(args: Array[String]): Unit = {
+    //
+    if (args != null && args.length >= 2) {
+      val inPath = args(0)
+      val outPath = args(1)
+      val t2 = System.nanoTime()
+
+      val decdone: Future[IOResult] = FileIO
+        .fromPath(Paths.get(inPath))
+        .via(Framing.delimiter(ByteString("\n"), maximumFrameLength = 8192))
+        .map(_.utf8String)
+        .map(s => decodeBase64ByteString(s))
+        .runWith(FileIO.toPath(Paths.get(outPath)))
+
+      decdone.onComplete(_ => {
+        val t3 = System.nanoTime()
+        println("Elapsed time: " + (t3 - t2) + "ns " + (t3-t2)/1000000 + " ms " )
+      })
+
+      Await.result(decdone, Duration.Inf)
+    }
+
+  }
+
+
+  def main(args: Array[String]): Unit = {
+    //
+    //val eargs: Array[String] = Array("inputenc/homes.csv","b64enc/homes.csv.b64.chunk")
+    //main_encrypt_file(eargs)
+
+    val dargs = Array("b64enc/homes.csv.b64.chunk","outputdec/homes.csv.dec.chunk")
+    main_decrypt_file(dargs)
+
+  }
+  
+}
