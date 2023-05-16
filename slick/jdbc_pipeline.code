@@ -1,0 +1,50 @@
+
+//
+// A standard configuration to invoke source sink components
+//
+new FrameHouse {
+
+  override def getSourceType(): String = {"DB"}
+
+  override def getSourceFields(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+
+  override def getSourceReader(): String = {
+    "FRAME_SRC"
+  }
+
+  override def getBatchSize(): Int = {5000}
+
+  override def getParallelismCount(): Int = {8}
+
+  override def getSinkType(): String = {"DB"}
+
+  override def getSinkFields(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+
+  override def isSinkDelete(): Boolean = {true}
+
+  override def getSinkDelete(): String = {""}
+
+  override def isSinkCreate(): Boolean = {true}
+
+  override def getSinkCreate(): String = {
+    "create table FRAME_SINK(id INT PRIMARY KEY, acol varchar, bcol varchar, ccol varchar, dcol varchar, ecol varchar, fcol varchar, gcol varchar, hcol varchar, icol varchar, jcol varchar, kcol varchar, lcol varchar, mcol varchar, ncol varchar, ocol varchar, pcol varchar, qcol varchar, rcol varchar, scol varchar, tcol varchar, ucol varchar, vcol varchar, wcol varchar, xcol varchar, ycol varchar, zcol varchar)"
+  }
+
+  override def getSinkWriter(): String = {
+    "FRAME_SINK"
+  }
+
+  override def mapSourceSinkFields(): String = {
+      """SinkFrameSrc(s.id, s.acol, s.bcol, jsonCompactRender(s.ccol), s.dcol, s.ecol, s.fcol, s.gcol, s.hcol, s.icol, s.jcol, s.kcol, s.lcol, s.mcol, s.ncol, s.ocol, s.pcol, s.qcol, s.rcol, s.scol, s.tcol, s.ucol, s.vcol, s.wcol, s.xcol, s.ycol, s.zcol)"""
+      """SinkFrame(s.id, protect(s.acol,"FIRST_NAME"), s.bcol.toUpperCase(), jsonProtect(s.ccol,"messages[1].profile.avatar:FIRST_NAME"), s.dcol, s.ecol, s.fcol, s.gcol, s.hcol, s.icol, s.jcol, s.kcol, s.lcol, s.mcol, s.ncol, s.ocol, s.pcol, s.qcol, s.rcol, s.scol, s.tcol, s.ucol, s.vcol, s.wcol, s.xcol, s.ycol, s.zcol)"""
+  }
+
+  override def getJsonSyntax(): String = {
+    """ FRAME_SINK """
+  }
+
+}
