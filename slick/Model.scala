@@ -2,9 +2,188 @@ package com.aslick.strm
 
 import com.aslick.strm.BaseCryptoCodec.{protect, unprotect}
 import org.json4s.{JArray, JField, JObject, JString, JValue}
-import org.json4s.native.JsonMethods.{parse, render, compact, pretty}
+import org.json4s.native.JsonMethods.{compact, parse, pretty, render}
+import org.json4s.Xml.{toJson, toXml}
+import org.slf4j.LoggerFactory
+
+import scala.xml.XML
 
 object Model {
+
+  val logger = LoggerFactory.getLogger(getClass)
+
+  /**
+    * Define scala function
+    */
+  def xmlToJson(input: String, startAttrs: Map[String, String]): JValue = {
+
+    //
+    var jsonValue: JValue = null
+
+    // get config attributes
+    val removeProlog = startAttrs.getOrElse("xmlRemoveProlog", "false").toBoolean
+    val removeNamespaces = startAttrs.getOrElse("xmlRemoveNamespaces", "").split(",")
+    val adjustNamespaces = startAttrs.getOrElse("xmlAdjustNamespaces", "").split(",")
+    val elemsToArray = startAttrs.getOrElse("xmlArrayTransformTags", "").split(",")
+    val applyCamelizedKeys = startAttrs.getOrElse("xmlApplyCamelizedKeys", "false").toBoolean
+
+
+    /**
+      * Identify XML Elements to remove
+      *
+      * @param element
+      * @param beginTag
+      * @param startElem
+      * @param endElem
+      * @param begInd
+      * @param endInd
+      * @return
+      */
+    def recursiveElement(element: String, beginTag: Boolean = false, startElem: String = "<?", endElem: String = "?>", begInd: Int = -1, endInd: Int = -1): String = {
+      //
+      var ind = element.indexOf(if (beginTag) startElem else endElem, begInd)
+
+      //
+      if (ind != -1)
+        if (beginTag)
+          recursiveElement(element, false, startElem, endElem, ind)
+        else
+          element.substring(ind+endElem.length).trim
+      else
+        element.trim
+    }
+
+    // remove comments
+    var remCommInputVar = input.trim
+    var recComInd = remCommInputVar.indexOf("<!--")
+    while (recComInd != -1) {
+      remCommInputVar = recursiveElement(remCommInputVar, true, "<!--", "-->")
+      recComInd = remCommInputVar.indexOf("<!--")
+    }
+    val remCommInput = remCommInputVar
+    logger.debug("remCommInput: " + remCommInput)
+
+    // remove comments
+    val remProInput = if (removeProlog) recursiveElement(remCommInput, true) else remCommInput
+    logger.debug("remProInput: " + remProInput)
+
+    // remove namespaces
+    val remInput = removeNamespaces.foldLeft(remProInput) {(acc, ns) => (acc.replaceAll(ns+":","")) }
+    logger.debug("remInput: " + remInput)
+
+    // adjust namespaces (keeps namespace but removes colon)
+    val adjInput = adjustNamespaces.foldLeft(remInput) {(acc, ns) => (acc.replaceAll(ns+":", ns)) }
+    logger.debug("adjInput: " + adjInput)
+
+
+    /**
+      * Scan thru the inut for array able elements to provide array flavor
+      *
+      * @param mainInput
+      * @param elem
+      * @return
+      */
+    def enhanceToArrayTags(mainInput: String, elem: String): String = {
+
+      //
+      val (tagChar, runCheck) =
+        if (mainInput.indexOf("<"+elem+">") != -1 || mainInput.indexOf("<"+elem+" ") != -1)
+          if (mainInput.indexOf("<"+elem+">") != -1)
+            (">", true)
+          else
+            (" ", true)
+        else
+          (">", false)
+
+      //
+      val beginTag = "<"+elem+tagChar
+      logger.debug("beginTag: " + beginTag)
+
+
+      def recursiveArrayTags(element: String, word: String, wordTag: String, elemCount: Int = 0, mainBegin: Int = -1, mainEnd: Int = -1, chunkBegin: Int = -1, chunkEnd: Int = -1): String = {
+        //
+        val dfltElem = if (elemCount == 1) "<" + word + "></" + word + ">" else ""
+
+        //
+        val lastli = element.indexOf("</" + word + ">", chunkBegin)
+        val lastbi = element.indexOf(wordTag, lastli)
+        val isFilledWithEmpty =
+          if (lastbi != -1 && element.substring((lastli + word.length + 3), lastbi).trim.length == 0)
+            true
+          else
+            false
+        logger.debug("next close index: " + lastli + " next begin index: " + lastbi + " is Empty: " + isFilledWithEmpty)
+
+        //
+        val retElement =
+          if ( (lastbi == -1) || ((lastbi > (lastli + word.length + 3)) && !isFilledWithEmpty) ) {
+
+            //
+            val chunkElement = element.substring(0, mainBegin) +
+              "<" + word + "Array>" +
+              element.substring(mainBegin, lastli + word.length + 3) +
+              dfltElem +
+              "</" + word + "Array>" +
+              element.substring(lastli + word.length + 3, element.length)
+            logger.debug("chunk element: " + chunkElement)
+
+            //
+            val mainli = lastli + (2*word.length) + (2*"Array".length) + (2*2) + 1 + dfltElem.length
+            val mainbi = chunkElement.indexOf(wordTag, mainli)
+
+            //
+            if (mainbi != -1)
+              recursiveArrayTags(chunkElement, word, wordTag, 1, mainbi, mainli, mainbi, lastli)
+            else
+              chunkElement
+
+
+          } else {
+
+            //
+            recursiveArrayTags(element, word, wordTag, (elemCount+1), mainBegin, mainEnd, lastbi, lastli)
+          }
+
+        //
+        retElement
+      }
+
+
+
+      // call inner func
+      val retMainElem =
+        if (runCheck) {
+          //
+          val mainbi = mainInput.indexOf(beginTag, -1)
+          logger.debug("main begin index: " + mainbi)
+          recursiveArrayTags(mainInput, elem, beginTag, 1, mainbi, -1, mainbi, -1)
+
+        } else {
+          //
+          mainInput
+        }
+
+      //
+      retMainElem
+    }
+
+    //
+    if (adjInput.length > 0) {
+      //
+      val replArrayInput = elemsToArray.foldLeft(adjInput) { (acc, s) =>
+        enhanceToArrayTags(acc, s)
+      }
+
+      //
+      val jsonRaw = toJson(XML.loadString("<tojson>"+ replArrayInput +"</tojson>").child)
+      jsonValue = if (applyCamelizedKeys) jsonRaw.camelizeKeys else jsonRaw
+
+    }
+
+    //
+    jsonValue
+  }
+
 
 
   /**
@@ -222,6 +401,75 @@ object Model {
     */
   def jsonPrettyCompactUnprotect(jstr: String, fieldnscheme: String): String = {
     pretty(render(parse(jstr).jsonReplaceUnprotect(fieldnscheme)))
+  }
+
+  /**
+    * Returns a map of string,string from flattened string
+    *
+    * @param attrs
+    * @return
+    */
+  def toAttributes(attrs: String): Map[String, String] = {
+    attrs.split("::").map(_.split("=")).map(arr => arr(0) -> arr(1)).toMap
+  }
+
+  /**
+    * Returns a protect value for xml string as json replace value with nested path to search a field
+    *
+    * @param xstr
+    * @param fieldnscheme
+    * @return
+    */
+  def xmlProtect(xstr: String, fieldnscheme: String): String = {
+    toXml(toJson(XML.loadString(xstr)).jsonReplaceProtect(fieldnscheme)).toString()
+  }
+
+  /**
+    * Returns a protect value for xml string as json replace value with nested path to search a field
+    *
+    * @param xstr
+    * @param fieldnscheme
+    * @param attrs
+    * @return
+    */
+  def xmlAttrProtect(xstr: String, fieldnscheme: String, attrs: String): String = {
+    toXml(xmlToJson(xstr, toAttributes(attrs)).jsonReplaceProtect(fieldnscheme)).toString()
+  }
+
+  /**
+    * Returns a unprotect value for xml string as json replace value with nested path to search a field
+    *
+    * @param xstr
+    * @param fieldnscheme
+    * @return
+    */
+  def xmlUnprotect(xstr: String, fieldnscheme: String): String = {
+    toXml(toJson(XML.loadString(xstr)).jsonReplaceUnprotect(fieldnscheme)).toString()
+  }
+
+  /**
+    * Returns a unprotect value for xml string as json replace value with nested path to search a field
+    *
+    * @param xstr
+    * @param fieldnscheme
+    * @param attrs
+    * @return
+    */
+  def xmlAttrUnprotect(xstr: String, fieldnscheme: String, attrs: String): String = {
+    toXml(xmlToJson(xstr, toAttributes(attrs)).jsonReplaceUnprotect(fieldnscheme)).toString()
+  }
+
+
+  def main(args: Array[String]): Unit = {
+    val xstr ="<messages><profile><id>1</id><score>100</score><avatar>path.jpg</avatar></profile><profile><id>1</id><score>100</score><avatar>path.jpg</avatar></profile></messages>"
+    val scheme = "messages.profile[1].avatar:FIRST_NAME"
+    val tj = toJson(XML.loadString(xstr))
+    println(compact(render(tj)))
+    val prottj = tj.jsonReplaceProtect(scheme)
+    println(prottj)
+    val xm10 = xmlProtect(xstr, scheme)
+    val xm11 = "ddd"
+    println(xm11)
   }
 
 }
