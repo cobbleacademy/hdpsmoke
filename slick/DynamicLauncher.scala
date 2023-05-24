@@ -42,6 +42,7 @@ object DynamicLauncher {
   val srcSession = SlickSession.forConfig(conf.getString("crypto-frame.src-session"))
 
   val sinkSession = SlickSession.forConfig(conf.getString("crypto-frame.sink-session"))
+  //val sinkSession = SlickSession.forConfig(conf.getString("crypto-frame.src-session"))
 
   system.whenTerminated.map(_ => {srcSession.close(); sinkSession.close();})
 
@@ -81,7 +82,7 @@ object DynamicLauncher {
     ret
   }
 
-  def getFormFieldValue(ind: Int): String = {
+  def getFormFieldJValue(ind: Int): String = {
     val msgabc =
       s"""
         |  {
@@ -91,6 +92,26 @@ object DynamicLauncher {
         |    ]
         |  }
         |
+      """.stripMargin
+    (msgabc.toString)
+  }
+
+
+  def getFormFieldXValue(ind: Int): String = {
+    val msgabc =
+      s"""
+         |  <messages>
+         |    <profile>
+         |      <id>1</id>
+         |      <score>100</score>
+         |      <avatar>path.jpg</avatar>
+         |    </profile>
+         |    <profile>
+         |      <id>2</id>
+         |      <score>200</score>
+         |      <avatar>path.jpg</avatar>
+         |    </profile>
+         |  </messages>
       """.stripMargin
     (msgabc.toString)
   }
@@ -135,7 +156,7 @@ object DynamicLauncher {
            |  import com.aslick.strm.DynamicLauncher._
            |  import com.aslick.strm.Model.JValueOps
            |  import com.aslick.strm.BaseCryptoCodec.{protect, unprotect}
-           |  import com.aslick.strm.Model.{jsonCompactRender, jsonProtect, jsonUnprotect}
+           |  import com.aslick.strm.Model.{jsonCompactRender, jsonProtect, jsonUnprotect, xmlProtect, xmlUnprotect}
            |
            |  import java.io.File
            |  import java.time.LocalDateTime
@@ -175,7 +196,7 @@ object DynamicLauncher {
            |
            |    val sourceTable = TableQuery[SourceFrames]
            |
-           |    val sourceFrames = (1 to 42000).map(i => SourceFrame(i, s"aval$$i", s"bval$$i", "" + getFormFieldValue(i) + "", s"dval$$i", s"eval$$i", s"fval$$i", s"gval$$i", s"hval$$i", s"ival$$i", s"jval$$i", s"kval$$i", s"lval$$i", s"mval$$i", s"nval$$i", s"oval$$i", s"pval$$i", s"qval$$i", s"rval$$i", s"sval$$i", s"tval$$i", s"uval$$i", s"vval$$i", s"wval$$i", s"xval$$i", s"yval$$i", s"zval$$i"))
+           |    val sourceFrames = (1 to 42000).map(i => SourceFrame(i, s"aval$$i", s"bval$$i", "" + getFormFieldJValue(i) + "", "" + getFormFieldXValue(i) + "", s"eval$$i", s"fval$$i", s"gval$$i", s"hval$$i", s"ival$$i", s"jval$$i", s"kval$$i", s"lval$$i", s"mval$$i", s"nval$$i", s"oval$$i", s"pval$$i", s"qval$$i", s"rval$$i", s"sval$$i", s"tval$$i", s"uval$$i", s"vval$$i", s"wval$$i", s"xval$$i", s"yval$$i", s"zval$$i"))
            |
            |    case class SinkFrame(${sinkCaseString})
            |
@@ -295,7 +316,7 @@ object DynamicLauncher {
     //val jops = JSON.jsonProtect(joopssplits.toList, "FIRST_NAME")//JString("new value"))
     val jops = JSON.jsonReplaceProtect(joopsstr)//JString("new value"))
     println(compact(render(jops)))
-    println(getFormFieldValue(1001))
+    println(getFormFieldJValue(1001))
     println("+++++++++++++++++++++++++++++++++")
 
     //val upAvatar = JSON transformField {
