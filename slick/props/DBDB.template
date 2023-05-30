@@ -1,0 +1,114 @@
+
+
+import com.aslick.strm._
+import com.aslick.strm.factory.FrameFactory.{FrameHouse, FrameHouseExecutor}
+import com.aslick.strm.DynamicLauncher._
+import com.aslick.strm.Model.JValueOps
+import com.aslick.strm.BaseCryptoCodec.{protect, unprotect}
+import com.aslick.strm.Model.{jsonCompactRender, jsonProtect, jsonUnprotect, xmlProtect, xmlUnprotect}
+
+import java.io.File
+import java.time.LocalDateTime
+
+import akka.Done
+import akka.actor.ActorSystem
+import akka.stream.alpakka.slick.javadsl.SlickSession
+import akka.stream.alpakka.slick.scaladsl._
+import akka.stream.scaladsl._
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.reflect.runtime.universe
+import scala.tools.reflect.ToolBox
+import scala.util.{Failure, Success}
+
+import slick.collection.heterogeneous.{HCons, HList, HNil}
+import slick.jdbc.GetResult
+
+import slick.jdbc.H2Profile.api._
+
+//
+// A standard Executor class with implementation
+//
+class DBDBExecutor(frameHouse: FrameHouse) extends FrameHouseExecutor(frameHouse) {
+
+  val srcTableName = frameHouse.getSourceReader()
+  val flowGroupSize = frameHouse.getBatchSize()
+  val flowAsyncCount = frameHouse.getParallelismCount()
+  val sinkTableName = frameHouse.getSinkWriter()
+  val sinkDelete = frameHouse.isSinkDelete()
+  val sinkDeleteString = frameHouse.getSinkDelete()
+  val sinkCreate = frameHouse.isSinkCreate()
+  val sinkCreateString = frameHouse.getSinkCreate()
+
+  case class SourceFrame(${srcCaseString})
+
+  class SourceFrames(tag: Tag) extends Table[SourceFrame](tag, srcTableName) {
+    ${srcFmtClsFields}
+  }
+
+
+  val sourceTable = TableQuery[SourceFrames]
+
+  val sourceFrames = (1 to 42000).map(i => SourceFrame(i, s"aval$i", s"bval$i", "" + getFormFieldJValue(i) + "", "" + getFormFieldXValue(i) + "", s"eval$i", s"fval$i", s"gval$i", s"hval$i", s"ival$i", s"jval$i", s"kval$i", s"lval$i", s"mval$i", s"nval$i", s"oval$i", s"pval$i", s"qval$i", s"rval$i", s"sval$i", s"tval$i", s"uval$i", s"vval$i", s"wval$i", s"xval$i", s"yval$i", s"zval$i"))
+
+  case class SinkFrame(${sinkCaseString})
+
+  class SinkFrames(tag: Tag) extends Table[SinkFrame](tag, sinkTableName) {
+    ${sinkFmtClsFields}
+  }
+
+  val dropSinkFrame = sqlu" drop table if exists ${sinkTableName}"
+  val createSinkFrame = sqlu" ${sinkCreateString}"
+
+  if(sinkDelete) Await.result(sinkSession.db.run(dropSinkFrame), 10.seconds)
+  if(sinkCreate) Await.result(sinkSession.db.run(createSinkFrame), 10.seconds)
+
+  val sinkTable = TableQuery[SinkFrames]
+
+  def mapSourceSinkColumns(s: SourceFrame): SinkFrame = {
+    ${sinkMapSourceString}
+  }
+
+  /**
+    * Executes the pipeline
+    */
+  override def execute(): Unit = {
+    println("DBDBExecutor: execute() invoked.")
+    println(LocalDateTime.now().toString)
+
+    println(s"Batch Size: ${frameHouse.getBatchSize} Parallelism: ${frameHouse.getParallelismCount}")
+    println(sinkCreateString)
+
+    implicit val session = srcSession
+
+    // Stream the results of a query
+    val done: Future[Done] =
+        Slick.source(sourceTable.result)
+          .map(s => mapSourceSinkColumns(s))
+          .grouped(flowGroupSize)
+          .mapAsync(flowAsyncCount)( (group: Seq[SinkFrame]) => sinkSession.db.run(sinkTable ++= group).map(_.getOrElse(0)))
+          .runWith(Sink.foreach(println))
+
+    //
+    done.failed.foreach(exception => logger.error("failure", exception))
+    done.onComplete(_ => {
+      println(LocalDateTime.now().toString)
+      val r = for (c <- sinkTable) yield c
+      val b = r.filter(_.id === 41980).result
+      val g: Future[Seq[SinkFrame]] = sinkSession.db.run(b)
+
+      g.onComplete {
+        case Success(s) => println(s"Result: $s")
+        case Failure(t) => t.printStackTrace()
+      }
+    })
+
+    terminationWait(10.seconds)
+    println(LocalDateTime.now().toString)
+
+    println("DBDBExecutor: execute() completed successfully.")
+  }
+
+}
+scala.reflect.classTag[DBDBExecutor].runtimeClass

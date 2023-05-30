@@ -1,0 +1,7 @@
+${srcCaseString}:getSourceFields
+${srcFmtClsFields}:getSourceTableFormat
+${sinkTableName}:getSinkWriter
+${sinkCreateString}:getSinkCreate
+${sinkCaseString}:getSinkFields
+${sinkFmtClsFields}:getSinkTableFormat
+${sinkMapSourceString}:mapSourceSinkFields

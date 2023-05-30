@@ -1,0 +1,4 @@
+${srcCaseString}:getSourceFields
+${srcFmtClsFields}:getSourceTableFormat
+${sinkMapHeaderString}:mapSinkHeader
+${sinkMapSourceString}:mapSourceSinkFields

@@ -1,0 +1,8 @@
+${srcCaseString}:getSourceFields
+${srcFlow}:getSourceFlow
+${srcMapFieldsStr}:mapSourceFields
+${sinkTableName}:getSinkWriter
+${sinkCreateString}:getSinkCreate
+${sinkCaseString}:getSinkFields
+${sinkFmtClsFields}:getSinkTableFormat
+${sinkMapSourceString}:mapSourceSinkFields

@@ -1,0 +1,48 @@
+
+import com.aslick.strm.factory.FrameFactory._
+
+//
+// A standard configuration to invoke source sink components
+//
+new FrameHouse {
+
+  override def getSourceType(): String = {"File"}
+mapSourceSinkFields
+  def getSourceFields1(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+  override def getSourceFields(): String = {
+    "latd: String, latm: String, lats: String, ns: String, lond: String, lonm: String, lons: String, ew: String, city: String, state: String"
+  }
+
+  override def getSourceReader(): String = {"input/cities.csv"}
+
+  override def getSourceFlow(): String = {
+    """CsvParsing.lineScanner()"""
+  }
+
+  override def mapSourceFields(): String = {
+    """
+      val ms = m.map( {case (key, value) => (key.trim.replaceAll("\"","").toLowerCase, value)} )
+      SourceFrame(ms("latd"), ms("latm"), ms("lats"), ms("ns").trim.replaceAll("\"",""), ms("lond"), ms("lonm"), ms("lons"), ms("ew"), protect(ms("city"),"FIRST_NAME"), protect(ms("state"),"FIRST_NAME"))
+    """
+  }
+
+
+  override def getSinkType(): String = {"File"}
+
+  override def getSinkFields(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+
+  override def getSinkWriter(): String = {"output/cities.csv"}
+
+  override def mapSinkHeader(): String = {
+      """h.map(_.trim.replaceAll("\"","").toLowerCase).mkString("||")"""
+  }
+
+  override def mapSourceSinkFields(): String = {
+      """s.productIterator.mkString("|")"""
+  }
+
+}

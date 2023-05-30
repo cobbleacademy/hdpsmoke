@@ -1,0 +1,35 @@
+
+import com.aslick.strm.factory.FrameFactory._
+
+//
+// A standard configuration to invoke source sink components
+//
+new FrameHouse {
+
+  override def getSourceType(): String = {"DB"}
+
+  override def getSourceFields(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+
+  override def getSourceReader(): String = {"FRAME_SRC"}
+
+
+
+  override def getSinkType(): String = {"File"}
+
+  override def getSinkFields(): String = {
+    "id: Int, acol: String, bcol: String, ccol: String, dcol: String, ecol: String, fcol: String, gcol: String, hcol: String, icol: String, jcol: String, kcol: String, lcol: String, mcol: String, ncol: String, ocol: String, pcol: String, qcol: String, rcol: String, scol: String, tcol: String, ucol: String, vcol: String, wcol: String, xcol: String, ycol: String, zcol: String"
+  }
+
+  override def getSinkWriter(): String = {"input/frames.csv"}
+
+  override def mapSinkHeader(): String = {
+      """h.map(_.trim.replaceAll("\"","").toLowerCase).mkString("|")"""
+  }
+
+  override def mapSourceSinkFields(): String = {
+      """s.productIterator.mkString("|")"""
+  }
+
+}

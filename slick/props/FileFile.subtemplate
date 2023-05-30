@@ -1,0 +1,5 @@
+${srcCaseString}:getSourceFields
+${srcFlow}:getSourceFlow
+${srcMapFieldsStr}:mapSourceFields
+${sinkMapHeaderString}:mapSinkHeader
+${sinkMapSourceString}:mapSourceSinkFields

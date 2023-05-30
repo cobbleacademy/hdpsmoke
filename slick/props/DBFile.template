@@ -1,0 +1,109 @@
+
+
+import com.aslick.strm._
+import com.aslick.strm.factory.FrameFactory.{FrameHouse, FrameHouseExecutor}
+import com.aslick.strm.DynamicLauncher._
+import com.aslick.strm.Model.JValueOps
+import com.aslick.strm.BaseCryptoCodec.{protect, unprotect}
+import com.aslick.strm.Model.{jsonCompactRender, jsonProtect, jsonUnprotect, xmlProtect, xmlUnprotect}
+
+import java.io.File
+import java.nio.file._
+import java.nio.charset.{Charset, StandardCharsets}
+import java.time.LocalDateTime
+
+import akka.Done
+import akka.actor.ActorSystem
+import akka.stream.alpakka.slick.javadsl.SlickSession
+import akka.stream.alpakka.slick.scaladsl._
+import akka.stream.scaladsl._
+import akka.stream.IOResult
+import akka.util.ByteString
+import akka.stream.alpakka.csv.scaladsl.{CsvParsing, CsvToMap, CsvFormatting, CsvQuotingStyle}
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.reflect.runtime.universe
+import scala.tools.reflect.ToolBox
+import scala.util.{Failure, Success}
+
+import slick.collection.heterogeneous.{HCons, HList, HNil}
+import slick.jdbc.GetResult
+import slick.jdbc.H2Profile.api._
+
+
+//
+// A standard Executor class with implementation
+//
+class DBFileExecutor(frameHouse: FrameHouse) extends FrameHouseExecutor(frameHouse) {
+
+  val srcTableName = frameHouse.getSourceReader()
+  val sinkFileName = frameHouse.getSinkWriter()
+
+  case class SourceFrame(${srcCaseString})
+
+  class SourceFrames(tag: Tag) extends Table[SourceFrame](tag, srcTableName) {
+    ${srcFmtClsFields}
+  }
+
+  val sourceTable = TableQuery[SourceFrames]
+
+  val sourceFrames = (1 to 42000).map(i => SourceFrame(i, s"aval$i", s"bval$i", s"cval$i", s"dval$i", s"eval$i", s"fval$i", s"gval$i", s"hval$i", s"ival$i", s"jval$i", s"kval$i", s"lval$i", s"mval$i", s"nval$i", s"oval$i", s"pval$i", s"qval$i", s"rval$i", s"sval$i", s"tval$i", s"uval$i", s"vval$i", s"wval$i", s"xval$i", s"yval$i", s"zval$i"))
+
+
+  def mapSinkHeader(h: List[String]): String = {
+    ${sinkMapHeaderString}
+  }
+
+  def mapSinkColumns(s: SourceFrame): String = {
+    ${sinkMapSourceString}
+  }
+
+
+  /**
+    * Executes the pipeline
+    */
+  override def execute(): Unit = {
+    println("DBFileExecutor: execute() invoked.")
+    println(LocalDateTime.now().toString)
+
+    implicit val session = srcSession
+
+    //
+    //
+    val done2: Future[IOResult] =
+      Source(sourceFrames)
+        .zipWithIndex
+        .filter(_._2 == 0)
+        .map(t => mapSinkHeader(classOf[SourceFrame].getDeclaredFields.map(_.getName).filter(!_.contains("$")).toList))
+        .map(t => ByteString(t))
+        .runWith(FileIO.toPath(Paths.get(sinkFileName), Set(StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE)))
+
+    //
+    done2.failed.foreach(exception => logger.error("failure", exception))
+    done2.onComplete(_ => {
+      println(LocalDateTime.now().toString)
+
+      //
+      val done1: Future[IOResult] =
+        Source(sourceFrames)
+          .map(s => "\n" + mapSinkColumns(s))
+          .map(t => ByteString(t))
+          .runWith(FileIO.toPath(Paths.get(s"$sinkFileName"), Set(StandardOpenOption.APPEND)))
+
+          done1.failed.foreach(exception => logger.error("failure", exception))
+          done1.onComplete(_ => {
+            println(LocalDateTime.now().toString)
+          })
+
+    })
+
+
+    terminationWait(10.seconds)
+    println(LocalDateTime.now().toString)
+
+    println("DBFileExecutor: execute() completed successfully.")
+  }
+
+}
+scala.reflect.classTag[DBFileExecutor].runtimeClass
