@@ -1,1 +1,9 @@
 test
+
+This is generic Cipher encryption along with timelines based on how it was initialized for each value in a single field.
+
+Method1: Duration: 506718532 => A new (Cipher instance + init) for every encrypted value for a field
+Method2: Duration: 59207968  => A single (Cipher instance) and init for every encrypted value for a field
+Method3: Duration: 11486162  => A single (Cipher instance + init) for every encrypted value for a field
+
+I hope this make sense to understand the problem.
