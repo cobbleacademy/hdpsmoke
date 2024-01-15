@@ -1,0 +1,29 @@
+from pyspark.sql.types import StringType
+from pyspark.sql.functions as fn
+from datetime import datetime
+
+datefmts = ['%Y-%m-%d','%y-%m-%d','%m/%d/%y','%m/%d/%Y','%m-%d-%Y','%m-%d-%y']
+
+# define function
+def convertdate(date_str):
+    ret_date_str = ''
+    for dfmt in datefmts:
+        try:
+            ret_date_str = datetime.strptime(date_str, dfmt).strftime("%Y-%m-%d")
+            break
+        except ValueError as ve:
+            print('ValueError:', ve)
+            continue
+    return ret_date_str
+
+# define the udf
+returndatefmt = fn.udf(lambda strdt: convertdate(strdt), StringType())
+
+data=[(1,'sri',10000,2300,'10-05-1986'),(2,'david',10000,2300,'04-06-1984')]
+schema=['id','name','sal','comm','dob']
+
+df=spark.createDataFrame(data,schema)
+
+df = df.withColumn("hds_dob", returndatefmt(fn.col("dob")))
+
+display(df)
