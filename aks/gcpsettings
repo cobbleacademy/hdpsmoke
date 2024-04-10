@@ -1,0 +1,29 @@
+# create backend service
+gcloud compute backend-services create web-backend-service \
+  --protocol=HTTP \
+  --port-name=http \
+  --health-checks=http-basic-check \
+  --global
+
+
+# Add instance-group to backend service
+gcloud compute backend-services add-backend web-backend-service \
+  --instance-group=lb-backend-group \
+  --instance-group-zone=us-west1-a \
+  --global
+
+
+# Create URL map
+gcloud compute url-maps create web-map-http \
+    --default-service web-backend-service
+
+# Create HTTP Proxy
+gcloud compute target-http-proxies create http-lb-proxy \
+    --url-map web-map-http
+
+# Create forwarding rule
+gcloud compute forwarding-rules create http-content-rule \
+   --address=lb-ipv4-1 \
+   --global \
+   --target-http-proxy=http-lb-proxy \
+   --ports=80
