@@ -72,6 +72,7 @@ Backup and Snapshot:
 
 
 -- SQLLite Database
+-- https://www.mycompiler.io/view/7PJVIfVQEar
 -- create a table
 CREATE TABLE temperature (
   DEVICE_ID INTEGER NOT NULL,
