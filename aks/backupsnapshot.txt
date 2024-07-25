@@ -67,3 +67,38 @@ Backup and Snapshot:
   				incremental: "true"  # available values: "true", "false" ("true" by default for Azure Public Cloud, and "false" by default for Azure Stack Cloud)
 
 
+
+
+
+
+-- SQLLite Database
+-- create a table
+CREATE TABLE temperature (
+  DEVICE_ID INTEGER NOT NULL,
+  CAPTURE_DATE DATE NOT NULL,
+  TEMPU INTEGER NOT NULL
+);
+-- insert some values
+INSERT INTO temperature VALUES (1, '2024-01-01', 20);
+INSERT INTO temperature VALUES (1, '2024-01-02', 30);
+INSERT INTO temperature VALUES (1, '2024-01-03', 22);
+INSERT INTO temperature VALUES (1, '2024-01-04', 25);
+INSERT INTO temperature VALUES (1, '2024-01-05', 30);
+INSERT INTO temperature VALUES (1, '2024-01-06', 32);
+INSERT INTO temperature VALUES (2, '2024-02-01', 42);
+INSERT INTO temperature VALUES (2, '2024-02-02', 24);
+INSERT INTO temperature VALUES (2, '2024-02-03', 33);
+INSERT INTO temperature VALUES (3, '2024-01-02', 30);
+-- fetch some values
+WITH temp_variance
+AS
+(
+    SELECT 
+        a.DEVICE_ID, a.CAPTURE_DATE next, b.prev, a.TEMPU, b.TEMPU, CASE WHEN b.TEMPU IS NOT NULL THEN CASE WHEN a.TEMPU > b.TEMPU THEN 'Warmer' WHEN a.TEMPU < b.TEMPU THEN 'Cooler' ELSE 'No Change' END ELSE 'NONE' END from_yesterday_factor
+    FROM 
+    temperature a 
+    LEFT OUTER JOIN 
+    (select DEVICE_ID, date(CAPTURE_DATE,'+1 day') next, CAPTURE_DATE prev, TEMPU FROM temperature) b 
+    ON (a.DEVICE_ID=b.DEVICE_ID AND a.CAPTURE_DATE = b.next)
+)
+select * from temp_variance;
