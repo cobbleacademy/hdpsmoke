@@ -1,25 +1,34 @@
-use static disk that's created outside of AKS
-	static PV by creating one or more Azure managed disks
-create the disk storage dynamically
-	dynamically creating one or more Azure managed disks
+Persistent Volume Provisions:
+-------------------------------
+	statically:
+		use static disk that's created outside of AKS
+			static PV by creating one or more Azure managed disks
+
+	dynamically:
+		create the disk storage dynamically
+			dynamically creating one or more Azure managed disks
 
 
 
 	default: cost-effective Standard SSD storage
+	managed-csi: Standard SSD locally redundant storage (LRS)
 	managed-csi-premium: SSD-based high-performance, low-latency disk
 
 
 
-Dynamically provision a volume
+Statically provision a volume
+-------------------------------
+	Azure disk for use with AKS, you can create the disk resource in the node resource group
+	Azure disk from separate resource group requires a grant for AKS Contributor to disk Resource Group
 
+
+Dynamically provision a volume
+-------------------------------
 	Built-in storage classes
 	A persistent volume claim (PVC) uses the storage class object to dynamically provision an Azure Disk storage container.
 
 	
 	
-Statically provision a volume
-	Azure disk for use with AKS, you can create the disk resource in the node resource group
-	Azure disk from separate resource group requires a grant for AKS Contributor to disk Resource Group
 	
 
 
@@ -31,26 +40,30 @@ reclaimPolicy: controls the behavior of the underlying Azure storage resource wh
 
 
 Backup and Snapshot:
+--------------------
+	Backup: 
+	-------
+    	Back up your data using an appropriate tool for your storage type, such as Velero or Azure Backup.
+	
+		Azure Disks can use built-in snapshot technologies.
+			https://learn.microsoft.com/en-us/azure/virtual-machines/snapshot-copy-managed-disk?tabs=cli
+			(az snapshot create -g myResourceGroup --source "$osDiskId" --name osDisk-backup)
+		Velero can back up persistent volumes along with additional cluster resources and configurations
+			https://github.com/vmware-tanzu/velero
 
-Backup: 
-    Back up your data using an appropriate tool for your storage type, such as Velero or Azure Backup.
-	Azure Disks can use built-in snapshot technologies.
-		https://learn.microsoft.com/en-us/azure/virtual-machines/snapshot-copy-managed-disk?tabs=cli
-	Velero can back up persistent volumes along with additional cluster resources and configurations
-		https://github.com/vmware-tanzu/velero
-
-Volume Snapshot:
-
-The Azure Disk CSI driver supports creating snapshots of persistent volumes
-	Full or Incremental
----
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshotClass
-metadata:
-  name: csi-azuredisk-vsc
-driver: disk.csi.azure.com
-deletionPolicy: Delete
-parameters:
-  incremental: "true"  # available values: "true", "false" ("true" by default for Azure Public Cloud, and "false" by default for Azure Stack Cloud)
+	Volume Snapshot:
+	----------------
+		The Azure Disk CSI driver supports creating snapshots of persistent volumes
+			Full or Incremental
+			
+			---
+			apiVersion: snapshot.storage.k8s.io/v1
+			kind: VolumeSnapshotClass
+			metadata:
+  				name: csi-azuredisk-vsc
+			driver: disk.csi.azure.com
+			deletionPolicy: Delete
+			parameters:
+  				incremental: "true"  # available values: "true", "false" ("true" by default for Azure Public Cloud, and "false" by default for Azure Stack Cloud)
 
 
