@@ -74,6 +74,7 @@ Backup and Snapshot:
 -- SQLLite Database
 -- https://www.mycompiler.io/view/7PJVIfVQEar
 -- https://www.mycompiler.io/new/sql?fork=K5ZpjYOy8ji
+-- https://www.mycompiler.io/view/HXdZJKhJvZh
 -- create a table
 -- create a table
 CREATE TABLE temperature (
