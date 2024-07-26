@@ -73,6 +73,8 @@ Backup and Snapshot:
 
 -- SQLLite Database
 -- https://www.mycompiler.io/view/7PJVIfVQEar
+-- https://www.mycompiler.io/new/sql?fork=K5ZpjYOy8ji
+-- create a table
 -- create a table
 CREATE TABLE temperature (
   DEVICE_ID INTEGER NOT NULL,
@@ -84,7 +86,7 @@ INSERT INTO temperature VALUES (1, '2024-01-01', 20);
 INSERT INTO temperature VALUES (1, '2024-01-02', 30);
 INSERT INTO temperature VALUES (1, '2024-01-03', 22);
 INSERT INTO temperature VALUES (1, '2024-01-04', 25);
-INSERT INTO temperature VALUES (1, '2024-01-05', 30);
+INSERT INTO temperature VALUES (1, '2024-01-05', 25);
 INSERT INTO temperature VALUES (1, '2024-01-06', 32);
 INSERT INTO temperature VALUES (2, '2024-02-01', 42);
 INSERT INTO temperature VALUES (2, '2024-02-02', 24);
@@ -103,3 +105,27 @@ AS
     ON (a.DEVICE_ID=b.DEVICE_ID AND a.CAPTURE_DATE = b.next)
 )
 select * from temp_variance;
+
+SELECT
+    DEVICE_ID,
+    CAPTURE_DATE,
+    TEMPU,
+    PREV_TEMPU,
+    CASE 
+        WHEN PREV_TEMPU IS NOT NULL THEN 
+            CASE 
+                WHEN TEMPU > PREV_TEMPU THEN 'Warmer' 
+                WHEN TEMPU < PREV_TEMPU THEN 'Cooler' 
+            ELSE 'No Change' 
+            END 
+    ELSE 'NONE' 
+    END from_yesterday_factor
+FROM (
+SELECT
+    DEVICE_ID,
+    CAPTURE_DATE,
+    TEMPU,
+    LAG(TEMPU, 1, 0) OVER(PARTITION BY DEVICE_ID ORDER BY CAPTURE_DATE) PREV_TEMPU
+from temperature
+) a
+;
