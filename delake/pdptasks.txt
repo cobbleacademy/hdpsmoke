@@ -1,0 +1,66 @@
+SQL Work
+ AC1: A generalized solution is developed
+ AC2: A partition table is created with partitions per App
+ AC3: Data is loaded into partition table per App
+ AC4: Data load into a partition has no impact on other partition
+ AC5: A SYNC table is created similar to partition table
+ AC6: Data is replicated into a single partition when App is selected
+ AC7: Single partition replication has no impact on other partitions
+ AC8: Data is replicated into SYNC table
+ AC9: A Materialized View is create
+AC10: Materialized View is refreshed within reasonable time
+AC11: Materialized View is refreshed when single partition is loaded into SYNC table
+AC12: Materialized View is accessible all the time
+AC13: A view on Materialized View is always accessible
+AC14: PlainID APIs are able observable within reasonable time for the changes done by (materialized) VIEW
+AC15: Plain Cache rate is adjusted as needed
+
+1. Create Partition per App
+2. Create partition table policy_etl_part
+3. Load ETL data into partition table per App
+4. Create SYNC table policy_etl_sync for partition table
+5. Load SYNC table policy_etl_sync
+6. Create Materialized View policy_etl_mv
+7. Load/Refresh materialized view policy_etl_mv
+8. Create View on policy_etl_mv
+
+
+PlainID Policy Validation
+LANID/Email/group/Role
+AC1: A generalized solution is developed
+AC2: python code is developed to consume resolution API
+AC3: python code writes response to response table
+AC4: SQL Code extracts expected results
+AC5: response table matched withe expected results
+
+Permit/Deny
+1. Opensource - Develop python to consume PlainID resolution API
+2. Opensource - Develop SQL to match Resolution API response
+3. Opensource - Develop python to compare responses from resolution API and SQL
+
+Column Masking
+4. Opensource - Develop python to consume PlainID resolution API
+5. Opensource - Develop SQL to match Resolution API response
+6. Opensource - Develop python to compare responses from resolution API and SQL
+
+Row Filtering
+4. Opensource - Develop python to consume PlainID resolution API
+5. Opensource - Develop SQL to match Resolution API response
+6. Opensource - Develop python to compare responses from resolution API and SQL
+
+
+ETL Pipeline Work:
+
+Training,DEV,PRD
+
+ 1. Prefect CI/CD - Training - Open FW rules with integrated systems
+ 2. Prefect CI/CD - DEV - Open FW rules with integrated systems
+ 3. Prefect CI/CD - PRD - Open FW rules with integrated systems
+ 4. Prefect CI/CD - Create Prefect secured configs for integrated systems
+ 5. Prefect CI/CD - Create Hashicorp secured configs for integrated systems
+ 6. Prefect CI/CD - Pipelines passed with pre-commit hooks
+ 7. Prefect CI/CD - Pipelines deployed with approved code checks
+ 8. Prefect CI/CD - Create Deploy process for DEV environment
+ 9. Prefect CI/CD - Validate Deploy process for DEV environment
+10. Prefect CI/CD - Create Deploy process for PRD environment
+11. Prefect CI/CD - Validate Deploy process for PRD environment
