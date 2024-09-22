@@ -52,6 +52,11 @@ Row Filtering
 ETL Pipeline Work:
 
 Training,DEV,PRD
+AC1: FW opened with integrated systems
+AC2: Secured configs are created in Prefect
+AC3: Secured configs are created in Hashicorp Vault
+AC4: Developed Quality approved pipelines
+AC5: Developed Deploy process for higher environments from lower
 
  1. Prefect CI/CD - Training - Open FW rules with integrated systems
  2. Prefect CI/CD - DEV - Open FW rules with integrated systems
