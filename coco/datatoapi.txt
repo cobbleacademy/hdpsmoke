@@ -1,0 +1,127 @@
+This is the complete, consolidated solution. It uses a data-driven approach where the Python script is a generic engine, and all specific behaviors—URLs, payload structures, and secrets—are handled via external files.
+## 1. The Secrets File (.env)
+Keep sensitive data here. Add this to your .gitignore.
+
+API_PASSWORD=
+
+## 2. The Data File (app_data.yaml)
+Strictly for business data. You can add any category (users, apps, etc.) here.
+
+users:
+  - username: "jdoe"
+    email: "jdoe@example.com"
+    requested_role: "editor"apps:
+  - app_name: "inventory_svc"
+    requested_role: "service_account"
+
+## 3. The API Configuration (endpoints.yaml)
+Maps your data categories to their multi-step API workflows.
+
+# Step 1 for "users"users:
+  url: "https://example.com"
+  method: "POST"
+  template: "create_item.j2"
+  next_step: "assign_role"
+# Step 1 for "apps"apps:
+  url: "https://example.com"
+  method: "POST"
+  template: "create_item.j2"
+  next_step: "assign_role"
+# Step 2 (Shared)assign_role:
+  url: "https://example.com"
+  method: "POST"
+  template: "assign_role.j2"
+  next_step: "grant_resource"
+# Step 3 (Shared)grant_resource:
+  url: "https://example.com"
+  method: "POST"
+  template: "grant_resource.j2"
+
+## 4. The Payload Templates (templates/*.j2)
+templates/create_item.j2
+
+{
+  "name": "{{ username or app_name }}",
+  "contact": "{{ email or 'n/a' }}"
+}
+
+templates/assign_role.j2
+
+{
+  "target_id": {{ parent_id }},
+  "role": "{{ role_type }}"
+}
+
+templates/grant_resource.j2
+
+{
+  "id": {{ parent_id }},
+  "resource_group": "{{ role_name }}",
+  "status": "active"
+}
+
+## 5. The Consolidated Python Logic (main.py)
+
+import os, yaml, json, requestsfrom dotenv import load_dotenvfrom jinja2 import Environment, FileSystemLoader
+# Initialization
+load_dotenv()env = Environment(loader=FileSystemLoader('templates'))
+def run_workflow():
+    # Load external configurations
+    app_data = yaml.safe_load(open("app_data.yaml"))
+    api_configs = yaml.safe_load(open("endpoints.yaml"))
+    api_pass = os.getenv("API_PASSWORD")
+
+    # Iterate dynamically through all top-level keys in app_data.yaml
+    for category, items in app_data.items():
+        if category not in api_configs:
+            print(f"Skipping category '{category}': No config found in endpoints.yaml")
+            continue
+
+        for item in items:
+            print(f"\n--- Processing {category}: {item.get('username') or item.get('app_name')} ---")
+            
+            try:
+                # STEP 1: INITIAL CREATION
+                cfg1 = api_configs[category]
+                tpl1 = env.get_template(cfg1['template'])
+                payload1 = json.loads(tpl1.render(item))
+                
+                print(f"[Step 1] Calling {cfg1['url']}")
+                # res1 = requests.request(cfg1['method'], cfg1['url'], json=payload1, auth=('admin', api_pass)).json()
+                res1 = {"id": 1001} # Mocked Response
+
+                # STEP 2: ASSIGN ROLE (Chained)
+                next_key = cfg1.get('next_step')
+                if next_key and next_key in api_configs:
+                    cfg2 = api_configs[next_key]
+                    tpl2 = env.get_template(cfg2['template'])
+                    payload2 = json.loads(tpl2.render(parent_id=res1['id'], role_type=item.get('requested_role')))
+                    
+                    print(f"[Step 2] Assigning Role to ID {res1['id']}...")
+                    # res2 = requests.request(cfg2['method'], cfg2['url'], json=payload2).json()
+                    res2 = {"assigned_role": "editor_group"} # Mocked Response
+
+                    # STEP 3: GRANT RESOURCE (Chained)
+                    final_key = cfg2.get('next_step')
+                    if final_key and final_key in api_configs:
+                        cfg3 = api_configs[final_key]
+                        tpl3 = env.get_template(cfg3['template'])
+                        payload3 = json.loads(tpl3.render(parent_id=res1['id'], role_name=res2['assigned_role']))
+                        
+                        print(f"[Step 3] Granting Resource Permissions...")
+                        # requests.request(cfg3['method'], cfg3['url'], json=payload3)
+                        print("Workflow completed successfully.")
+
+            except Exception as e:
+                print(f"Error processing {item}: {e}")
+if __name__ == "__main__":
+    run_workflow()
+
+## Why this is the "Final Form":
+
+   1. Zero Hardcoding: You can add a databases category to your YAMLs tomorrow and the code stays exactly the same.
+   2. Context-Aware: Each subsequent step "remembers" the IDs or names returned by the previous step.
+   3. Template Reuse: Notice how create_item.j2 uses Jinja's or logic to handle both username and app_name in a single file.
+
+Do you want to add retry logic (using something like the tenacity library) in case one of these API calls hits a temporary network glitch?
+
