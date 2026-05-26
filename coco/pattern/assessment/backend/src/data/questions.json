@@ -1,0 +1,122 @@
+[
+  {
+    "id": 1,
+    "text": "When solving a complex problem, do you prefer breaking it into logical, sequential steps?",
+    "options": [
+      { "val": 1, "label": "Rarely" },
+      { "val": 2, "label": "Sometimes" },
+      { "val": 3, "label": "Often" },
+      { "val": 4, "label": "Always" }
+    ],
+    "weightage": 2.0,
+    "category": "Analytical"
+  },
+  {
+    "id": 2,
+    "text": "I enjoy exploring unconventional ideas even when they seem impractical at first.",
+    "options": [
+      { "val": 1, "label": "Strongly Disagree" },
+      { "val": 2, "label": "Disagree" },
+      { "val": 3, "label": "Agree" },
+      { "val": 4, "label": "Strongly Agree" }
+    ],
+    "weightage": 1.8,
+    "category": "Creative"
+  },
+  {
+    "id": 3,
+    "text": "How important is having a detailed plan before starting a project?",
+    "options": [
+      { "val": 1, "label": "Not important" },
+      { "val": 2, "label": "Slightly important" },
+      { "val": 3, "label": "Important" },
+      { "val": 4, "label": "Extremely important" }
+    ],
+    "weightage": 1.5,
+    "category": "Structured"
+  },
+  {
+    "id": 4,
+    "text": "When unexpected changes occur mid-project, I quickly adapt without significant stress.",
+    "options": [
+      { "val": 1, "label": "Rarely" },
+      { "val": 2, "label": "Sometimes" },
+      { "val": 3, "label": "Often" },
+      { "val": 4, "label": "Almost always" }
+    ],
+    "weightage": 1.7,
+    "category": "Adaptive"
+  },
+  {
+    "id": 5,
+    "text": "I make decisions based primarily on data and evidence rather than gut feeling.",
+    "options": [
+      { "val": 1, "label": "Strongly Disagree" },
+      { "val": 2, "label": "Disagree" },
+      { "val": 3, "label": "Agree" },
+      { "val": 4, "label": "Strongly Agree" }
+    ],
+    "weightage": 2.2,
+    "category": "Analytical"
+  },
+  {
+    "id": 6,
+    "text": "I often find myself making connections between seemingly unrelated concepts.",
+    "options": [
+      { "val": 1, "label": "Rarely" },
+      { "val": 2, "label": "Sometimes" },
+      { "val": 3, "label": "Often" },
+      { "val": 4, "label": "Very often" }
+    ],
+    "weightage": 1.6,
+    "category": "Creative"
+  },
+  {
+    "id": 7,
+    "text": "I prefer clear roles, defined processes, and consistent routines in my work.",
+    "options": [
+      { "val": 1, "label": "Strongly Disagree" },
+      { "val": 2, "label": "Disagree" },
+      { "val": 3, "label": "Agree" },
+      { "val": 4, "label": "Strongly Agree" }
+    ],
+    "weightage": 1.9,
+    "category": "Structured"
+  },
+  {
+    "id": 8,
+    "text": "In uncertain situations, I focus on what I can control and move forward decisively.",
+    "options": [
+      { "val": 1, "label": "Rarely" },
+      { "val": 2, "label": "Sometimes" },
+      { "val": 3, "label": "Often" },
+      { "val": 4, "label": "Always" }
+    ],
+    "weightage": 2.0,
+    "category": "Adaptive"
+  },
+  {
+    "id": 9,
+    "text": "I enjoy analyzing patterns and trends to predict future outcomes.",
+    "options": [
+      { "val": 1, "label": "Not at all" },
+      { "val": 2, "label": "A little" },
+      { "val": 3, "label": "Quite a bit" },
+      { "val": 4, "label": "Very much" }
+    ],
+    "weightage": 1.8,
+    "category": "Analytical"
+  },
+  {
+    "id": 10,
+    "text": "I feel most energized when generating new ideas or experimenting with creative solutions.",
+    "options": [
+      { "val": 1, "label": "Strongly Disagree" },
+      { "val": 2, "label": "Disagree" },
+      { "val": 3, "label": "Agree" },
+      { "val": 4, "label": "Strongly Agree" }
+    ],
+    "weightage": 2.1,
+    "category": "Creative"
+  }
+]
