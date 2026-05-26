@@ -1,0 +1,46 @@
+# nginx.conf rendered as a ConfigMap.
+# The /api/ proxy_pass uses the Kubernetes DNS name of the backend Service.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pattern-assessment.frontend.name" . }}-nginx-conf
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pattern-assessment.frontend.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+      listen 80;
+
+      location / {
+        root   /usr/share/nginx/html;
+        index  index.html;
+        try_files $uri $uri/ /index.html;
+      }
+
+      location ~ ^/api/pattern/assessment/(questions|submit)$ {
+        proxy_pass         http://{{ include "pattern-assessment.backend.name" . }}:{{ .Values.backend.port }};
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    60s;
+      }
+
+      location /health {
+        access_log off;
+        return 200 'ok';
+        add_header Content-Type text/plain;
+      }
+
+      add_header X-Frame-Options        SAMEORIGIN;
+      add_header X-Content-Type-Options nosniff;
+      add_header Referrer-Policy        strict-origin-when-cross-origin;
+
+      gzip on;
+      gzip_types text/plain text/css application/json application/javascript
+                 text/javascript image/svg+xml;
+      gzip_min_length 1024;
+    }

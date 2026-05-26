@@ -1,0 +1,55 @@
+version: "3.8"
+
+# ── Local "production-like" stack ─────────────────────────────────────────────
+# Mirrors the Kubernetes deployment: nginx fronts React and proxies /api/* to
+# the Express backend. No dev-server hot-reload — use `npm run dev` for that.
+#
+# Usage:
+#   OPENAI_API_KEY=sk-... docker compose up --build
+#   open http://localhost:3000
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Backend (Express + scoring engine + OpenAI) ──────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pattern-backend
+    environment:
+      PORT: "3001"
+      NODE_ENV: production
+      FRONTEND_URL: "http://localhost:3000"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}        # pass via env or .env file
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "3001:3001"     # exposed for direct curl testing; not needed by frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - pattern-net
+
+  # ── Frontend (React SPA + nginx proxy) ───────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pattern-frontend
+    ports:
+      - "3000:80"       # browse at http://localhost:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pattern-net
+
+networks:
+  pattern-net:
+    driver: bridge

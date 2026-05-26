@@ -1,0 +1,13 @@
+apiVersion: v2
+name: pattern-assessment
+description: Pattern Assessment full-stack app — React frontend + Express backend + OpenAI
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - pattern-assessment
+  - react
+  - express
+  - openai
+maintainers:
+  - name: Platform Team
