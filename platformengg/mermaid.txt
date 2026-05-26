@@ -1,0 +1,13 @@
+kanban
+  Identify
+    [1. Identify the application having sensitive information to be protected]
+  Requirements
+    [2. Gather the requirements related to user and corresponding ROLE/ADGroup restrictions]
+  OPA Policies
+    [3. Create policies based on the requirements on data protection]
+  Orchestration
+    [4. Extract and Generate Orchestration and Enforcement policies]
+  Review
+    [5. Create Git PR to define data masking/row filter policies]
+  Deploy
+    [6. Platform Engg team would approve PR which deploys enforcement policies]
