@@ -21,4 +21,10 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.listen(PORT, () => {
   console.log(`Backend running on http://localhost:${PORT}`);
   console.log(`OpenAI integration: ${process.env.OPENAI_API_KEY ? 'enabled' : 'mock mode (no API key)'}`);
+  const providerAuthType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
+  const providerUrls = (process.env.PROVIDER_URLS || '').split(',').filter(Boolean);
+  console.log(
+    `Provider API: auth=${providerAuthType}, ` +
+    `${providerUrls.length} pre-configured URL(s)`
+  );
 });
