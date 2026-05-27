@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pattern-assessment.backend.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pattern-assessment.backend.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP           # internal only — exposed via Ingress → frontend nginx proxy
+  selector:
+    {{- include "pattern-assessment.backend.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.backend.port }}
+      targetPort: http
+      protocol: TCP

@@ -1,0 +1,36 @@
+# ── values-staging.yaml ───────────────────────────────────────────────────────
+# Merges on top of values.yaml for the staging environment.
+# Deploy: helm upgrade --install ... -f values.yaml -f values-staging.yaml
+
+global:
+  registry: myacr.azurecr.io
+  imagePullPolicy: Always              # always pull on staging
+
+backend:
+  tag: staging
+  replicas: 1
+  env:
+    FRONTEND_URL: "https://staging.yourdomain.com"
+    OPENAI_MODEL: gpt-4o-mini
+
+  autoscaling:
+    enabled: false
+
+frontend:
+  tag: staging
+  replicas: 1
+
+ingress:
+  enabled: true
+  className: nginx
+  host: staging.yourdomain.com
+  tls:
+    enabled: true
+    secretName: pattern-staging-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+
+secrets:
+  provider: kubernetes                 # plain K8s secret on staging
+  kubernetes:
+    openaiApiKey: ""                   # injected by CI pipeline: --set secrets.kubernetes.openaiApiKey=$KEY
