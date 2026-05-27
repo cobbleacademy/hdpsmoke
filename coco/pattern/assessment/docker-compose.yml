@@ -23,6 +23,17 @@ services:
       FRONTEND_URL: "http://localhost:3000"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}        # pass via env or .env file
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # ── Provider API (Payload Library "Run" feature) ──────────────────
+      PROVIDER_URLS: ${PROVIDER_URLS:-}
+      PROVIDER_URL_LABELS: ${PROVIDER_URL_LABELS:-}
+      PROVIDER_AUTH_TYPE: ${PROVIDER_AUTH_TYPE:-none}
+      PROVIDER_API_KEY: ${PROVIDER_API_KEY:-}
+      PROVIDER_ENTRA_TENANT_ID: ${PROVIDER_ENTRA_TENANT_ID:-}
+      PROVIDER_ENTRA_CLIENT_ID: ${PROVIDER_ENTRA_CLIENT_ID:-}
+      PROVIDER_ENTRA_CLIENT_SECRET: ${PROVIDER_ENTRA_CLIENT_SECRET:-}
+      PROVIDER_ENTRA_SCOPE: ${PROVIDER_ENTRA_SCOPE:-}
+      PROVIDER_APIGEE_KEY: ${PROVIDER_APIGEE_KEY:-}
+      PROVIDER_TIMEOUT_MS: ${PROVIDER_TIMEOUT_MS:-15000}
     ports:
       - "3001:3001"     # exposed for direct curl testing; not needed by frontend
     healthcheck:
