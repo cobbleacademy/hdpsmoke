@@ -19,6 +19,14 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/provider-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/run-payload': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 });

@@ -18,12 +18,18 @@ function useIsMobile() {
   return isMobile;
 }
 
+// Strip the trailing slash from BASE_URL so path joins don't produce double slashes.
+// BASE_URL is set by Vite from vite.config.js `base` — single source of truth.
+// Dev: '/'  →  APP_BASE = ''  →  paths become '/quiz', '/result', …
+// K8s: '/api/pattern/assessment/'  →  APP_BASE = '/api/pattern/assessment'
+const APP_BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const VIEW_PATHS = {
-  quiz:           '/api/pattern/assessment/quiz',
-  result:         '/api/pattern/assessment/result',
-  explorer:       '/api/pattern/assessment/explorer',
-  howItWorks:     '/api/pattern/assessment/how-it-works',
-  payloadLibrary: '/api/pattern/assessment/payload-library',
+  quiz:           `${APP_BASE}/quiz`,
+  result:         `${APP_BASE}/result`,
+  explorer:       `${APP_BASE}/explorer`,
+  howItWorks:     `${APP_BASE}/how-it-works`,
+  payloadLibrary: `${APP_BASE}/payload-library`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -66,7 +72,7 @@ export default function App() {
 
   // ── Fetch questions on mount ─────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/pattern/assessment/questions')
+    fetch(`${import.meta.env.BASE_URL}questions`)
       .then((res) => { if (!res.ok) throw new Error(); return res.json(); })
       .then((data) => { setQuestions(data); setStatus('ready'); })
       .catch(() => {
@@ -131,7 +137,7 @@ export default function App() {
       value,
     }));
     try {
-      const res = await fetch('/api/pattern/assessment/submit', {
+      const res = await fetch(`${import.meta.env.BASE_URL}submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answers: payload }),

@@ -1,13 +1,85 @@
 import { useState, useEffect } from 'react';
 import jsYaml from 'js-yaml';
 
-export default function PayloadLibrary() {
-  const [payloads, setPayloads] = useState([]);
-  const [fetchStatus, setFetchStatus] = useState('loading');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [copied, setCopied] = useState(false);
+const MAX_HISTORY = 20;
 
+// ── Status-badge colour helper ────────────────────────────────────────────────
+function statusColor(httpStatus) {
+  if (!httpStatus) return { bg: '#f3f4f6', text: '#6b7280' };
+  if (httpStatus < 300) return { bg: '#f0fdf4', text: '#15803d' };
+  if (httpStatus < 400) return { bg: '#eff6ff', text: '#1d4ed8' };
+  if (httpStatus < 500) return { bg: '#fff7ed', text: '#c2410c' };
+  return { bg: '#fef2f2', text: '#b91c1c' };
+}
+
+function StatusBadge({ status }) {
+  const { bg, text } = statusColor(status);
+  return (
+    <span style={{ ...s.chip, background: bg, color: text, fontWeight: 700, flexShrink: 0 }}>
+      HTTP {status}
+    </span>
+  );
+}
+
+function authLabel(authType) {
+  if (authType === 'x-api-key') return 'X-API-Key (env)';
+  if (authType === 'entra-apigee') return 'Entra + APIGEE';
+  if (authType === 'payload-embedded') return 'Creds in payload';
+  return 'No auth';
+}
+
+function authBadgeColor(authType) {
+  if (authType === 'entra-apigee') return { bg: '#ede9fe', text: '#6d28d9' };
+  if (authType === 'x-api-key') return { bg: '#fef9c3', text: '#92400e' };
+  if (authType === 'payload-embedded') return { bg: '#f0fdf4', text: '#166534' };
+  return { bg: '#f3f4f6', text: '#6b7280' };
+}
+
+function truncateUrl(url, max = 52) {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    const short = u.hostname + u.pathname;
+    return short.length > max ? short.slice(0, max) + '…' : short;
+  } catch {
+    return url.length > max ? url.slice(0, max) + '…' : url;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function PayloadLibrary() {
+  // ── Payload list ──────────────────────────────────────────────────────────
+  const [payloads, setPayloads]         = useState([]);
+  const [fetchStatus, setFetchStatus]   = useState('loading');
+  const [errorMsg, setErrorMsg]         = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [copied, setCopied]             = useState(false);
+
+  // ── Provider config (from backend) ───────────────────────────────────────
+  const [providerConfig, setProviderConfig] = useState({
+    urls: [],
+    authType: 'none',
+    timeoutMs: 15000,
+  });
+
+  // ── URL selection ─────────────────────────────────────────────────────────
+  // urlMode: 'preset' = one of the backend-configured URLs; 'custom' = user-typed
+  const [urlMode, setUrlMode]             = useState('preset');
+  const [selectedUrlIdx, setSelectedUrlIdx] = useState(0);
+  const [customUrl, setCustomUrl]         = useState('');
+
+  // ── Run state ─────────────────────────────────────────────────────────────
+  const [runState, setRunState]   = useState('idle'); // 'idle' | 'running'
+  const [runResult, setRunResult] = useState(null);   // latest run's { status, body, durationMs } or { error, code, durationMs }
+  const [responseCopied, setResponseCopied] = useState(false);
+
+  // ── History ───────────────────────────────────────────────────────────────
+  const [history, setHistory]           = useState([]);
+  const [historyOpen, setHistoryOpen]   = useState(true);
+  const [viewingEntry, setViewingEntry] = useState(null); // null = show current runResult
+
+  // ── Load payloads ─────────────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}payloads.yaml`)
       .then((res) => {
@@ -26,94 +98,367 @@ export default function PayloadLibrary() {
       });
   }, []);
 
-  function getPrettyJson(entry) {
-    try {
-      return JSON.stringify(JSON.parse(entry.payload), null, 2);
-    } catch {
-      return entry.payload;
-    }
+  // ── Load provider config ──────────────────────────────────────────────────
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}provider-config`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((cfg) => {
+        if (!cfg) return;
+        setProviderConfig(cfg);
+        if (!cfg.urls || cfg.urls.length === 0) setUrlMode('custom');
+      })
+      .catch(() => setUrlMode('custom'));
+  }, []);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function getActiveUrl() {
+    if (urlMode === 'custom') return customUrl.trim();
+    const entry = providerConfig.urls[selectedUrlIdx];
+    return entry ? entry.url : '';
   }
 
-  function handleCopy() {
-    const text = getPrettyJson(payloads[selectedIndex]);
-    navigator.clipboard.writeText(text).then(() => {
+  function getPrettyJson(entry) {
+    try { return JSON.stringify(JSON.parse(entry.payload), null, 2); }
+    catch { return entry.payload; }
+  }
+
+  function handleCopyPayload() {
+    navigator.clipboard.writeText(getPrettyJson(payloads[selectedIndex])).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });
   }
 
+  function handleCopyResponse() {
+    const displayed = viewingEntry || runResult;
+    if (!displayed) return;
+    const text = displayed.error
+      ? displayed.error
+      : typeof displayed.body === 'object'
+        ? JSON.stringify(displayed.body, null, 2)
+        : String(displayed.body ?? '');
+    navigator.clipboard.writeText(text).then(() => {
+      setResponseCopied(true);
+      setTimeout(() => setResponseCopied(false), 1800);
+    });
+  }
+
+  // ── Run ───────────────────────────────────────────────────────────────────
+  async function handleRun() {
+    const url = getActiveUrl();
+    if (!url || runState === 'running') return;
+
+    setViewingEntry(null);
+    setRunResult(null);
+    setRunState('running');
+
+    const payload = payloads[selectedIndex];
+    let payloadObj;
+    try { payloadObj = JSON.parse(payload.payload); }
+    catch { payloadObj = payload.payload; }
+
+    const requestedAt = new Date().toLocaleTimeString();
+    const payloadName = payload.name;
+
+    try {
+      const resp = await fetch(`${import.meta.env.BASE_URL}run-payload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: payloadObj, url }),
+      });
+
+      const data = await resp.json();
+
+      // resp.ok → backend proxy succeeded; data.status is the provider's HTTP code
+      // !resp.ok → backend itself failed (timeout/network); data has .error, .code
+      const result = resp.ok
+        ? data
+        : { error: data.error, code: data.code, durationMs: data.durationMs };
+
+      setRunResult(result);
+      setRunState('idle');
+      addToHistory({ payloadName, url, requestedAt, ...result });
+      setHistoryOpen(true);
+    } catch (err) {
+      const result = { error: err.message, code: 'NETWORK' };
+      setRunResult(result);
+      setRunState('idle');
+      addToHistory({ payloadName, url, requestedAt, ...result });
+      setHistoryOpen(true);
+    }
+  }
+
+  function addToHistory(entry) {
+    setHistory((prev) => [{ id: Date.now(), ...entry }, ...prev].slice(0, MAX_HISTORY));
+  }
+
+  function handleSelectPayload(i) {
+    setSelectedIndex(i);
+    // Clear response when switching payloads so user knows to run again
+    setViewingEntry(null);
+    setRunResult(null);
+  }
+
+  function handleClearHistory() {
+    setHistory([]);
+    setViewingEntry(null);
+    setHistoryOpen(false);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   if (fetchStatus === 'loading') {
     return (
-      <div style={styles.screen}>
-        <div style={styles.spinner} />
-        <p style={styles.loadingText}>Loading payloads…</p>
+      <div style={s.screen}>
+        <div style={s.spinner} />
+        <p style={s.mutedText}>Loading payloads…</p>
       </div>
     );
   }
 
   if (fetchStatus === 'error') {
     return (
-      <div style={styles.screen}>
-        <p style={styles.errorText}>{errorMsg}</p>
+      <div style={s.screen}>
+        <p style={s.errorText}>{errorMsg}</p>
       </div>
     );
   }
 
-  const selected = payloads[selectedIndex];
+  const selected       = payloads[selectedIndex];
+  const activeUrl      = getActiveUrl();
+  const canRun         = runState === 'idle' && activeUrl.length > 0;
+  const displayedResult = viewingEntry || runResult;
+  const { bg: authBg, text: authText } = authBadgeColor(providerConfig.authType);
 
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
-        <header style={styles.header}>
-          <h1 style={styles.title}>Payload Library</h1>
-          <p style={styles.subtitle}>10 sample API payloads. Click one to inspect its JSON.</p>
+    <div style={s.page}>
+      <div style={s.container}>
+        <header style={s.header}>
+          <h1 style={s.title}>Payload Library</h1>
+          <p style={s.subtitle}>
+            {payloads.length} sample API payloads — select, inspect, and run against a provider.
+          </p>
         </header>
 
-        <div style={styles.columns}>
-          {/* Left: list */}
-          <div style={styles.list}>
+        <div style={s.columns}>
+          {/* ── Left: payload list ──────────────────────────────────────── */}
+          <div style={s.list}>
             {payloads.map((item, i) => (
               <button
                 key={i}
-                onClick={() => setSelectedIndex(i)}
-                style={{
-                  ...styles.listItem,
-                  ...(i === selectedIndex ? styles.listItemActive : {}),
-                }}
+                onClick={() => handleSelectPayload(i)}
+                style={{ ...s.listItem, ...(i === selectedIndex ? s.listItemActive : {}) }}
               >
-                <span style={styles.listIndex}>{String(i + 1).padStart(2, '0')}</span>
-                <span style={styles.listName}>{item.name}</span>
-                {i === selectedIndex && <span style={styles.listArrow}>›</span>}
+                <span style={s.listIndex}>{String(i + 1).padStart(2, '0')}</span>
+                <span style={s.listName}>{item.name}</span>
+                {i === selectedIndex && <span style={s.listArrow}>›</span>}
               </button>
             ))}
           </div>
 
-          {/* Right: detail */}
-          <div style={styles.detail}>
-            <div style={styles.detailHeader}>
-              <div>
-                <h2 style={styles.detailTitle}>{selected.name}</h2>
-                <span style={styles.detailBadge}>JSON Payload</span>
+          {/* ── Right: stacked detail ───────────────────────────────────── */}
+          <div style={s.detailCol}>
+
+            {/* ── URL / Auth card ──────────────────────────────────────── */}
+            <div style={s.card}>
+              <div style={s.cardTopRow}>
+                <span style={s.sectionLabel}>Provider URL</span>
+                <span style={{ ...s.chip, background: authBg, color: authText }}>
+                  {authLabel(providerConfig.authType)}
+                </span>
               </div>
-              <button
-                onClick={handleCopy}
-                style={{
-                  ...styles.copyBtn,
-                  ...(copied ? styles.copyBtnSuccess : {}),
-                }}
-              >
-                {copied ? '✓ Copied!' : 'Copy JSON'}
-              </button>
+
+              <div style={s.urlRow}>
+                {/* Preset dropdown — only shown when backend has configured URLs */}
+                {providerConfig.urls.length > 0 && (
+                  <select
+                    value={urlMode === 'preset' ? `p:${selectedUrlIdx}` : 'custom'}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === 'custom') {
+                        setUrlMode('custom');
+                      } else {
+                        setUrlMode('preset');
+                        setSelectedUrlIdx(parseInt(v.slice(2), 10));
+                      }
+                    }}
+                    style={s.urlSelect}
+                  >
+                    {providerConfig.urls.map((u, i) => (
+                      <option key={i} value={`p:${i}`}>{u.label}</option>
+                    ))}
+                    <option value="custom">Custom URL…</option>
+                  </select>
+                )}
+
+                {/* Custom URL input — shown when custom mode or no presets */}
+                {(urlMode === 'custom' || providerConfig.urls.length === 0) && (
+                  <input
+                    type="url"
+                    placeholder="https://provider.example.com/api/endpoint"
+                    value={customUrl}
+                    onChange={(e) => setCustomUrl(e.target.value)}
+                    style={s.urlInput}
+                    spellCheck={false}
+                  />
+                )}
+              </div>
+
+              {/* Show the full URL when preset is selected */}
+              {urlMode === 'preset' && providerConfig.urls[selectedUrlIdx] && (
+                <p style={s.urlHint}>{providerConfig.urls[selectedUrlIdx].url}</p>
+              )}
             </div>
-            <pre style={styles.pre}>{getPrettyJson(selected)}</pre>
-          </div>
+
+            {/* ── Payload card ─────────────────────────────────────────── */}
+            <div style={s.card}>
+              <div style={s.payloadHeaderRow}>
+                <div>
+                  <h2 style={s.detailTitle}>{selected.name}</h2>
+                  <span style={s.detailBadge}>JSON Payload</span>
+                </div>
+                <div style={s.btnRow}>
+                  <button
+                    onClick={handleCopyPayload}
+                    style={{ ...s.outlineBtn, ...(copied ? s.outlineBtnOk : {}) }}
+                  >
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </button>
+                  <button
+                    onClick={handleRun}
+                    disabled={!canRun}
+                    style={{ ...s.runBtn, ...(!canRun ? s.runBtnDisabled : {}) }}
+                    title={!activeUrl ? 'Enter a provider URL above to run' : ''}
+                  >
+                    {runState === 'running'
+                      ? <><span style={s.btnSpinner} />{'Running…'}</>
+                      : '▶ Run'
+                    }
+                  </button>
+                </div>
+              </div>
+              <pre style={s.pre}>{getPrettyJson(selected)}</pre>
+            </div>
+
+            {/* ── Response card ────────────────────────────────────────── */}
+            {(runState === 'running' || displayedResult) && (
+              <div style={s.card}>
+                <div style={s.cardTopRow}>
+                  <span style={s.sectionLabel}>
+                    {viewingEntry
+                      ? `History · ${viewingEntry.payloadName} · ${viewingEntry.requestedAt}`
+                      : 'Provider Response'}
+                  </span>
+                  <div style={s.responseMetaRow}>
+                    {viewingEntry && (
+                      <button onClick={() => setViewingEntry(null)} style={s.ghostBtn}>
+                        ← Current
+                      </button>
+                    )}
+                    {displayedResult && !displayedResult.error && (
+                      <>
+                        <StatusBadge status={displayedResult.status} />
+                        {displayedResult.durationMs != null && (
+                          <span style={s.chip}>{displayedResult.durationMs} ms</span>
+                        )}
+                        <button
+                          onClick={handleCopyResponse}
+                          style={{ ...s.outlineBtn, ...(responseCopied ? s.outlineBtnOk : {}) }}
+                        >
+                          {responseCopied ? '✓' : 'Copy'}
+                        </button>
+                      </>
+                    )}
+                    {displayedResult?.error && (
+                      <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c' }}>
+                        {displayedResult.code === 'TIMEOUT' ? 'Timeout' : 'Error'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {runState === 'running' && !displayedResult ? (
+                  <div style={s.responseLoading}>
+                    <div style={s.spinner} />
+                    <p style={s.mutedText}>Calling provider…</p>
+                  </div>
+                ) : displayedResult?.error ? (
+                  <div style={s.responseErrorBox}>
+                    <p style={s.errorText}>{displayedResult.error}</p>
+                    {displayedResult.durationMs != null && (
+                      <p style={{ ...s.mutedText, marginTop: '0.25rem' }}>
+                        {displayedResult.durationMs} ms
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <pre style={s.pre}>
+                    {typeof displayedResult.body === 'object'
+                      ? JSON.stringify(displayedResult.body, null, 2)
+                      : String(displayedResult.body ?? '')}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* ── History card ─────────────────────────────────────────── */}
+            {history.length > 0 && (
+              <div style={s.card}>
+                <div style={s.cardTopRow}>
+                  <button
+                    onClick={() => setHistoryOpen((v) => !v)}
+                    style={s.ghostBtn}
+                  >
+                    <span style={s.sectionLabel}>
+                      {historyOpen ? '▾' : '▸'} Run History ({history.length})
+                    </span>
+                  </button>
+                  <button onClick={handleClearHistory} style={s.ghostBtn}>
+                    Clear all
+                  </button>
+                </div>
+
+                {historyOpen && (
+                  <div style={s.historyList}>
+                    {history.map((entry) => (
+                      <button
+                        key={entry.id}
+                        onClick={() => setViewingEntry(entry)}
+                        style={{
+                          ...s.historyItem,
+                          ...(viewingEntry?.id === entry.id ? s.historyItemActive : {}),
+                        }}
+                      >
+                        <span style={s.historyName}>{entry.payloadName}</span>
+                        <div style={s.historyMeta}>
+                          {entry.error ? (
+                            <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c', fontSize: '0.7rem' }}>
+                              {entry.code === 'TIMEOUT' ? 'Timeout' : 'Error'}
+                            </span>
+                          ) : (
+                            <StatusBadge status={entry.status} />
+                          )}
+                          {entry.durationMs != null && (
+                            <span style={{ ...s.chip, fontSize: '0.7rem' }}>{entry.durationMs} ms</span>
+                          )}
+                          <span style={s.historyTime}>{entry.requestedAt}</span>
+                          <span style={s.historyUrl}>{truncateUrl(entry.url)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>{/* end detailCol */}
         </div>
       </div>
     </div>
   );
 }
 
-const styles = {
+// ── Styles ────────────────────────────────────────────────────────────────────
+const s = {
   page: {
     padding: '2.5rem 2rem',
     animation: 'fadeIn 0.3s ease',
@@ -139,10 +484,12 @@ const styles = {
   },
   columns: {
     display: 'grid',
-    gridTemplateColumns: '260px 1fr',
+    gridTemplateColumns: '220px 1fr',
     gap: '1.25rem',
     alignItems: 'start',
   },
+
+  // ── List ──────────────────────────────────────────────────────────────────
   list: {
     display: 'flex',
     flexDirection: 'column',
@@ -157,7 +504,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.625rem',
-    padding: '0.6rem 0.75rem',
+    padding: '0.5rem 0.625rem',
     borderRadius: '8px',
     border: '1px solid transparent',
     background: 'transparent',
@@ -173,7 +520,7 @@ const styles = {
     borderColor: 'var(--accent)',
   },
   listIndex: {
-    fontSize: '0.68rem',
+    fontSize: '0.65rem',
     fontWeight: 700,
     color: 'var(--text-secondary)',
     fontFamily: 'ui-monospace, SFMono-Regular, monospace',
@@ -181,7 +528,7 @@ const styles = {
     width: '1.5rem',
   },
   listName: {
-    fontSize: '0.845rem',
+    fontSize: '0.8rem',
     fontWeight: 600,
     flex: 1,
     overflow: 'hidden',
@@ -194,68 +541,276 @@ const styles = {
     fontSize: '1rem',
     flexShrink: 0,
   },
-  detail: {
+
+  // ── Detail column ─────────────────────────────────────────────────────────
+  detailCol: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+  },
+
+  // ── Card shell ────────────────────────────────────────────────────────────
+  card: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
     boxShadow: 'var(--shadow)',
     overflow: 'hidden',
   },
-  detailHeader: {
+  cardTopRow: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '1rem 1.25rem',
+    padding: '0.625rem 1rem',
+    borderBottom: '1px solid var(--border)',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    background: 'var(--bg)',
+  },
+  sectionLabel: {
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    letterSpacing: '0.07em',
+    textTransform: 'uppercase',
+    color: 'var(--text-secondary)',
+  },
+
+  // ── URL section ───────────────────────────────────────────────────────────
+  urlRow: {
+    display: 'flex',
+    gap: '0.5rem',
+    padding: '0.75rem 1rem',
+    flexWrap: 'wrap',
+  },
+  urlSelect: {
+    flex: '0 0 auto',
+    padding: '0.4rem 0.65rem',
+    borderRadius: '8px',
+    border: '1.5px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-primary)',
+    fontFamily: 'inherit',
+    fontSize: '0.825rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    minWidth: '9rem',
+  },
+  urlInput: {
+    flex: 1,
+    minWidth: '16rem',
+    padding: '0.4rem 0.65rem',
+    borderRadius: '8px',
+    border: '1.5px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-primary)',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    fontSize: '0.78rem',
+    outline: 'none',
+  },
+  urlHint: {
+    margin: '0 1rem 0.75rem',
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    wordBreak: 'break-all',
+  },
+
+  // ── Payload section ───────────────────────────────────────────────────────
+  payloadHeaderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.875rem 1.125rem',
     borderBottom: '1px solid var(--border)',
     gap: '1rem',
     flexWrap: 'wrap',
   },
   detailTitle: {
-    fontSize: '1rem',
+    fontSize: '0.95rem',
     fontWeight: 700,
     color: 'var(--text-primary)',
     margin: 0,
-    marginBottom: '0.25rem',
+    marginBottom: '0.2rem',
   },
   detailBadge: {
     display: 'inline-block',
-    fontSize: '0.68rem',
+    fontSize: '0.65rem',
     fontWeight: 700,
     letterSpacing: '0.06em',
     color: 'var(--accent-dark)',
     background: 'var(--accent-light)',
     borderRadius: '5px',
-    padding: '2px 8px',
+    padding: '2px 7px',
   },
-  copyBtn: {
-    padding: '0.45rem 1rem',
-    borderRadius: '8px',
-    border: '1.5px solid var(--accent)',
-    background: 'transparent',
-    color: 'var(--accent)',
-    fontFamily: 'inherit',
-    fontSize: '0.8rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    transition: 'all 0.15s ease',
+  btnRow: {
+    display: 'flex',
+    gap: '0.5rem',
     flexShrink: 0,
   },
-  copyBtnSuccess: {
-    background: '#f0fdf4',
-    borderColor: '#22c55e',
-    color: '#15803d',
-  },
+
+  // ── Pre ───────────────────────────────────────────────────────────────────
   pre: {
     margin: 0,
-    padding: '1.25rem',
+    padding: '1rem 1.125rem',
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     lineHeight: 1.6,
     color: 'var(--text-primary)',
     background: 'var(--bg)',
     overflowX: 'auto',
     whiteSpace: 'pre',
+    maxHeight: '26rem',
+    overflowY: 'auto',
   },
+
+  // ── Buttons ───────────────────────────────────────────────────────────────
+  outlineBtn: {
+    padding: '0.4rem 0.875rem',
+    borderRadius: '8px',
+    border: '1.5px solid var(--accent)',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    flexShrink: 0,
+  },
+  outlineBtnOk: {
+    background: '#f0fdf4',
+    borderColor: '#22c55e',
+    color: '#15803d',
+  },
+  runBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+    padding: '0.4rem 1rem',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'var(--accent)',
+    color: '#fff',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    transition: 'opacity 0.15s ease',
+    flexShrink: 0,
+  },
+  runBtnDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
+  },
+  btnSpinner: {
+    display: 'inline-block',
+    width: 12,
+    height: 12,
+    borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,0.35)',
+    borderTopColor: '#fff',
+    animation: 'spin 0.8s linear infinite',
+    flexShrink: 0,
+  },
+  ghostBtn: {
+    background: 'none',
+    border: 'none',
+    padding: '0.2rem 0.4rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    color: 'var(--text-secondary)',
+    fontWeight: 600,
+    borderRadius: '6px',
+    transition: 'color 0.15s',
+  },
+
+  // ── Chips ─────────────────────────────────────────────────────────────────
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    padding: '2px 8px',
+    borderRadius: '999px',
+    background: '#f3f4f6',
+    color: '#374151',
+    whiteSpace: 'nowrap',
+  },
+
+  // ── Response section ──────────────────────────────────────────────────────
+  responseMetaRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  responseLoading: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    padding: '2rem',
+    gap: '0.75rem',
+  },
+  responseErrorBox: {
+    padding: '1rem 1.125rem',
+    background: 'var(--bg)',
+  },
+
+  // ── History ───────────────────────────────────────────────────────────────
+  historyList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    padding: '0.5rem',
+    maxHeight: '18rem',
+    overflowY: 'auto',
+  },
+  historyItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    padding: '0.5rem 0.75rem',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    cursor: 'pointer',
+    width: '100%',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+    transition: 'all 0.15s ease',
+  },
+  historyItemActive: {
+    background: 'var(--accent-light)',
+    borderColor: 'var(--accent)',
+  },
+  historyName: {
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+  },
+  historyMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    flexWrap: 'wrap',
+  },
+  historyTime: {
+    fontSize: '0.68rem',
+    color: 'var(--text-secondary)',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  },
+  historyUrl: {
+    fontSize: '0.68rem',
+    color: 'var(--text-secondary)',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: '28ch',
+  },
+
+  // ── Screens (loading / error) ─────────────────────────────────────────────
   screen: {
     display: 'flex',
     flexDirection: 'column',
@@ -272,13 +827,15 @@ const styles = {
     borderTopColor: 'var(--accent)',
     animation: 'spin 0.8s linear infinite',
   },
-  loadingText: {
+  mutedText: {
     color: 'var(--text-secondary)',
     fontSize: '0.9rem',
+    margin: 0,
   },
   errorText: {
     color: '#dc2626',
-    fontSize: '0.9rem',
+    fontSize: '0.875rem',
+    margin: 0,
     textAlign: 'center',
     maxWidth: 400,
   },
