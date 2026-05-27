@@ -1,12 +1,12 @@
 # ── Stage 1: install production dependencies ──────────────────────────────────
-FROM node:16-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
 # ── Stage 2: lean runtime image ───────────────────────────────────────────────
-FROM node:16-alpine
+FROM node:24-alpine
 
 LABEL org.opencontainers.image.title="Pattern Assessment Backend"
 LABEL org.opencontainers.image.description="Node/Express scoring engine + OpenAI integration"
