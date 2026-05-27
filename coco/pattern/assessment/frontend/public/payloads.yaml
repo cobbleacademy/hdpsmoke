@@ -1,0 +1,99 @@
+payloads:
+  - name: "Retail Merchant"
+    payload: |
+      {
+        "entityId": "ENT-001",
+        "clientId": "client_retail_alpha_7f2k",
+        "clientSecret": "sk_live_Rq8xN2mLpT4vWcYjZd9KbE3aGsUoFh6I",
+        "entityTypeId": "RETAIL_MERCHANT"
+      }
+
+  - name: "Payment Processor"
+    payload: |
+      {
+        "entityId": "ENT-002",
+        "clientId": "client_fintech_bravo_3m9q",
+        "clientSecret": "sk_live_Pn5cV7yAeXtKlRuSgD2jMwBiOqZhF8Ys",
+        "entityTypeId": "PAYMENT_PROCESSOR"
+      }
+
+  - name: "Healthcare Provider"
+    payload: |
+      {
+        "entityId": "ENT-003",
+        "clientId": "client_healthcare_charlie_1k5p",
+        "clientSecret": "sk_live_Hd4nT6rJmUwCsXzLaQ8eVfYbGpOkIj2N",
+        "entityTypeId": "HEALTHCARE_PROVIDER"
+      }
+
+  - name: "Freight Carrier"
+    payload: |
+      {
+        "entityId": "ENT-004",
+        "clientId": "client_logistics_delta_9r2w",
+        "clientSecret": "sk_live_Wg3oE5xBcNvPdSuMaK7qZtLmFrJyHi1T",
+        "entityTypeId": "FREIGHT_CARRIER"
+      }
+
+  - name: "Education Platform"
+    payload: |
+      {
+        "entityId": "ENT-005",
+        "clientId": "client_edtech_echo_6t4y",
+        "clientSecret": "sk_live_Yx1fR9kDpAuMcTgNsE6bLwVoZjQhCi4W",
+        "entityTypeId": "EDUCATION_PLATFORM"
+      }
+
+  - name: "Insurance Underwriter"
+    payload: |
+      {
+        "entityId": "ENT-006",
+        "clientId": "client_insurance_foxtrot_2n8v",
+        "clientSecret": "sk_live_Jc7qP3mGbNwXtLeRaS5kYdUoZiVhF9Ak",
+        "entityTypeId": "INSURANCE_UNDERWRITER"
+      }
+
+  - name: "Property Manager"
+    payload: |
+      {
+        "entityId": "ENT-007",
+        "clientId": "client_realestate_golf_5j1u",
+        "clientSecret": "sk_live_Kf2bY8wLpOdRuAnXcM4tGsQjVeHzIi6T",
+        "entityTypeId": "PROPERTY_MANAGER"
+      }
+
+  - name: "Digital Publisher"
+    payload: |
+      {
+        "entityId": "ENT-008",
+        "clientId": "client_gaming_hotel_8q3z",
+        "clientSecret": "sk_live_Nv5aT1xCmKpRuSgEd7bLwYoZqFjHi9W",
+        "entityTypeId": "DIGITAL_PUBLISHER"
+      }
+
+  - name: "Industrial Supplier"
+    payload: |
+      {
+        "entityId": "ENT-009",
+        "clientId": "client_manufacturing_india_4w6s",
+        "clientSecret": "sk_live_Qr3cU9yBnMwXtLeRaD2kGpOjZiVhF7Ak",
+        "entityTypeId": "INDUSTRIAL_SUPPLIER"
+      }
+
+  - name: "SaaS Vendor"
+    payload: |
+      {
+        "entityId": "ENT-010",
+        "clientId": "client_saas_juliet_7h5d",
+        "clientSecret": "sk_live_Sz8eP4mGbNvXtLcRaQ1kYdUoZjWhF2Tk",
+        "entityTypeId": "SAAS_VENDOR"
+      }
+
+  - name: "VM Vendor"
+    payload: |
+      {
+        "entityId": "ENT-011",
+        "clientId": "client_vm_juliet_7h5d",
+        "clientSecret": "sk_live_Sz8eP4mGbNvXtadfadsfLcRaQ1kYdUoZjWhF2Tk",
+        "entityTypeId": "VM_VENDOR"
+      }
