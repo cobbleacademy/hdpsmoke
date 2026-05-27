@@ -12,10 +12,19 @@ data:
     server {
       listen 80;
 
+      root /usr/share/nginx/html;
+
+      location ^~ /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+      }
+
       location / {
-        root   /usr/share/nginx/html;
         index  index.html;
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
       }
 
       location ~ ^/api/pattern/assessment/(questions|submit)$ {
