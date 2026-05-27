@@ -9,7 +9,7 @@ export default function PayloadLibrary() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    fetch('/payloads.yaml')
+    fetch(`${import.meta.env.BASE_URL}payloads.yaml`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
