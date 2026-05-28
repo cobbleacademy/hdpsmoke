@@ -24,8 +24,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}        # pass via env or .env file
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       # ── Provider API (Payload Library "Run" feature) ──────────────────
-      PROVIDER_URLS: ${PROVIDER_URLS:-}
-      PROVIDER_URL_LABELS: ${PROVIDER_URL_LABELS:-}
+      # Default URLs match backend/.env.example — override by setting these
+      # in your shell before running docker-compose up:
+      #   PROVIDER_URLS="https://my-gateway.example.com/..." docker-compose up
+      PROVIDER_URLS: ${PROVIDER_URLS:-https://dev-z3-providerservices.com/api/dev1/runtime/resolution/v3,https://apigee.com/api/dev1/runtime/resolution/v3}
+      PROVIDER_URL_LABELS: ${PROVIDER_URL_LABELS:-Dev Z3,APIGEE Prod}
       PROVIDER_AUTH_TYPE: ${PROVIDER_AUTH_TYPE:-none}
       PROVIDER_API_KEY: ${PROVIDER_API_KEY:-}
       PROVIDER_ENTRA_TENANT_ID: ${PROVIDER_ENTRA_TENANT_ID:-}
