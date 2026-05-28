@@ -12,6 +12,10 @@ backend:
   env:
     FRONTEND_URL: "https://staging.yourdomain.com"
     OPENAI_MODEL: gpt-4o-mini
+    # Provider API — set these to populate the URL dropdown in the Payload Library
+    PROVIDER_URLS: ""            # e.g. "https://dev-z3-providerservices.com/api/dev1/runtime/resolution/v3"
+    PROVIDER_URL_LABELS: ""      # e.g. "Dev Z3"
+    PROVIDER_AUTH_TYPE: none
 
   autoscaling:
     enabled: false

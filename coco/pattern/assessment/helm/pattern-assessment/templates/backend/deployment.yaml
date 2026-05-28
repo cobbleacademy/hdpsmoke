@@ -50,6 +50,28 @@ spec:
                   name: pattern-secrets
                   key: OPENAI_API_KEY
 
+            # ── Provider API (Payload Library "Run" feature) ────────────────
+            - name: PROVIDER_URLS
+              value: {{ .Values.backend.env.PROVIDER_URLS | quote }}
+            - name: PROVIDER_URL_LABELS
+              value: {{ .Values.backend.env.PROVIDER_URL_LABELS | quote }}
+            - name: PROVIDER_AUTH_TYPE
+              value: {{ .Values.backend.env.PROVIDER_AUTH_TYPE | quote }}
+            - name: PROVIDER_TIMEOUT_MS
+              value: {{ .Values.backend.env.PROVIDER_TIMEOUT_MS | quote }}
+            - name: PROVIDER_API_KEY
+              value: {{ .Values.backend.env.PROVIDER_API_KEY | quote }}
+            - name: PROVIDER_ENTRA_TENANT_ID
+              value: {{ .Values.backend.env.PROVIDER_ENTRA_TENANT_ID | quote }}
+            - name: PROVIDER_ENTRA_CLIENT_ID
+              value: {{ .Values.backend.env.PROVIDER_ENTRA_CLIENT_ID | quote }}
+            - name: PROVIDER_ENTRA_CLIENT_SECRET
+              value: {{ .Values.backend.env.PROVIDER_ENTRA_CLIENT_SECRET | quote }}
+            - name: PROVIDER_ENTRA_SCOPE
+              value: {{ .Values.backend.env.PROVIDER_ENTRA_SCOPE | quote }}
+            - name: PROVIDER_APIGEE_KEY
+              value: {{ .Values.backend.env.PROVIDER_APIGEE_KEY | quote }}
+
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
 

@@ -26,6 +26,25 @@ backend:
     OPENAI_MODEL: gpt-4o-mini
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
+    # ── Provider API (Payload Library "Run" feature) ──────────────────────────
+    # Comma-separated list of pre-configured provider URLs shown in the dropdown.
+    # Leave empty to show only the custom URL input in the UI.
+    PROVIDER_URLS: ""
+    # Display labels matching each URL above (same count; falls back to "Provider N")
+    PROVIDER_URL_LABELS: ""
+    # Auth mode: none | x-api-key | entra-apigee | payload-embedded
+    PROVIDER_AUTH_TYPE: none
+    # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
+    PROVIDER_TIMEOUT_MS: "15000"
+    # For x-api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
+    PROVIDER_API_KEY: ""
+    # For entra-apigee auth — set all four via --set
+    PROVIDER_ENTRA_TENANT_ID: ""
+    PROVIDER_ENTRA_CLIENT_ID: ""
+    PROVIDER_ENTRA_CLIENT_SECRET: ""
+    PROVIDER_ENTRA_SCOPE: ""
+    PROVIDER_APIGEE_KEY: ""
+
   autoscaling:
     enabled: false
     minReplicas: 2
