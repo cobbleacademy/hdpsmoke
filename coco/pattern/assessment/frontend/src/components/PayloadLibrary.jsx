@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import jsYaml from 'js-yaml';
 
 const MAX_HISTORY = 20;
@@ -50,11 +50,16 @@ function truncateUrl(url, max = 52) {
 
 export default function PayloadLibrary() {
   // ── Payload list ──────────────────────────────────────────────────────────
-  const [payloads, setPayloads]         = useState([]);
-  const [fetchStatus, setFetchStatus]   = useState('loading');
-  const [errorMsg, setErrorMsg]         = useState('');
+  const [payloads, setPayloads]           = useState([]);
+  const [fetchStatus, setFetchStatus]     = useState('loading');
+  const [errorMsg, setErrorMsg]           = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [copied, setCopied]             = useState(false);
+  const [copied, setCopied]               = useState(false);
+
+  // ── Search & grouping ─────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery]             = useState('');
+  const [collapsedCategories, setCollapsedCategories] = useState(new Set());
+  const searchInputRef                            = useRef(null);
 
   // ── Provider config (from backend) ───────────────────────────────────────
   const [providerConfig, setProviderConfig] = useState({
@@ -115,6 +120,52 @@ export default function PayloadLibrary() {
       })
       .catch(() => setUrlMode('custom'));
   }, []);
+
+  // ── Cmd/Ctrl+K focuses search input ──────────────────────────────────────
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // ── Search filter + category grouping helpers ─────────────────────────────
+  function getFilteredPayloads() {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return payloads.map((p, i) => ({ ...p, originalIndex: i }));
+    return payloads.reduce((acc, p, i) => {
+      if (
+        p.name.toLowerCase().includes(q) ||
+        p.category?.toLowerCase().includes(q) ||
+        p.description?.toLowerCase().includes(q) ||
+        p.tags?.some((t) => t.toLowerCase().includes(q))
+      ) {
+        acc.push({ ...p, originalIndex: i });
+      }
+      return acc;
+    }, []);
+  }
+
+  function getGrouped(items) {
+    return items.reduce((acc, p) => {
+      const cat = p.category || 'Uncategorised';
+      if (!acc[cat]) acc[cat] = [];
+      acc[cat].push(p);
+      return acc;
+    }, {});
+  }
+
+  function toggleCategory(cat) {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getActiveUrl() {
@@ -262,9 +313,14 @@ export default function PayloadLibrary() {
   const activeUrl       = getActiveUrl();
   const payloadIsValid  = editedPayload === null || payloadParseError === '';
   const canRun          = runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
-  const isModified      = editedPayload !== null; // true once user has typed anything
+  const isModified      = editedPayload !== null;
   const displayedResult = viewingEntry || runResult;
   const { bg: authBg, text: authText } = authBadgeColor(providerConfig.authType);
+
+  // Search / grouping derived values
+  const isSearching      = searchQuery.trim().length > 0;
+  const filteredPayloads = getFilteredPayloads();
+  const grouped          = isSearching ? null : getGrouped(filteredPayloads);
 
   return (
     <div style={s.page}>
@@ -277,19 +333,92 @@ export default function PayloadLibrary() {
         </header>
 
         <div style={s.columns}>
-          {/* ── Left: payload list ──────────────────────────────────────── */}
-          <div style={s.list}>
-            {payloads.map((item, i) => (
-              <button
-                key={i}
-                onClick={() => handleSelectPayload(i)}
-                style={{ ...s.listItem, ...(i === selectedIndex ? s.listItemActive : {}) }}
-              >
-                <span style={s.listIndex}>{String(i + 1).padStart(2, '0')}</span>
-                <span style={s.listName}>{item.name}</span>
-                {i === selectedIndex && <span style={s.listArrow}>›</span>}
-              </button>
-            ))}
+          {/* ── Left: search + payload list ─────────────────────────────── */}
+          <div style={s.listCol}>
+
+            {/* Search bar */}
+            <div style={s.searchBar}>
+              <span style={s.searchIcon}>⌕</span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search… (⌘K)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') { setSearchQuery(''); e.target.blur(); }
+                }}
+                style={s.searchInput}
+                spellCheck={false}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} style={s.searchClear} title="Clear">×</button>
+              )}
+            </div>
+
+            {/* Match count shown only while searching */}
+            {isSearching && (
+              <p style={s.searchCount}>
+                {filteredPayloads.length} of {payloads.length}
+              </p>
+            )}
+
+            {/* List body */}
+            <div style={s.list}>
+              {/* ── Flat list when searching ── */}
+              {isSearching && filteredPayloads.map((p) => (
+                <button
+                  key={p.originalIndex}
+                  onClick={() => handleSelectPayload(p.originalIndex)}
+                  style={{ ...s.listItem, ...(p.originalIndex === selectedIndex ? s.listItemActive : {}) }}
+                >
+                  <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
+                  <div style={s.listItemText}>
+                    <span style={s.listName}>{p.name}</span>
+                    {p.description && <span style={s.listDescription}>{p.description}</span>}
+                  </div>
+                  {p.category && (
+                    <span style={s.listCatPill}>{p.category}</span>
+                  )}
+                  {p.originalIndex === selectedIndex && <span style={s.listArrow}>›</span>}
+                </button>
+              ))}
+
+              {isSearching && filteredPayloads.length === 0 && (
+                <p style={s.searchEmpty}>No payloads match "{searchQuery}"</p>
+              )}
+
+              {/* ── Grouped list when not searching ── */}
+              {!isSearching && grouped && Object.entries(grouped).map(([cat, items]) => (
+                <div key={cat}>
+                  <button
+                    onClick={() => toggleCategory(cat)}
+                    style={s.categoryHeader}
+                  >
+                    <span style={s.categoryChevron}>
+                      {collapsedCategories.has(cat) ? '▸' : '▾'}
+                    </span>
+                    <span style={s.categoryName}>{cat}</span>
+                    <span style={s.categoryCount}>{items.length}</span>
+                  </button>
+
+                  {!collapsedCategories.has(cat) && items.map((p) => (
+                    <button
+                      key={p.originalIndex}
+                      onClick={() => handleSelectPayload(p.originalIndex)}
+                      style={{ ...s.listItem, ...s.listItemIndented, ...(p.originalIndex === selectedIndex ? s.listItemActive : {}) }}
+                    >
+                      <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
+                      <div style={s.listItemText}>
+                        <span style={s.listName}>{p.name}</span>
+                        {p.description && <span style={s.listDescription}>{p.description}</span>}
+                      </div>
+                      {p.originalIndex === selectedIndex && <span style={s.listArrow}>›</span>}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* ── Right: stacked detail ───────────────────────────────────── */}
@@ -562,28 +691,130 @@ const s = {
   },
   columns: {
     display: 'grid',
-    gridTemplateColumns: '220px 1fr',
+    gridTemplateColumns: '260px 1fr',
     gap: '1.25rem',
     alignItems: 'start',
   },
 
-  // ── List ──────────────────────────────────────────────────────────────────
-  list: {
+  // ── Left column (search + list) ───────────────────────────────────────────
+  listCol: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '0',
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius)',
-    padding: '0.5rem',
     boxShadow: 'var(--shadow)',
+    overflow: 'hidden',
   },
+
+  // ── Search bar ────────────────────────────────────────────────────────────
+  searchBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+    padding: '0.5rem 0.625rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  searchIcon: {
+    fontSize: '0.95rem',
+    color: 'var(--text-secondary)',
+    flexShrink: 0,
+    lineHeight: 1,
+  },
+  searchInput: {
+    flex: 1,
+    border: 'none',
+    background: 'transparent',
+    outline: 'none',
+    fontSize: '0.8rem',
+    color: 'var(--text-primary)',
+    fontFamily: 'inherit',
+    minWidth: 0,
+  },
+  searchClear: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    color: 'var(--text-secondary)',
+    padding: '0 0.125rem',
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  searchCount: {
+    margin: 0,
+    padding: '0.25rem 0.75rem',
+    fontSize: '0.68rem',
+    color: 'var(--text-secondary)',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  searchEmpty: {
+    margin: 0,
+    padding: '1rem 0.75rem',
+    fontSize: '0.78rem',
+    color: 'var(--text-secondary)',
+    textAlign: 'center',
+  },
+
+  // ── List body ─────────────────────────────────────────────────────────────
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0',
+    maxHeight: '70vh',
+    overflowY: 'auto',
+    padding: '0.375rem',
+  },
+
+  // ── Category group header ─────────────────────────────────────────────────
+  categoryHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.375rem',
+    width: '100%',
+    padding: '0.4rem 0.5rem',
+    marginTop: '0.25rem',
+    background: 'none',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    textAlign: 'left',
+  },
+  categoryChevron: {
+    fontSize: '0.65rem',
+    color: 'var(--text-secondary)',
+    flexShrink: 0,
+    width: '0.75rem',
+  },
+  categoryName: {
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: 'var(--text-secondary)',
+    flex: 1,
+  },
+  categoryCount: {
+    fontSize: '0.65rem',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    background: 'var(--border)',
+    borderRadius: '999px',
+    padding: '1px 6px',
+    flexShrink: 0,
+  },
+
+  // ── List items ────────────────────────────────────────────────────────────
   listItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.625rem',
-    padding: '0.5rem 0.625rem',
-    borderRadius: '8px',
+    gap: '0.5rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: '7px',
     border: '1px solid transparent',
     background: 'transparent',
     cursor: 'pointer',
@@ -593,24 +824,50 @@ const s = {
     color: 'var(--text-primary)',
     transition: 'all 0.15s ease',
   },
+  listItemIndented: {
+    paddingLeft: '1.125rem',
+  },
   listItemActive: {
     background: 'var(--accent-light)',
     borderColor: 'var(--accent)',
   },
   listIndex: {
-    fontSize: '0.65rem',
+    fontSize: '0.62rem',
     fontWeight: 700,
     color: 'var(--text-secondary)',
     fontFamily: 'ui-monospace, SFMono-Regular, monospace',
     flexShrink: 0,
-    width: '1.5rem',
+    width: '1.4rem',
+  },
+  listItemText: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
   },
   listName: {
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     fontWeight: 600,
-    flex: 1,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  listDescription: {
+    fontSize: '0.67rem',
+    color: 'var(--text-secondary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  listCatPill: {
+    fontSize: '0.6rem',
+    fontWeight: 600,
+    color: 'var(--accent-dark)',
+    background: 'var(--accent-light)',
+    borderRadius: '4px',
+    padding: '1px 5px',
+    flexShrink: 0,
     whiteSpace: 'nowrap',
   },
   listArrow: {
