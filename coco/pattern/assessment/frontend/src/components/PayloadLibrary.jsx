@@ -69,6 +69,12 @@ export default function PayloadLibrary() {
   const [selectedUrlIdx, setSelectedUrlIdx] = useState(0);
   const [customUrl, setCustomUrl]         = useState('');
 
+  // ── Payload editing ───────────────────────────────────────────────────────
+  // editedPayload: null = use original from YAML; string = user has modified it
+  const [isEditingPayload, setIsEditingPayload]   = useState(false);
+  const [editedPayload, setEditedPayload]         = useState(null);
+  const [payloadParseError, setPayloadParseError] = useState('');
+
   // ── Run state ─────────────────────────────────────────────────────────────
   const [runState, setRunState]   = useState('idle'); // 'idle' | 'running'
   const [runResult, setRunResult] = useState(null);   // latest run's { status, body, durationMs } or { error, code, durationMs }
@@ -122,11 +128,35 @@ export default function PayloadLibrary() {
     catch { return entry.payload; }
   }
 
+  // Returns the payload text that will actually be sent — edited string if
+  // the user has modified it, otherwise the pretty-printed original.
+  function getEffectivePayloadStr() {
+    return editedPayload !== null ? editedPayload : getPrettyJson(payloads[selectedIndex]);
+  }
+
   function handleCopyPayload() {
-    navigator.clipboard.writeText(getPrettyJson(payloads[selectedIndex])).then(() => {
+    navigator.clipboard.writeText(getEffectivePayloadStr()).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     });
+  }
+
+  function handleEditPayload() {
+    // Pre-populate textarea with the current effective payload on first open
+    if (editedPayload === null) setEditedPayload(getPrettyJson(payloads[selectedIndex]));
+    setIsEditingPayload(true);
+  }
+
+  function handleResetPayload() {
+    setEditedPayload(null);
+    setIsEditingPayload(false);
+    setPayloadParseError('');
+  }
+
+  function handlePayloadChange(val) {
+    setEditedPayload(val);
+    try { JSON.parse(val); setPayloadParseError(''); }
+    catch (err) { setPayloadParseError(err.message); }
   }
 
   function handleCopyResponse() {
@@ -154,8 +184,10 @@ export default function PayloadLibrary() {
 
     const payload = payloads[selectedIndex];
     let payloadObj;
-    try { payloadObj = JSON.parse(payload.payload); }
-    catch { payloadObj = payload.payload; }
+    // Use the edited payload string if the user modified it, otherwise the original
+    const rawStr = editedPayload !== null ? editedPayload : payload.payload;
+    try { payloadObj = JSON.parse(rawStr); }
+    catch { payloadObj = rawStr; }
 
     const requestedAt = new Date().toLocaleTimeString();
     const payloadName = payload.name;
@@ -194,9 +226,12 @@ export default function PayloadLibrary() {
 
   function handleSelectPayload(i) {
     setSelectedIndex(i);
-    // Clear response when switching payloads so user knows to run again
+    // Clear response and edit state when switching payloads
     setViewingEntry(null);
     setRunResult(null);
+    setEditedPayload(null);
+    setIsEditingPayload(false);
+    setPayloadParseError('');
   }
 
   function handleClearHistory() {
@@ -223,9 +258,11 @@ export default function PayloadLibrary() {
     );
   }
 
-  const selected       = payloads[selectedIndex];
-  const activeUrl      = getActiveUrl();
-  const canRun         = runState === 'idle' && activeUrl.length > 0;
+  const selected        = payloads[selectedIndex];
+  const activeUrl       = getActiveUrl();
+  const payloadIsValid  = editedPayload === null || payloadParseError === '';
+  const canRun          = runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
+  const isModified      = editedPayload !== null; // true once user has typed anything
   const displayedResult = viewingEntry || runResult;
   const { bg: authBg, text: authText } = authBadgeColor(providerConfig.authType);
 
@@ -315,6 +352,9 @@ export default function PayloadLibrary() {
                 <div>
                   <h2 style={s.detailTitle}>{selected.name}</h2>
                   <span style={s.detailBadge}>JSON Payload</span>
+                  {isModified && (
+                    <span style={s.modifiedBadge}>Modified</span>
+                  )}
                 </div>
                 <div style={s.btnRow}>
                   <button
@@ -323,11 +363,32 @@ export default function PayloadLibrary() {
                   >
                     {copied ? '✓ Copied' : 'Copy'}
                   </button>
+                  {/* Edit / Reset toggle */}
+                  {!isEditingPayload ? (
+                    <button
+                      onClick={handleEditPayload}
+                      style={s.outlineBtn}
+                      title="Edit payload before running"
+                    >
+                      Edit
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleResetPayload}
+                      style={s.resetBtn}
+                      title="Discard edits and restore original"
+                    >
+                      Reset
+                    </button>
+                  )}
                   <button
                     onClick={handleRun}
                     disabled={!canRun}
                     style={{ ...s.runBtn, ...(!canRun ? s.runBtnDisabled : {}) }}
-                    title={!activeUrl ? 'Enter a provider URL above to run' : ''}
+                    title={
+                      !activeUrl ? 'Enter a provider URL above to run' :
+                      payloadParseError ? 'Fix JSON errors before running' : ''
+                    }
                   >
                     {runState === 'running'
                       ? <><span style={s.btnSpinner} />{'Running…'}</>
@@ -336,7 +397,24 @@ export default function PayloadLibrary() {
                   </button>
                 </div>
               </div>
-              <pre style={s.pre}>{getPrettyJson(selected)}</pre>
+
+              {/* Payload body — textarea in edit mode, pre otherwise */}
+              {isEditingPayload ? (
+                <>
+                  <textarea
+                    value={getEffectivePayloadStr()}
+                    onChange={(e) => handlePayloadChange(e.target.value)}
+                    style={s.editTextarea}
+                    spellCheck={false}
+                    autoFocus
+                  />
+                  {payloadParseError && (
+                    <p style={s.parseError}>⚠ Invalid JSON: {payloadParseError}</p>
+                  )}
+                </>
+              ) : (
+                <pre style={s.pre}>{getEffectivePayloadStr()}</pre>
+              )}
             </div>
 
             {/* ── Response card ────────────────────────────────────────── */}
@@ -641,6 +719,17 @@ const s = {
     background: 'var(--accent-light)',
     borderRadius: '5px',
     padding: '2px 7px',
+    marginRight: '0.375rem',
+  },
+  modifiedBadge: {
+    display: 'inline-block',
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    color: '#92400e',
+    background: '#fef3c7',
+    borderRadius: '5px',
+    padding: '2px 7px',
   },
   btnRow: {
     display: 'flex',
@@ -663,6 +752,35 @@ const s = {
     overflowY: 'auto',
   },
 
+  // ── Editable payload textarea ─────────────────────────────────────────────
+  editTextarea: {
+    display: 'block',
+    width: '100%',
+    minHeight: '16rem',
+    maxHeight: '26rem',
+    margin: 0,
+    padding: '1rem 1.125rem',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: '0.78rem',
+    lineHeight: 1.6,
+    color: 'var(--text-primary)',
+    background: 'var(--bg)',
+    border: 'none',
+    borderTop: '1px solid var(--border)',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
+    overflowY: 'auto',
+  },
+  parseError: {
+    margin: 0,
+    padding: '0.5rem 1.125rem',
+    fontSize: '0.72rem',
+    color: '#b91c1c',
+    background: '#fef2f2',
+    borderTop: '1px solid #fecaca',
+  },
+
   // ── Buttons ───────────────────────────────────────────────────────────────
   outlineBtn: {
     padding: '0.4rem 0.875rem',
@@ -681,6 +799,19 @@ const s = {
     background: '#f0fdf4',
     borderColor: '#22c55e',
     color: '#15803d',
+  },
+  resetBtn: {
+    padding: '0.4rem 0.875rem',
+    borderRadius: '8px',
+    border: '1.5px solid #f59e0b',
+    background: 'transparent',
+    color: '#92400e',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    flexShrink: 0,
   },
   runBtn: {
     display: 'flex',
