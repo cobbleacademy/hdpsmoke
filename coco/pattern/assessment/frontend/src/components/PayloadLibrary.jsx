@@ -590,7 +590,7 @@ export default function PayloadLibrary() {
                   </div>
                 ) : displayedResult?.error ? (
                   <div style={s.responseErrorBox}>
-                    <p style={s.errorText}>{displayedResult.error}</p>
+                    <pre style={s.responseErrorText}>{displayedResult.error}</pre>
                     {displayedResult.durationMs != null && (
                       <p style={{ ...s.mutedText, marginTop: '0.25rem' }}>
                         {displayedResult.durationMs} ms
@@ -599,9 +599,15 @@ export default function PayloadLibrary() {
                   </div>
                 ) : (
                   <pre style={s.pre}>
-                    {typeof displayedResult.body === 'object'
-                      ? JSON.stringify(displayedResult.body, null, 2)
-                      : String(displayedResult.body ?? '')}
+                    {(() => {
+                      const body = displayedResult.body;
+                      if (body === '' || body == null) {
+                        return `HTTP ${displayedResult.status} — (empty response body)`;
+                      }
+                      return typeof body === 'object'
+                        ? JSON.stringify(body, null, 2)
+                        : String(body);
+                    })()}
                   </pre>
                 )}
               </div>
@@ -1156,6 +1162,19 @@ const s = {
   responseErrorBox: {
     padding: '1rem 1.125rem',
     background: 'var(--bg)',
+  },
+  // Error text inside the response panel — full-width, left-aligned, monospace for long messages
+  responseErrorText: {
+    margin: 0,
+    padding: 0,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: '0.78rem',
+    lineHeight: 1.6,
+    color: '#b91c1c',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+    background: 'transparent',
+    border: 'none',
   },
 
   // ── History ───────────────────────────────────────────────────────────────
