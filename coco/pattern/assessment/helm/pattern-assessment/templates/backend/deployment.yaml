@@ -69,8 +69,10 @@ spec:
               value: {{ .Values.backend.env.PROVIDER_ENTRA_CLIENT_SECRET | quote }}
             - name: PROVIDER_ENTRA_SCOPE
               value: {{ .Values.backend.env.PROVIDER_ENTRA_SCOPE | quote }}
-            - name: PROVIDER_APIGEE_KEY
-              value: {{ .Values.backend.env.PROVIDER_APIGEE_KEY | quote }}
+            - name: PROVIDER_X_APIKEY
+              value: {{ .Values.backend.env.PROVIDER_X_APIKEY | quote }}
+            - name: PROVIDER_X_APISECRET
+              value: {{ .Values.backend.env.PROVIDER_X_APISECRET | quote }}
 
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
