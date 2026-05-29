@@ -46,6 +46,7 @@ export default function PayloadLibrary() {
   const [searchQuery, setSearchQuery]             = useState('');
   const [collapsedCategories, setCollapsedCategories] = useState(new Set());
   const searchInputRef                            = useRef(null);
+  const responseCardRef                           = useRef(null);
 
   // ── Provider config (from backend) ───────────────────────────────────────
   const [providerConfig, setProviderConfig] = useState({
@@ -114,6 +115,16 @@ export default function PayloadLibrary() {
       })
       .catch(() => setUrlMode('custom'));
   }, []);
+
+  // ── Scroll response card into view when a run completes ──────────────────
+  // runResult changes from null → result object the moment the run finishes
+  // (success or failure). Without this, the response card renders below the
+  // payload JSON block and is invisible until the user scrolls manually.
+  useEffect(() => {
+    if (runResult) {
+      responseCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [runResult]);
 
   // ── Cmd/Ctrl+K focuses search input ──────────────────────────────────────
   useEffect(() => {
@@ -548,7 +559,7 @@ export default function PayloadLibrary() {
 
             {/* ── Response card ────────────────────────────────────────── */}
             {(runState === 'running' || displayedResult) && (
-              <div style={s.card}>
+              <div style={s.card} ref={responseCardRef}>
                 <div style={s.cardTopRow}>
                   <span style={s.sectionLabel}>
                     {viewingEntry
