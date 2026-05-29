@@ -21,20 +21,6 @@ function StatusBadge({ status }) {
   );
 }
 
-function authLabel(authType) {
-  if (authType === 'x-api-key') return 'X-API-Key (env)';
-  if (authType === 'entra-apigee') return 'Entra + APIGEE';
-  if (authType === 'payload-embedded') return 'Creds in payload';
-  return 'No auth';
-}
-
-function authBadgeColor(authType) {
-  if (authType === 'entra-apigee') return { bg: '#ede9fe', text: '#6d28d9' };
-  if (authType === 'x-api-key') return { bg: '#fef9c3', text: '#92400e' };
-  if (authType === 'payload-embedded') return { bg: '#f0fdf4', text: '#166534' };
-  return { bg: '#f3f4f6', text: '#6b7280' };
-}
-
 function truncateUrl(url, max = 52) {
   if (!url) return '';
   try {
@@ -73,6 +59,10 @@ export default function PayloadLibrary() {
   const [urlMode, setUrlMode]             = useState('preset');
   const [selectedUrlIdx, setSelectedUrlIdx] = useState(0);
   const [customUrl, setCustomUrl]         = useState('');
+
+  // ── Auth type (per-request dropdown) ─────────────────────────────────────
+  // Defaults to 'none'; pre-populated from provider-config.defaultAuthType on mount
+  const [authType, setAuthType]           = useState('none');
 
   // ── Payload editing ───────────────────────────────────────────────────────
   // editedPayload: null = use original from YAML; string = user has modified it
@@ -117,6 +107,10 @@ export default function PayloadLibrary() {
         if (!cfg) return;
         setProviderConfig(cfg);
         if (!cfg.urls || cfg.urls.length === 0) setUrlMode('custom');
+        // Pre-select auth type from backend default (operator-configured via env var)
+        if (cfg.defaultAuthType && cfg.defaultAuthType !== 'none') {
+          setAuthType(cfg.defaultAuthType);
+        }
       })
       .catch(() => setUrlMode('custom'));
   }, []);
@@ -247,7 +241,7 @@ export default function PayloadLibrary() {
       const resp = await fetch(`${import.meta.env.BASE_URL}run-payload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload: payloadObj, url }),
+        body: JSON.stringify({ payload: payloadObj, url, authType }),
       });
 
       const data = await resp.json();
@@ -315,7 +309,6 @@ export default function PayloadLibrary() {
   const canRun          = runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
   const isModified      = editedPayload !== null;
   const displayedResult = viewingEntry || runResult;
-  const { bg: authBg, text: authText } = authBadgeColor(providerConfig.authType);
 
   // Search / grouping derived values
   const isSearching      = searchQuery.trim().length > 0;
@@ -428,9 +421,16 @@ export default function PayloadLibrary() {
             <div style={s.card}>
               <div style={s.cardTopRow}>
                 <span style={s.sectionLabel}>Provider URL</span>
-                <span style={{ ...s.chip, background: authBg, color: authText }}>
-                  {authLabel(providerConfig.authType)}
-                </span>
+                <select
+                  value={authType}
+                  onChange={(e) => setAuthType(e.target.value)}
+                  style={s.authSelect}
+                  title="Authentication mode for this run"
+                >
+                  <option value="none">No Auth</option>
+                  <option value="api-key">API Key</option>
+                  <option value="entraid-apigee">EntraID + APIGEE</option>
+                </select>
               </div>
 
               <div style={s.urlRow}>
@@ -908,6 +908,19 @@ const s = {
     letterSpacing: '0.07em',
     textTransform: 'uppercase',
     color: 'var(--text-secondary)',
+  },
+
+  // ── Auth type dropdown ────────────────────────────────────────────────────
+  authSelect: {
+    padding: '0.25rem 0.5rem',
+    borderRadius: '6px',
+    border: '1.5px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-primary)',
+    fontFamily: 'inherit',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
 
   // ── URL section ───────────────────────────────────────────────────────────
