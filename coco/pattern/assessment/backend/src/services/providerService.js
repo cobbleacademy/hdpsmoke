@@ -18,7 +18,7 @@ async function fetchEntraToken() {
 
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error(
-      'PROVIDER_AUTH_TYPE=entra-apigee but one or more of ' +
+      'PROVIDER_AUTH_TYPE=entraid-apigee but one or more of ' +
         'PROVIDER_ENTRA_TENANT_ID / CLIENT_ID / CLIENT_SECRET is not set'
     );
   }
@@ -65,15 +65,21 @@ async function buildAuthHeaders() {
     return { 'X-API-Key': key };
   }
 
-  if (authType === 'entra-apigee') {
+  if (authType === 'entraid-apigee') {
     const token = await fetchEntraToken();
-    const apigeeKey = process.env.PROVIDER_APIGEE_KEY || '';
-    if (!apigeeKey) {
-      console.warn('[providerService] PROVIDER_AUTH_TYPE=entra-apigee but PROVIDER_APIGEE_KEY is empty');
+    const apiKey = process.env.PROVIDER_X_APIKEY || '';
+    const apiSecret = process.env.PROVIDER_X_APISECRET || '';
+    if (!apiKey) {
+      console.warn('[providerService] PROVIDER_AUTH_TYPE=entraid-apigee but PROVIDER_X_APIKEY is empty');
+    }
+    if (!apiSecret) {
+      console.warn('[providerService] PROVIDER_AUTH_TYPE=entraid-apigee but PROVIDER_X_APISECRET is empty');
     }
     return {
       Authorization: `Bearer ${token}`,
-      'X-API-Key': apigeeKey,
+      'Content-Type': 'application/json',
+      'x-apikey': apiKey,
+      'x-apisecret': apiSecret,
     };
   }
 
