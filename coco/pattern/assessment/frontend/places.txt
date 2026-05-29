@@ -1,1 +1,12 @@
-places
+The Problem Before
+Testing a provider API the old way meant every developer had to:
+
+Maintain their own collection of JSON payloads — in notes, Postman, Notepad, or memory
+Know the right URL for each environment (Dev Z3, APIGEE, custom) and switch manually
+Hold credentials locally — API keys or Entra client secrets copied into curl commands or Postman environments
+Re-type or re-paste payloads for every test run, risking typos and stale data
+Lose results the moment the terminal closed — no record of what was sent or what came back
+Every developer reinventing the same setup. Every onboarding requiring a "how do I test this?" conversation.
+
+What the Payload Library Does Instead
+A shared, browser-based tool — open it, pick a payload, hit Run.
