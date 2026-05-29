@@ -708,7 +708,7 @@ const s = {
   },
   columns: {
     display: 'grid',
-    gridTemplateColumns: '260px 1fr',
+    gridTemplateColumns: '260px minmax(0, 1fr)',
     gap: '1.25rem',
     alignItems: 'start',
   },
@@ -899,6 +899,7 @@ const s = {
     display: 'flex',
     flexDirection: 'column',
     gap: '1rem',
+    minWidth: 0,          // prevents flex/grid cross-axis from expanding to content width
   },
 
   // ── Card shell ────────────────────────────────────────────────────────────
@@ -1033,8 +1034,9 @@ const s = {
     lineHeight: 1.6,
     color: 'var(--text-primary)',
     background: 'var(--bg)',
-    overflowX: 'auto',
-    whiteSpace: 'pre',
+    whiteSpace: 'pre-wrap',   // wraps long lines; preserves JSON indentation
+    wordBreak: 'break-all',   // breaks unspaced tokens (long URLs, base64, etc.)
+    overflowWrap: 'anywhere',
     maxHeight: '26rem',
     overflowY: 'auto',
   },
@@ -1173,6 +1175,7 @@ const s = {
   responseErrorBox: {
     padding: '1rem 1.125rem',
     background: 'var(--bg)',
+    overflow: 'hidden',   // gives the box a definite width for the pre's wrap boundary
   },
   // Error text inside the response panel — full-width, left-aligned, monospace for long messages
   responseErrorText: {
@@ -1184,6 +1187,7 @@ const s = {
     color: '#b91c1c',
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere', // force-breaks unspaced tokens (URLs, env var names, etc.)
     background: 'transparent',
     border: 'none',
   },
