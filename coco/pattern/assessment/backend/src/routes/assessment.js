@@ -47,27 +47,28 @@ router.post('/submit', async (req, res) => {
 
 /**
  * GET /provider-config
- * Returns the list of pre-configured provider URLs and the active auth type.
- * The frontend uses this to populate the URL dropdown.
+ * Returns the list of pre-configured provider URLs and the default auth type.
+ * The frontend uses this to populate the URL dropdown and pre-select the auth dropdown.
  */
 router.get('/provider-config', (req, res) => {
   const urls = getConfiguredUrls();
-  const authType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
+  const defaultAuthType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
   const timeoutMs = Math.max(
     10_000,
     parseInt(process.env.PROVIDER_TIMEOUT_MS || '15000', 10) || 15_000
   );
-  res.json({ urls, authType, timeoutMs });
+  res.json({ urls, defaultAuthType, timeoutMs });
 });
 
 /**
  * POST /run-payload
- * Body: { payload: <object|string>, url: <string> }
- * Forwards payload to the given provider URL with configured auth headers.
+ * Body: { payload: <object|string>, url: <string>, authType: <string> }
+ * authType is selected per-request by the frontend dropdown.
+ * Falls back to PROVIDER_AUTH_TYPE env var if omitted.
  * Returns: { status, body, durationMs } (provider's own HTTP status + response)
  */
 router.post('/run-payload', async (req, res) => {
-  const { payload, url } = req.body;
+  const { payload, url, authType } = req.body;
 
   if (typeof url !== 'string' || !url.startsWith('http')) {
     return res.status(400).json({ error: 'url must be a valid http/https string' });
@@ -77,7 +78,7 @@ router.post('/run-payload', async (req, res) => {
   }
 
   try {
-    const result = await callProvider(url, payload);
+    const result = await callProvider(url, payload, authType);
     // Always return 200 from our endpoint; provider's status is in result.status
     res.json(result);
   } catch (err) {

@@ -54,18 +54,23 @@ async function fetchEntraToken() {
 
 // ── Auth header builder ───────────────────────────────────────────────────────
 
-async function buildAuthHeaders() {
-  const authType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
+/**
+ * Build auth headers for a single request.
+ * @param {string} authType  One of: 'none' | 'api-key' | 'entraid-apigee' | 'payload-embedded'
+ *                           Passed per-request from the frontend dropdown.
+ */
+async function buildAuthHeaders(authType) {
+  const mode = (authType || 'none').toLowerCase();
 
-  if (authType === 'x-api-key') {
+  if (mode === 'api-key') {
     const key = process.env.PROVIDER_API_KEY || '';
     if (!key) {
-      console.warn('[providerService] PROVIDER_AUTH_TYPE=x-api-key but PROVIDER_API_KEY is empty');
+      console.warn('[providerService] authType=api-key but PROVIDER_API_KEY is empty');
     }
     return { 'X-API-Key': key };
   }
 
-  if (authType === 'entraid-apigee') {
+  if (mode === 'entraid-apigee') {
     const token = await fetchEntraToken();
     const apiKey = process.env.PROVIDER_X_APIKEY || '';
     const apiSecret = process.env.PROVIDER_X_APISECRET || '';
@@ -87,23 +92,27 @@ async function buildAuthHeaders() {
   return {};
 }
 
+
 // ── Main call ─────────────────────────────────────────────────────────────────
 
 /**
  * POST payload JSON to a provider URL.
  *
- * @param {string} url       Full HTTPS endpoint URL
- * @param {object|string} payload  Already-parsed JSON object (or raw string fallback)
+ * @param {string} url            Full HTTPS endpoint URL
+ * @param {object|string} payload Already-parsed JSON object (or raw string fallback)
+ * @param {string} [authType]     Auth mode for this request: 'none'|'api-key'|'entraid-apigee'|'payload-embedded'
+ *                                Falls back to PROVIDER_AUTH_TYPE env var if omitted.
  * @returns {{ status: number, body: any, durationMs: number }}
  * @throws Error with .code = 'TIMEOUT' | 'NETWORK' on hard failures
  */
-async function callProvider(url, payload) {
+async function callProvider(url, payload, authType) {
+  const resolvedAuthType = authType || process.env.PROVIDER_AUTH_TYPE || 'none';
   const timeoutMs = Math.max(
     10_000,
     parseInt(process.env.PROVIDER_TIMEOUT_MS || '15000', 10) || 15_000
   );
 
-  const authHeaders = await buildAuthHeaders();
+  const authHeaders = await buildAuthHeaders(resolvedAuthType);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
