@@ -32,11 +32,12 @@ backend:
     PROVIDER_URLS: ""
     # Display labels matching each URL above (same count; falls back to "Provider N")
     PROVIDER_URL_LABELS: ""
-    # Auth mode: none | x-api-key | entraid-apigee | payload-embedded
+    # Default auth type pre-selected in the frontend dropdown (user can override per run).
+    # Values: none | api-key | entraid-apigee | payload-embedded
     PROVIDER_AUTH_TYPE: none
     # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
     PROVIDER_TIMEOUT_MS: "15000"
-    # For x-api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
+    # For api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
     PROVIDER_API_KEY: ""
     # For entraid-apigee auth — set all six via --set
     PROVIDER_ENTRA_TENANT_ID: ""

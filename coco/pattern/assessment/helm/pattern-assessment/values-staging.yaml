@@ -15,7 +15,7 @@ backend:
     # Provider API — set these to populate the URL dropdown in the Payload Library
     PROVIDER_URLS: ""            # e.g. "https://dev-z3-providerservices.com/api/dev1/runtime/resolution/v3"
     PROVIDER_URL_LABELS: ""      # e.g. "Dev Z3"
-    PROVIDER_AUTH_TYPE: none     # x-api-key | entraid-apigee | payload-embedded | none
+    PROVIDER_AUTH_TYPE: none     # default dropdown pre-selection: none | api-key | entraid-apigee
 
   autoscaling:
     enabled: false
