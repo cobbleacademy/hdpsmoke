@@ -129,19 +129,27 @@ async function callProvider(url, payload, authType) {
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+
+    // Read the body as text exactly once.
+    // Calling resp.json() and falling back to resp.text() in the catch would
+    // throw "Body is unusable: Body has already been read" because the fetch
+    // stream is consumed by the failed json() attempt — masking the real
+    // provider error with a confusing internal message.
+    const rawText = await resp.text();
     const durationMs = Date.now() - startMs;
 
-    // Parse body — try JSON first, fall back to text
-    let body;
     const ct = resp.headers.get('content-type') || '';
+    let body;
     if (ct.includes('application/json')) {
       try {
-        body = await resp.json();
+        body = JSON.parse(rawText);
       } catch {
-        body = await resp.text();
+        // Content-Type said JSON but body wasn't valid — return raw text so
+        // the caller still sees the actual provider response rather than nothing.
+        body = rawText;
       }
     } else {
-      body = await resp.text();
+      body = rawText;
     }
 
     return { status: resp.status, body, durationMs };
