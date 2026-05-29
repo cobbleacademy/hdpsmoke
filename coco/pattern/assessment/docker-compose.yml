@@ -5,8 +5,11 @@ version: "3.8"
 # the Express backend. No dev-server hot-reload — use `npm run dev` for that.
 #
 # Usage:
-#   OPENAI_API_KEY=sk-... docker compose up --build
-#   open http://localhost:3000
+#   docker-compose up --build -d                        # bring up (detached)
+#   docker-compose down                                 # bring down
+#   docker-compose down --rmi local                     # bring down + remove images
+#   PROVIDER_URLS="https://..." docker-compose up -d    # override env, no rebuild
+#   open http://localhost:3000/api/pattern/assessment/
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -35,7 +38,8 @@ services:
       PROVIDER_ENTRA_CLIENT_ID: ${PROVIDER_ENTRA_CLIENT_ID:-}
       PROVIDER_ENTRA_CLIENT_SECRET: ${PROVIDER_ENTRA_CLIENT_SECRET:-}
       PROVIDER_ENTRA_SCOPE: ${PROVIDER_ENTRA_SCOPE:-}
-      PROVIDER_APIGEE_KEY: ${PROVIDER_APIGEE_KEY:-}
+      PROVIDER_X_APIKEY: ${PROVIDER_X_APIKEY:-}
+      PROVIDER_X_APISECRET: ${PROVIDER_X_APISECRET:-}
       PROVIDER_TIMEOUT_MS: ${PROVIDER_TIMEOUT_MS:-15000}
     ports:
       - "3001:3001"     # exposed for direct curl testing; not needed by frontend
