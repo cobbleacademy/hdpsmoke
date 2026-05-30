@@ -76,13 +76,16 @@ router.get('/provider-config', (req, res) => {
 
 /**
  * POST /run-payload
- * Body: { payload: <object|string>, url: <string>, authType: <string> }
+ * Body: { payload: <object|string>, url: <string>, authType: <string>, envId?: <string> }
  * authType is selected per-request by the frontend dropdown.
- * Falls back to PROVIDER_AUTH_TYPE env var if omitted.
+ * envId   is the active tab's environment ID (e.g. "ADM-DEV"); absent in legacy mode.
+ *         When present, per-env credential vars (PROVIDER_{ENV}_*) are used with
+ *         fallback to the global PROVIDER_* vars.
+ * Falls back to PROVIDER_AUTH_TYPE env var if authType is omitted.
  * Returns: { status, body, durationMs } (provider's own HTTP status + response)
  */
 router.post('/run-payload', async (req, res) => {
-  const { payload, url, authType } = req.body;
+  const { payload, url, authType, envId } = req.body;
 
   if (typeof url !== 'string' || !url.startsWith('http')) {
     return res.status(400).json({ error: 'url must be a valid http/https string' });
@@ -92,7 +95,7 @@ router.post('/run-payload', async (req, res) => {
   }
 
   try {
-    const result = await callProvider(url, payload, authType);
+    const result = await callProvider(url, payload, authType, envId || null);
     // Always return 200 from our endpoint; provider's status is in result.status
     res.json(result);
   } catch (err) {

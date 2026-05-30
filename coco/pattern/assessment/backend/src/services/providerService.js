@@ -1,34 +1,81 @@
 'use strict';
 
+// ── Per-environment credential resolver ───────────────────────────────────────
+
+/**
+ * Resolve auth credentials for a given environment.
+ *
+ * In tab mode the frontend sends envId (e.g. "ADM-DEV") with every run-payload
+ * request. The key is normalised to uppercase with non-alphanumeric chars replaced
+ * by underscores ("ADM-DEV" → "ADM_DEV"), then the per-env var is tried first:
+ *
+ *   PROVIDER_ADM_DEV_API_KEY  →  fallback  →  PROVIDER_API_KEY
+ *
+ * In legacy mode (envId is null/undefined) only the global vars are used.
+ * This keeps existing deployments that have not set per-env vars fully working.
+ *
+ * @param {string|null} envId  Raw environment ID ("ADM-DEV", "PROD", …) or null
+ * @returns {{ apiKey, entraTenantId, entraClientId, entraClientSecret,
+ *             entraScope, xApiKey, xApiSecret }}
+ */
+function getConfiguredCredentials(envId) {
+  const key = envId
+    ? envId.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+    : null;
+
+  // Try per-env var first; fall back to global var.
+  const get = (perEnvSuffix, globalVar) =>
+    (key && process.env[`PROVIDER_${key}_${perEnvSuffix}`]) ||
+    process.env[globalVar] ||
+    '';
+
+  return {
+    apiKey:            get('API_KEY',            'PROVIDER_API_KEY'),
+    entraTenantId:     get('ENTRA_TENANT_ID',    'PROVIDER_ENTRA_TENANT_ID'),
+    entraClientId:     get('ENTRA_CLIENT_ID',    'PROVIDER_ENTRA_CLIENT_ID'),
+    entraClientSecret: get('ENTRA_CLIENT_SECRET','PROVIDER_ENTRA_CLIENT_SECRET'),
+    entraScope:        get('ENTRA_SCOPE',        'PROVIDER_ENTRA_SCOPE')
+                       || 'https://graph.microsoft.com/.default',
+    xApiKey:           get('X_APIKEY',           'PROVIDER_X_APIKEY'),
+    xApiSecret:        get('X_APISECRET',        'PROVIDER_X_APISECRET'),
+  };
+}
+
 // ── In-memory Entra token cache ───────────────────────────────────────────────
 // Tokens are valid for ~3600 s; we refresh when < 5 min remain.
-let _entraCache = null; // { token: string, expiresAt: number (epoch ms) }
+// Keyed by "<tenantId>:<clientId>" so environments with different app registrations
+// maintain independent caches; environments sharing the same registration reuse
+// the same cached token without an extra fetch.
+const _entraTokenCache = new Map(); // key → { token: string, expiresAt: number }
 
-async function fetchEntraToken() {
-  const now = Date.now();
-  if (_entraCache && _entraCache.expiresAt - now > 5 * 60 * 1000) {
-    return _entraCache.token;
-  }
+/**
+ * Fetch (or return cached) an Entra OAuth2 client-credentials token.
+ * @param {{ entraTenantId, entraClientId, entraClientSecret, entraScope }} creds
+ */
+async function fetchEntraToken(creds) {
+  const { entraTenantId, entraClientId, entraClientSecret, entraScope } = creds;
 
-  const tenantId = process.env.PROVIDER_ENTRA_TENANT_ID;
-  const clientId = process.env.PROVIDER_ENTRA_CLIENT_ID;
-  const clientSecret = process.env.PROVIDER_ENTRA_CLIENT_SECRET;
-  const scope =
-    process.env.PROVIDER_ENTRA_SCOPE || 'https://graph.microsoft.com/.default';
-
-  if (!tenantId || !clientId || !clientSecret) {
+  if (!entraTenantId || !entraClientId || !entraClientSecret) {
     throw new Error(
-      'PROVIDER_AUTH_TYPE=entraid-apigee but one or more of ' +
-        'PROVIDER_ENTRA_TENANT_ID / CLIENT_ID / CLIENT_SECRET is not set'
+      'authType=entraid-apigee but one or more of ' +
+        'ENTRA_TENANT_ID / ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET is not set ' +
+        '(check per-env PROVIDER_{ENV}_ENTRA_* vars or the global PROVIDER_ENTRA_* fallbacks)'
     );
   }
 
-  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  const cacheKey = `${entraTenantId}:${entraClientId}`;
+  const now = Date.now();
+  const cached = _entraTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt - now > 5 * 60 * 1000) {
+    return cached.token;
+  }
+
+  const tokenUrl = `https://login.microsoftonline.com/${entraTenantId}/oauth2/v2.0/token`;
   const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope,
-    grant_type: 'client_credentials',
+    client_id:     entraClientId,
+    client_secret: entraClientSecret,
+    scope:         entraScope,
+    grant_type:    'client_credentials',
   });
 
   const resp = await fetch(tokenUrl, {
@@ -45,46 +92,45 @@ async function fetchEntraToken() {
   }
 
   const data = await resp.json();
-  _entraCache = {
-    token: data.access_token,
+  _entraTokenCache.set(cacheKey, {
+    token:     data.access_token,
     expiresAt: now + data.expires_in * 1000,
-  };
-  return _entraCache.token;
+  });
+  return data.access_token;
 }
 
 // ── Auth header builder ───────────────────────────────────────────────────────
 
 /**
  * Build auth headers for a single request.
+ *
  * @param {string} authType  One of: 'none' | 'api-key' | 'entraid-apigee' | 'payload-embedded'
- *                           Passed per-request from the frontend dropdown.
+ * @param {{ apiKey, entraTenantId, entraClientId, entraClientSecret,
+ *           entraScope, xApiKey, xApiSecret }} creds  Resolved credentials for this env.
  */
-async function buildAuthHeaders(authType) {
+async function buildAuthHeaders(authType, creds) {
   const mode = (authType || 'none').toLowerCase();
 
   if (mode === 'api-key') {
-    const key = process.env.PROVIDER_API_KEY || '';
-    if (!key) {
-      console.warn('[providerService] authType=api-key but PROVIDER_API_KEY is empty');
+    if (!creds.apiKey) {
+      console.warn('[providerService] authType=api-key but API_KEY credential is empty');
     }
-    return { 'X-API-Key': key };
+    return { 'X-API-Key': creds.apiKey };
   }
 
   if (mode === 'entraid-apigee') {
-    const token = await fetchEntraToken();
-    const apiKey = process.env.PROVIDER_X_APIKEY || '';
-    const apiSecret = process.env.PROVIDER_X_APISECRET || '';
-    if (!apiKey) {
-      console.warn('[providerService] PROVIDER_AUTH_TYPE=entraid-apigee but PROVIDER_X_APIKEY is empty');
+    const token = await fetchEntraToken(creds);
+    if (!creds.xApiKey) {
+      console.warn('[providerService] authType=entraid-apigee but X_APIKEY credential is empty');
     }
-    if (!apiSecret) {
-      console.warn('[providerService] PROVIDER_AUTH_TYPE=entraid-apigee but PROVIDER_X_APISECRET is empty');
+    if (!creds.xApiSecret) {
+      console.warn('[providerService] authType=entraid-apigee but X_APISECRET credential is empty');
     }
     return {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'x-apikey': apiKey,
-      'x-apisecret': apiSecret,
+      Authorization:    `Bearer ${token}`,
+      'Content-Type':   'application/json',
+      'x-apikey':       creds.xApiKey,
+      'x-apisecret':    creds.xApiSecret,
     };
   }
 
@@ -100,19 +146,22 @@ async function buildAuthHeaders(authType) {
  *
  * @param {string} url            Full HTTPS endpoint URL
  * @param {object|string} payload Already-parsed JSON object (or raw string fallback)
- * @param {string} [authType]     Auth mode for this request: 'none'|'api-key'|'entraid-apigee'|'payload-embedded'
+ * @param {string} [authType]     Auth mode: 'none'|'api-key'|'entraid-apigee'|'payload-embedded'
  *                                Falls back to PROVIDER_AUTH_TYPE env var if omitted.
+ * @param {string|null} [envId]   Environment ID from the frontend tab (e.g. "ADM-DEV").
+ *                                null/undefined → use global credential env vars (legacy mode).
  * @returns {{ status: number, body: any, durationMs: number }}
  * @throws Error with .code = 'TIMEOUT' | 'NETWORK' on hard failures
  */
-async function callProvider(url, payload, authType) {
+async function callProvider(url, payload, authType, envId) {
   const resolvedAuthType = authType || process.env.PROVIDER_AUTH_TYPE || 'none';
   const timeoutMs = Math.max(
     10_000,
     parseInt(process.env.PROVIDER_TIMEOUT_MS || '15000', 10) || 15_000
   );
 
-  const authHeaders = await buildAuthHeaders(resolvedAuthType);
+  const creds = getConfiguredCredentials(envId || null);
+  const authHeaders = await buildAuthHeaders(resolvedAuthType, creds);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
