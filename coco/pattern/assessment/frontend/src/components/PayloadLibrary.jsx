@@ -398,7 +398,12 @@ export default function PayloadLibrary() {
       const resp = await fetch(`${import.meta.env.BASE_URL}run-payload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload: payloadObj, url, authType }),
+        body: JSON.stringify({
+          payload:  payloadObj,
+          url,
+          authType,
+          envId: tabMode ? envIdSnapshot : null,
+        }),
       });
       const data = await resp.json();
       const result = resp.ok
