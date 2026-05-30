@@ -169,24 +169,19 @@ async function callProvider(url, payload, authType) {
   }
 }
 
-// ── Config helper ─────────────────────────────────────────────────────────────
+// ── Config helpers ────────────────────────────────────────────────────────────
 
 /**
  * Parse PROVIDER_URLS + PROVIDER_URL_LABELS into an array of { label, url }.
+ * Used only in legacy (no-tab) mode when PROVIDER_ENVS is not set.
  * Returns [] if the env var is not set.
  */
 function getConfiguredUrls() {
-  const rawUrls = process.env.PROVIDER_URLS || '';
+  const rawUrls   = process.env.PROVIDER_URLS   || '';
   const rawLabels = process.env.PROVIDER_URL_LABELS || '';
 
-  const urls = rawUrls
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const labels = rawLabels
-    .split(',')
-    .map((s) => s.trim());
+  const urls   = rawUrls.split(',').map((s) => s.trim()).filter(Boolean);
+  const labels = rawLabels.split(',').map((s) => s.trim());
 
   return urls.map((url, i) => ({
     label: labels[i] || `Provider ${i + 1}`,
@@ -194,4 +189,51 @@ function getConfiguredUrls() {
   }));
 }
 
-module.exports = { callProvider, getConfiguredUrls };
+/**
+ * Parse PROVIDER_ENVS + PROVIDER_ENV_PAYLOAD_FILES + per-env URL triplets
+ * into an array of environment objects for the tab-based UI.
+ *
+ * Each environment uses three env vars keyed by its uppercased ID:
+ *   PROVIDER_{ID}_URLS            — comma CSV of endpoint URLs
+ *   PROVIDER_{ID}_URL_LABELS      — comma CSV of display labels (optional)
+ *   PROVIDER_{ID}_URL_AUTH_TYPES  — comma CSV of auth types per URL (optional)
+ *
+ * Returns null when PROVIDER_ENVS is not set → caller falls back to legacy mode.
+ *
+ * @returns {Array<{id, label, payloadFile, urls: Array<{label, url, authType}>}>|null}
+ */
+function getConfiguredEnvironments() {
+  const rawEnvs  = process.env.PROVIDER_ENVS || '';
+  const rawFiles = process.env.PROVIDER_ENV_PAYLOAD_FILES || '';
+
+  const envIds = rawEnvs.split(',').map((s) => s.trim()).filter(Boolean);
+  if (envIds.length === 0) return null; // signal: use legacy mode
+
+  const payloadFiles = rawFiles.split(',').map((s) => s.trim());
+
+  return envIds.map((id, i) => {
+    // Normalise the key: "DEV" → "DEV", "dev-z3" → "DEV_Z3"
+    const key = id.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+
+    const rawUrls   = process.env[`PROVIDER_${key}_URLS`]           || '';
+    const rawLabels = process.env[`PROVIDER_${key}_URL_LABELS`]      || '';
+    const rawAuths  = process.env[`PROVIDER_${key}_URL_AUTH_TYPES`]  || '';
+
+    const urls   = rawUrls.split(',').map((s) => s.trim()).filter(Boolean);
+    const labels = rawLabels.split(',').map((s) => s.trim());
+    const auths  = rawAuths.split(',').map((s) => s.trim());
+
+    return {
+      id,
+      label: id,
+      payloadFile: payloadFiles[i] || id.toLowerCase(),
+      urls: urls.map((url, j) => ({
+        label:    labels[j] || `${id} URL ${j + 1}`,
+        url,
+        authType: (auths[j] || 'none').toLowerCase(),
+      })),
+    };
+  });
+}
+
+module.exports = { callProvider, getConfiguredUrls, getConfiguredEnvironments };

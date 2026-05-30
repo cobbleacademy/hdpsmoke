@@ -3,7 +3,7 @@ const router = express.Router();
 const questions = require('../data/questions.json');
 const { calculateScores, determinePattern, rankPatterns } = require('../services/scoringEngine');
 const { generateExplanation } = require('../services/llmService');
-const { callProvider, getConfiguredUrls } = require('../services/providerService');
+const { callProvider, getConfiguredUrls, getConfiguredEnvironments } = require('../services/providerService');
 
 router.get('/questions', (req, res) => {
   res.json(questions);
@@ -47,16 +47,30 @@ router.post('/submit', async (req, res) => {
 
 /**
  * GET /provider-config
- * Returns the list of pre-configured provider URLs and the default auth type.
- * The frontend uses this to populate the URL dropdown and pre-select the auth dropdown.
+ *
+ * Tab mode   (PROVIDER_ENVS is set):
+ *   Returns { environments: [{id, label, payloadFile, urls: [{label,url,authType}]}], timeoutMs }
+ *   Each environment bundles its own URL list with per-URL auth types.
+ *
+ * Legacy mode (PROVIDER_ENVS not set — backward compatible):
+ *   Returns { urls: [{label,url}], defaultAuthType, timeoutMs }
+ *   Identical shape to the pre-tab version; existing deployments are unaffected.
  */
 router.get('/provider-config', (req, res) => {
-  const urls = getConfiguredUrls();
-  const defaultAuthType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
   const timeoutMs = Math.max(
     10_000,
     parseInt(process.env.PROVIDER_TIMEOUT_MS || '15000', 10) || 15_000
   );
+
+  const environments = getConfiguredEnvironments();
+  if (environments !== null) {
+    // Tab mode
+    return res.json({ environments, timeoutMs });
+  }
+
+  // Legacy mode
+  const urls = getConfiguredUrls();
+  const defaultAuthType = (process.env.PROVIDER_AUTH_TYPE || 'none').toLowerCase();
   res.json({ urls, defaultAuthType, timeoutMs });
 });
 
