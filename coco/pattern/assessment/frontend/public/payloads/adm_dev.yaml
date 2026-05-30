@@ -1,0 +1,132 @@
+payloads:
+  - name: "Retail Merchant"
+    category: "Retail"
+    tags: ["merchant", "basic", "v1"]
+    description: "Standard retail merchant entity resolution"
+    payload: |
+      {
+        "entityId": "ENT-A001",
+        "clientId": "client_retail_alpha_7f2k",
+        "clientSecret": "sk_live_Rq8xN2mLpT4vWcYjZd9KbE3aGsUoFh6I",
+        "entityTypeId": "RETAIL_MERCHANT"
+      }
+
+  - name: "Payment Processor"
+    category: "Finance"
+    tags: ["fintech", "payments", "v1"]
+    description: "Payment processor entity with fintech credentials"
+    payload: |
+      {
+        "entityId": "ENT-A002",
+        "clientId": "client_fintech_bravo_3m9q",
+        "clientSecret": "sk_live_Pn5cV7yAeXtKlRuSgD2jMwBiOqZhF8Ys",
+        "entityTypeId": "PAYMENT_PROCESSOR"
+      }
+
+  - name: "Healthcare Provider"
+    category: "Healthcare"
+    tags: ["provider", "clinical", "v1"]
+    description: "Healthcare provider entity resolution"
+    payload: |
+      {
+        "entityId": "ENT-A003",
+        "clientId": "client_healthcare_charlie_1k5p",
+        "clientSecret": "sk_live_Hd4nT6rJmUwCsXzLaQ8eVfYbGpOkIj2N",
+        "entityTypeId": "HEALTHCARE_PROVIDER"
+      }
+
+  - name: "Freight Carrier"
+    category: "Logistics"
+    tags: ["carrier", "freight", "v1"]
+    description: "Freight carrier and transport entity"
+    payload: |
+      {
+        "entityId": "ENT-A004",
+        "clientId": "client_logistics_delta_9r2w",
+        "clientSecret": "sk_live_Wg3oE5xBcNvPdSuMaK7qZtLmFrJyHi1T",
+        "entityTypeId": "FREIGHT_CARRIER"
+      }
+
+  - name: "Education Platform"
+    category: "Education"
+    tags: ["edtech", "platform", "v1"]
+    description: "EdTech platform entity resolution"
+    payload: |
+      {
+        "entityId": "ENT-A005",
+        "clientId": "client_edtech_echo_6t4y",
+        "clientSecret": "sk_live_Yx1fR9kDpAuMcTgNsE6bLwVoZjQhCi4W",
+        "entityTypeId": "EDUCATION_PLATFORM"
+      }
+
+  - name: "Insurance Underwriter"
+    category: "Finance"
+    tags: ["insurance", "underwriter", "v1"]
+    description: "Insurance underwriter entity with risk profile"
+    payload: |
+      {
+        "entityId": "ENT-A006",
+        "clientId": "client_insurance_foxtrot_2n8v",
+        "clientSecret": "sk_live_Jc7qP3mGbNwXtLeRaS5kYdUoZiVhF9Ak",
+        "entityTypeId": "INSURANCE_UNDERWRITER"
+      }
+
+  - name: "Property Manager"
+    category: "Real Estate"
+    tags: ["property", "realestate", "v1"]
+    description: "Real estate property manager entity"
+    payload: |
+      {
+        "entityId": "ENT-A007",
+        "clientId": "client_realestate_golf_5j1u",
+        "clientSecret": "sk_live_Kf2bY8wLpOdRuAnXcM4tGsQjVeHzIi6T",
+        "entityTypeId": "PROPERTY_MANAGER"
+      }
+
+  - name: "Digital Publisher"
+    category: "Technology"
+    tags: ["media", "publisher", "digital", "v1"]
+    description: "Digital media publisher entity resolution"
+    payload: |
+      {
+        "entityId": "ENT-A008",
+        "clientId": "client_gaming_hotel_8q3z",
+        "clientSecret": "sk_live_Nv5aT1xCmKpRuSgEd7bLwYoZqFjHi9W",
+        "entityTypeId": "DIGITAL_PUBLISHER"
+      }
+
+  - name: "Industrial Supplier"
+    category: "Logistics"
+    tags: ["manufacturing", "supplier", "industrial", "v1"]
+    description: "Industrial goods supplier entity"
+    payload: |
+      {
+        "entityId": "ENT-A009",
+        "clientId": "client_manufacturing_india_4w6s",
+        "clientSecret": "sk_live_Qr3cU9yBnMwXtLeRaD2kGpOjZiVhF7Ak",
+        "entityTypeId": "INDUSTRIAL_SUPPLIER"
+      }
+
+  - name: "SaaS Vendor"
+    category: "Technology"
+    tags: ["saas", "software", "vendor", "v1"]
+    description: "Software-as-a-Service vendor entity"
+    payload: |
+      {
+        "entityId": "ENT-A010",
+        "clientId": "client_saas_juliet_7h5d",
+        "clientSecret": "sk_live_Sz8eP4mGbNvXtLcRaQ1kYdUoZjWhF2Tk",
+        "entityTypeId": "SAAS_VENDOR"
+      }
+
+  - name: "VM Vendor"
+    category: "Technology"
+    tags: ["vm", "virtualisation", "vendor", "v1"]
+    description: "Virtualisation / VM infrastructure vendor"
+    payload: |
+      {
+        "entityId": "ENT-A011",
+        "clientId": "client_vm_juliet_7h5d",
+        "clientSecret": "sk_live_Sz8eP4mGbNvXtadfadsfLcRaQ1kYdUoZjWhF2Tk",
+        "entityTypeId": "VM_VENDOR"
+      }
