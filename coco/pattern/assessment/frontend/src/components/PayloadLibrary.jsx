@@ -3,7 +3,37 @@ import jsYaml from 'js-yaml';
 
 const MAX_HISTORY = 20;
 
-// ── Status-badge colour helper ────────────────────────────────────────────────
+// ── Per-tab default state factory ─────────────────────────────────────────────
+// Each environment tab gets its own independent state slice.
+// `env` is the environment object from /provider-config (tab mode)
+// or { urls: [...] } (legacy mode).  Pass null for the very first render.
+function makeTabState(env) {
+  const firstUrl = env?.urls?.[0];
+  return {
+    fetchStatus: 'idle',       // 'idle' | 'loading' | 'ready' | 'error'
+    payloads: [],
+    errorMsg: '',
+    selectedIndex: 0,
+    copied: false,
+    searchQuery: '',
+    collapsedCategories: new Set(),
+    urlMode: (env?.urls?.length > 0) ? 'preset' : 'custom',
+    selectedUrlIdx: 0,
+    customUrl: '',
+    authType: firstUrl?.authType || 'none',
+    isEditingPayload: false,
+    editedPayload: null,
+    payloadParseError: '',
+    runState: 'idle',
+    runResult: null,
+    responseCopied: false,
+    history: [],
+    historyOpen: true,
+    viewingEntry: null,
+  };
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
 function statusColor(httpStatus) {
   if (!httpStatus) return { bg: '#f3f4f6', text: '#6b7280' };
   if (httpStatus < 300) return { bg: '#f0fdf4', text: '#15803d' };
@@ -35,98 +65,164 @@ function truncateUrl(url, max = 52) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function PayloadLibrary() {
-  // ── Payload list ──────────────────────────────────────────────────────────
-  const [payloads, setPayloads]           = useState([]);
-  const [fetchStatus, setFetchStatus]     = useState('loading');
-  const [errorMsg, setErrorMsg]           = useState('');
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [copied, setCopied]               = useState(false);
+  // ── Environment config ────────────────────────────────────────────────────
+  // environments: [] = legacy mode (no tabs); non-empty = tab mode
+  const [environments, setEnvironments] = useState([]);
+  const [legacyUrls, setLegacyUrls]     = useState([]);
+  const [activeEnvIdx, setActiveEnvIdx] = useState(0);
+  const [configLoaded, setConfigLoaded] = useState(false);
 
-  // ── Search & grouping ─────────────────────────────────────────────────────
-  const [searchQuery, setSearchQuery]             = useState('');
-  const [collapsedCategories, setCollapsedCategories] = useState(new Set());
-  const searchInputRef                            = useRef(null);
-  const responseCardRef                           = useRef(null);
+  // ── Per-tab state map ─────────────────────────────────────────────────────
+  // Key: env.id in tab mode, '__legacy__' in legacy mode
+  const [tabStates, setTabStates] = useState({});
 
-  // ── Provider config (from backend) ───────────────────────────────────────
-  const [providerConfig, setProviderConfig] = useState({
-    urls: [],
-    authType: 'none',
-    timeoutMs: 15000,
-  });
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const searchInputRef = useRef(null);
+  const responseCardRef = useRef(null);
+  // Tracks which tabs have already had their payload fetch initiated
+  const loadedTabsRef = useRef(new Set());
 
-  // ── URL selection ─────────────────────────────────────────────────────────
-  // urlMode: 'preset' = one of the backend-configured URLs; 'custom' = user-typed
-  const [urlMode, setUrlMode]             = useState('preset');
-  const [selectedUrlIdx, setSelectedUrlIdx] = useState(0);
-  const [customUrl, setCustomUrl]         = useState('');
+  // ── Derived values ────────────────────────────────────────────────────────
+  const tabMode     = environments.length > 0;
+  const activeEnv   = tabMode ? environments[activeEnvIdx] : null;
+  const activeEnvId = tabMode ? activeEnv.id : '__legacy__';
+  const activeUrls  = tabMode ? (activeEnv?.urls || []) : legacyUrls;
 
-  // ── Auth type (per-request dropdown) ─────────────────────────────────────
-  // Defaults to 'none'; pre-populated from provider-config.defaultAuthType on mount
-  const [authType, setAuthType]           = useState('none');
+  // ts = active tab's state (snapshot for this render)
+  const ts = tabStates[activeEnvId] ?? makeTabState(activeEnv ?? { urls: legacyUrls });
 
-  // ── Payload editing ───────────────────────────────────────────────────────
-  // editedPayload: null = use original from YAML; string = user has modified it
-  const [isEditingPayload, setIsEditingPayload]   = useState(false);
-  const [editedPayload, setEditedPayload]         = useState(null);
-  const [payloadParseError, setPayloadParseError] = useState('');
-
-  // ── Run state ─────────────────────────────────────────────────────────────
-  const [runState, setRunState]   = useState('idle'); // 'idle' | 'running'
-  const [runResult, setRunResult] = useState(null);   // latest run's { status, body, durationMs } or { error, code, durationMs }
-  const [responseCopied, setResponseCopied] = useState(false);
-
-  // ── History ───────────────────────────────────────────────────────────────
-  const [history, setHistory]           = useState([]);
-  const [historyOpen, setHistoryOpen]   = useState(true);
-  const [viewingEntry, setViewingEntry] = useState(null); // null = show current runResult
-
-  // ── Load payloads ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}payloads.yaml`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.text();
-      })
-      .then((text) => {
-        const parsed = jsYaml.load(text);
-        if (!parsed?.payloads?.length) throw new Error('payloads key missing or empty');
-        setPayloads(parsed.payloads);
-        setFetchStatus('ready');
-      })
-      .catch((err) => {
-        setErrorMsg(`Could not load payloads: ${err.message}`);
-        setFetchStatus('error');
-      });
-  }, []);
+  // upd: update the active tab's state (safe for synchronous event handlers only —
+  // use the setTabStates snapshot pattern inside async callbacks to avoid stale closures)
+  function upd(patch) {
+    const envId = activeEnvId;
+    const envRef = activeEnv;
+    const urlsRef = legacyUrls;
+    setTabStates(prev => ({
+      ...prev,
+      [envId]: { ...(prev[envId] ?? makeTabState(envRef ?? { urls: urlsRef })), ...patch },
+    }));
+  }
 
   // ── Load provider config ──────────────────────────────────────────────────
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}provider-config`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((cfg) => {
-        if (!cfg) return;
-        setProviderConfig(cfg);
-        if (!cfg.urls || cfg.urls.length === 0) setUrlMode('custom');
-        // Pre-select auth type from backend default (operator-configured via env var)
-        if (cfg.defaultAuthType && cfg.defaultAuthType !== 'none') {
-          setAuthType(cfg.defaultAuthType);
-        }
-      })
-      .catch(() => setUrlMode('custom'));
-  }, []);
+      .then(r => r.ok ? r.json() : null)
+      .then(cfg => {
+        if (!cfg) { setConfigLoaded(true); return; }
 
-  // ── Scroll response card into view when a run completes ──────────────────
-  // runResult changes from null → result object the moment the run finishes
-  // (success or failure). Without this, the response card renders below the
-  // payload JSON block and is invisible until the user scrolls manually.
+        if (cfg.environments?.length > 0) {
+          // ── Tab mode ──────────────────────────────────────────────────────
+          setEnvironments(cfg.environments);
+          // Initialise all tab states as 'idle' so tab switches work immediately
+          setTabStates(
+            cfg.environments.reduce((acc, env) => {
+              acc[env.id] = makeTabState(env);
+              return acc;
+            }, {})
+          );
+        } else {
+          // ── Legacy mode (backward compat) ─────────────────────────────────
+          const urls = cfg.urls || [];
+          setLegacyUrls(urls);
+          setTabStates({
+            '__legacy__': {
+              ...makeTabState({ urls }),
+              authType: (cfg.defaultAuthType || 'none'),
+              urlMode: urls.length > 0 ? 'preset' : 'custom',
+            },
+          });
+        }
+        setConfigLoaded(true);
+      })
+      .catch(() => {
+        setTabStates({ '__legacy__': makeTabState({ urls: [] }) });
+        setConfigLoaded(true);
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load payloads when active tab first becomes visible ───────────────────
+  // Runs when activeEnvId changes or when configLoaded flips to true.
+  // loadedTabsRef guards against re-fetching a tab that's already been loaded.
   useEffect(() => {
-    if (runResult) {
+    if (!configLoaded) return;
+    if (loadedTabsRef.current.has(activeEnvId)) return;
+    loadedTabsRef.current.add(activeEnvId);
+
+    // Snapshot everything needed for the async path — activeEnvId may change
+    // before the fetch resolves (user switches tabs mid-flight).
+    const envIdSnap    = activeEnvId;
+    const payloadFile  = activeEnv?.payloadFile ?? null;
+
+    // Mark as loading (using setTabStates directly to avoid stale upd closure)
+    setTabStates(prev => ({
+      ...prev,
+      [envIdSnap]: {
+        ...(prev[envIdSnap] ?? makeTabState(activeEnv ?? { urls: legacyUrls })),
+        fetchStatus: 'loading',
+      },
+    }));
+
+    const tryFetch = (url) =>
+      fetch(url).then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      });
+
+    const parseText = (text) => {
+      const parsed = jsYaml.load(text);
+      if (!parsed?.payloads?.length) throw new Error('payloads key missing or empty');
+      return parsed.payloads;
+    };
+
+    (async () => {
+      let payloads;
+
+      // Step 1: per-environment file (e.g. payloads/dev.yaml)
+      if (payloadFile) {
+        try {
+          const text = await tryFetch(`${import.meta.env.BASE_URL}payloads/${payloadFile}.yaml`);
+          payloads = parseText(text);
+        } catch {
+          // fall through to step 2
+        }
+      }
+
+      // Step 2: fallback to legacy payloads.yaml
+      if (!payloads) {
+        try {
+          const text = await tryFetch(`${import.meta.env.BASE_URL}payloads.yaml`);
+          payloads = parseText(text);
+        } catch (e) {
+          const hint = payloadFile
+            ? ` — create frontend/public/payloads/${payloadFile}.yaml`
+            : '';
+          setTabStates(prev => ({
+            ...prev,
+            [envIdSnap]: {
+              ...(prev[envIdSnap] ?? {}),
+              fetchStatus: 'error',
+              errorMsg: `Could not load payloads: ${e.message}${hint}`,
+            },
+          }));
+          return;
+        }
+      }
+
+      setTabStates(prev => ({
+        ...prev,
+        [envIdSnap]: { ...(prev[envIdSnap] ?? {}), fetchStatus: 'ready', payloads },
+      }));
+    })();
+  }, [activeEnvId, configLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Scroll response card into view on run complete ────────────────────────
+  useEffect(() => {
+    if (ts.runResult) {
       responseCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [runResult]);
+  }, [ts.runResult]);
 
-  // ── Cmd/Ctrl+K focuses search input ──────────────────────────────────────
+  // ── ⌘K / Ctrl+K focuses search ────────────────────────────────────────────
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -138,11 +234,29 @@ export default function PayloadLibrary() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // ── Search filter + category grouping helpers ─────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function getActiveUrl() {
+    if (ts.urlMode === 'custom') return ts.customUrl.trim();
+    const entry = activeUrls[ts.selectedUrlIdx];
+    return entry ? entry.url : '';
+  }
+
+  function getPrettyJson(entry) {
+    try { return JSON.stringify(JSON.parse(entry.payload), null, 2); }
+    catch { return entry.payload; }
+  }
+
+  function getEffectivePayloadStr() {
+    return ts.editedPayload !== null
+      ? ts.editedPayload
+      : getPrettyJson(ts.payloads[ts.selectedIndex]);
+  }
+
+  // ── Search & grouping ─────────────────────────────────────────────────────
   function getFilteredPayloads() {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return payloads.map((p, i) => ({ ...p, originalIndex: i }));
-    return payloads.reduce((acc, p, i) => {
+    const q = ts.searchQuery.trim().toLowerCase();
+    if (!q) return ts.payloads.map((p, i) => ({ ...p, originalIndex: i }));
+    return ts.payloads.reduce((acc, p, i) => {
       if (
         p.name.toLowerCase().includes(q) ||
         p.category?.toLowerCase().includes(q) ||
@@ -165,58 +279,39 @@ export default function PayloadLibrary() {
   }
 
   function toggleCategory(cat) {
-    setCollapsedCategories((prev) => {
-      const next = new Set(prev);
-      next.has(cat) ? next.delete(cat) : next.add(cat);
-      return next;
-    });
+    const next = new Set(ts.collapsedCategories);
+    next.has(cat) ? next.delete(cat) : next.add(cat);
+    upd({ collapsedCategories: next });
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function getActiveUrl() {
-    if (urlMode === 'custom') return customUrl.trim();
-    const entry = providerConfig.urls[selectedUrlIdx];
-    return entry ? entry.url : '';
-  }
-
-  function getPrettyJson(entry) {
-    try { return JSON.stringify(JSON.parse(entry.payload), null, 2); }
-    catch { return entry.payload; }
-  }
-
-  // Returns the payload text that will actually be sent — edited string if
-  // the user has modified it, otherwise the pretty-printed original.
-  function getEffectivePayloadStr() {
-    return editedPayload !== null ? editedPayload : getPrettyJson(payloads[selectedIndex]);
-  }
-
+  // ── Event handlers ────────────────────────────────────────────────────────
   function handleCopyPayload() {
     navigator.clipboard.writeText(getEffectivePayloadStr()).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      upd({ copied: true });
+      setTimeout(() => upd({ copied: false }), 1800);
     });
   }
 
   function handleEditPayload() {
-    // Pre-populate textarea with the current effective payload on first open
-    if (editedPayload === null) setEditedPayload(getPrettyJson(payloads[selectedIndex]));
-    setIsEditingPayload(true);
+    const editedPayload = ts.editedPayload === null
+      ? getPrettyJson(ts.payloads[ts.selectedIndex])
+      : ts.editedPayload;
+    upd({ isEditingPayload: true, editedPayload });
   }
 
   function handleResetPayload() {
-    setEditedPayload(null);
-    setIsEditingPayload(false);
-    setPayloadParseError('');
+    upd({ editedPayload: null, isEditingPayload: false, payloadParseError: '' });
   }
 
   function handlePayloadChange(val) {
-    setEditedPayload(val);
-    try { JSON.parse(val); setPayloadParseError(''); }
-    catch (err) { setPayloadParseError(err.message); }
+    let payloadParseError = '';
+    try { JSON.parse(val); }
+    catch (err) { payloadParseError = err.message; }
+    upd({ editedPayload: val, payloadParseError });
   }
 
   function handleCopyResponse() {
-    const displayed = viewingEntry || runResult;
+    const displayed = ts.viewingEntry || ts.runResult;
     if (!displayed) return;
     const text = displayed.error
       ? displayed.error
@@ -224,29 +319,80 @@ export default function PayloadLibrary() {
         ? JSON.stringify(displayed.body, null, 2)
         : String(displayed.body ?? '');
     navigator.clipboard.writeText(text).then(() => {
-      setResponseCopied(true);
-      setTimeout(() => setResponseCopied(false), 1800);
+      upd({ responseCopied: true });
+      setTimeout(() => upd({ responseCopied: false }), 1800);
     });
   }
 
-  // ── Run ───────────────────────────────────────────────────────────────────
+  function handleSelectPayload(i) {
+    upd({
+      selectedIndex: i,
+      viewingEntry: null,
+      runResult: null,
+      editedPayload: null,
+      isEditingPayload: false,
+      payloadParseError: '',
+    });
+  }
+
+  // When a URL is selected from the dropdown, auto-set auth type from that
+  // URL's configured authType (user can still override before running).
+  function handleSelectUrl(value) {
+    if (value === 'custom') {
+      upd({ urlMode: 'custom' });
+    } else {
+      const idx   = parseInt(value.slice(2), 10);
+      const entry = activeUrls[idx];
+      upd({
+        urlMode: 'preset',
+        selectedUrlIdx: idx,
+        ...(entry?.authType ? { authType: entry.authType } : {}),
+      });
+    }
+  }
+
+  // ── Run handler ───────────────────────────────────────────────────────────
+  // All state updates after the first await use setTabStates with a captured
+  // envIdSnapshot so results always land in the correct tab even if the user
+  // switches tabs while the request is in-flight.
   async function handleRun() {
     const url = getActiveUrl();
-    if (!url || runState === 'running') return;
+    if (!url || ts.runState === 'running') return;
 
-    setViewingEntry(null);
-    setRunResult(null);
-    setRunState('running');
+    // Snapshot everything needed before the first await
+    const envIdSnapshot = activeEnvId;
+    const authType      = ts.authType;
+    const payload       = ts.payloads[ts.selectedIndex];
+    const rawStr        = ts.editedPayload !== null ? ts.editedPayload : payload.payload;
+    const requestedAt   = new Date().toLocaleTimeString();
+    const payloadName   = payload.name;
 
-    const payload = payloads[selectedIndex];
+    // Synchronous — upd is fine here
+    upd({ viewingEntry: null, runResult: null, runState: 'running' });
+
     let payloadObj;
-    // Use the edited payload string if the user modified it, otherwise the original
-    const rawStr = editedPayload !== null ? editedPayload : payload.payload;
     try { payloadObj = JSON.parse(rawStr); }
     catch { payloadObj = rawStr; }
 
-    const requestedAt = new Date().toLocaleTimeString();
-    const payloadName = payload.name;
+    // Async-safe updater: always writes to envIdSnapshot, not current active tab
+    const updSnap = (patch) =>
+      setTabStates(prev => ({
+        ...prev,
+        [envIdSnapshot]: { ...(prev[envIdSnapshot] ?? {}), ...patch },
+      }));
+
+    const addHistorySnap = (entry) =>
+      setTabStates(prev => {
+        const current = prev[envIdSnapshot] ?? {};
+        const newHistory = [
+          { id: Date.now(), ...entry },
+          ...(current.history ?? []),
+        ].slice(0, MAX_HISTORY);
+        return {
+          ...prev,
+          [envIdSnapshot]: { ...current, history: newHistory, historyOpen: true },
+        };
+      });
 
     try {
       const resp = await fetch(`${import.meta.env.BASE_URL}run-payload`, {
@@ -254,89 +400,108 @@ export default function PayloadLibrary() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payload: payloadObj, url, authType }),
       });
-
       const data = await resp.json();
-
-      // resp.ok → backend proxy succeeded; data.status is the provider's HTTP code
-      // !resp.ok → backend itself failed (timeout/network); data has .error, .code
       const result = resp.ok
         ? data
         : { error: data.error, code: data.code, durationMs: data.durationMs };
 
-      setRunResult(result);
-      setRunState('idle');
-      addToHistory({ payloadName, url, requestedAt, ...result });
-      setHistoryOpen(true);
+      updSnap({ runResult: result, runState: 'idle' });
+      addHistorySnap({ payloadName, url, requestedAt, ...result });
     } catch (err) {
       const result = { error: err.message, code: 'NETWORK' };
-      setRunResult(result);
-      setRunState('idle');
-      addToHistory({ payloadName, url, requestedAt, ...result });
-      setHistoryOpen(true);
+      updSnap({ runResult: result, runState: 'idle' });
+      addHistorySnap({ payloadName, url, requestedAt, ...result });
     }
   }
 
-  function addToHistory(entry) {
-    setHistory((prev) => [{ id: Date.now(), ...entry }, ...prev].slice(0, MAX_HISTORY));
-  }
-
-  function handleSelectPayload(i) {
-    setSelectedIndex(i);
-    // Clear response and edit state when switching payloads
-    setViewingEntry(null);
-    setRunResult(null);
-    setEditedPayload(null);
-    setIsEditingPayload(false);
-    setPayloadParseError('');
-  }
-
   function handleClearHistory() {
-    setHistory([]);
-    setViewingEntry(null);
-    setHistoryOpen(false);
+    upd({ history: [], viewingEntry: null, historyOpen: false });
+  }
+
+  function handleTabSwitch(idx) {
+    if (idx === activeEnvIdx) return;
+    setActiveEnvIdx(idx);
+    // Tab state is already in tabStates (initialized on config load); payload
+    // loading is triggered lazily by the useEffect above via loadedTabsRef.
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  if (fetchStatus === 'loading') {
+  // Tab strip (declared as a const so it can be used in early returns below)
+  const tabStrip = tabMode ? (
+    <div style={s.tabStrip}>
+      {environments.map((env, idx) => (
+        <button
+          key={env.id}
+          onClick={() => handleTabSwitch(idx)}
+          style={{ ...s.tab, ...(idx === activeEnvIdx ? s.tabActive : {}) }}
+        >
+          {env.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  // ── Loading / error early returns ─────────────────────────────────────────
+  if (ts.fetchStatus === 'idle' || ts.fetchStatus === 'loading') {
     return (
-      <div style={s.screen}>
-        <div style={s.spinner} />
-        <p style={s.mutedText}>Loading payloads…</p>
+      <div style={s.page}>
+        <div style={s.container}>
+          <header style={s.header}>
+            <h1 style={s.title}>Payload Library</h1>
+          </header>
+          {tabStrip}
+          <div style={s.screen}>
+            <div style={s.spinner} />
+            <p style={s.mutedText}>Loading payloads…</p>
+          </div>
+        </div>
       </div>
     );
   }
 
-  if (fetchStatus === 'error') {
+  if (ts.fetchStatus === 'error') {
     return (
-      <div style={s.screen}>
-        <p style={s.errorText}>{errorMsg}</p>
+      <div style={s.page}>
+        <div style={s.container}>
+          <header style={s.header}>
+            <h1 style={s.title}>Payload Library</h1>
+          </header>
+          {tabStrip}
+          <div style={s.screen}>
+            <p style={s.errorText}>{ts.errorMsg}</p>
+          </div>
+        </div>
       </div>
     );
   }
 
-  const selected        = payloads[selectedIndex];
+  // ── Main render ───────────────────────────────────────────────────────────
+  const selected        = ts.payloads[ts.selectedIndex];
   const activeUrl       = getActiveUrl();
-  const payloadIsValid  = editedPayload === null || payloadParseError === '';
-  const canRun          = runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
-  const isModified      = editedPayload !== null;
-  const displayedResult = viewingEntry || runResult;
-
-  // Search / grouping derived values
-  const isSearching      = searchQuery.trim().length > 0;
+  const payloadIsValid  = ts.editedPayload === null || ts.payloadParseError === '';
+  const canRun          = ts.runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
+  const isModified      = ts.editedPayload !== null;
+  const displayedResult = ts.viewingEntry || ts.runResult;
+  const isSearching     = ts.searchQuery.trim().length > 0;
   const filteredPayloads = getFilteredPayloads();
-  const grouped          = isSearching ? null : getGrouped(filteredPayloads);
+  const grouped         = isSearching ? null : getGrouped(filteredPayloads);
 
   return (
     <div style={s.page}>
       <div style={s.container}>
+
         <header style={s.header}>
           <h1 style={s.title}>Payload Library</h1>
           <p style={s.subtitle}>
-            {payloads.length} sample API payloads — select, inspect, and run against a provider.
+            {ts.payloads.length} sample API payloads — select, inspect, and run against a provider.
           </p>
         </header>
 
+        {/* ── Tab strip (tab mode only — always shown, even with 1 tab) ──── */}
+        {tabStrip}
+
         <div style={s.columns}>
+
           {/* ── Left: search + payload list ─────────────────────────────── */}
           <div style={s.listCol}>
 
@@ -347,77 +512,80 @@ export default function PayloadLibrary() {
                 ref={searchInputRef}
                 type="text"
                 placeholder="Search… (⌘K)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={ts.searchQuery}
+                onChange={(e) => upd({ searchQuery: e.target.value })}
                 onKeyDown={(e) => {
-                  if (e.key === 'Escape') { setSearchQuery(''); e.target.blur(); }
+                  if (e.key === 'Escape') { upd({ searchQuery: '' }); e.target.blur(); }
                 }}
                 style={s.searchInput}
                 spellCheck={false}
               />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} style={s.searchClear} title="Clear">×</button>
+              {ts.searchQuery && (
+                <button
+                  onClick={() => upd({ searchQuery: '' })}
+                  style={s.searchClear}
+                  title="Clear"
+                >×</button>
               )}
             </div>
 
-            {/* Match count shown only while searching */}
             {isSearching && (
               <p style={s.searchCount}>
-                {filteredPayloads.length} of {payloads.length}
+                {filteredPayloads.length} of {ts.payloads.length}
               </p>
             )}
 
-            {/* List body */}
             <div style={s.list}>
-              {/* ── Flat list when searching ── */}
+              {/* Flat list while searching */}
               {isSearching && filteredPayloads.map((p) => (
                 <button
                   key={p.originalIndex}
                   onClick={() => handleSelectPayload(p.originalIndex)}
-                  style={{ ...s.listItem, ...(p.originalIndex === selectedIndex ? s.listItemActive : {}) }}
+                  style={{
+                    ...s.listItem,
+                    ...(p.originalIndex === ts.selectedIndex ? s.listItemActive : {}),
+                  }}
                 >
                   <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
                   <div style={s.listItemText}>
                     <span style={s.listName}>{p.name}</span>
                     {p.description && <span style={s.listDescription}>{p.description}</span>}
                   </div>
-                  {p.category && (
-                    <span style={s.listCatPill}>{p.category}</span>
-                  )}
-                  {p.originalIndex === selectedIndex && <span style={s.listArrow}>›</span>}
+                  {p.category && <span style={s.listCatPill}>{p.category}</span>}
+                  {p.originalIndex === ts.selectedIndex && <span style={s.listArrow}>›</span>}
                 </button>
               ))}
 
               {isSearching && filteredPayloads.length === 0 && (
-                <p style={s.searchEmpty}>No payloads match "{searchQuery}"</p>
+                <p style={s.searchEmpty}>No payloads match &ldquo;{ts.searchQuery}&rdquo;</p>
               )}
 
-              {/* ── Grouped list when not searching ── */}
+              {/* Grouped list when not searching */}
               {!isSearching && grouped && Object.entries(grouped).map(([cat, items]) => (
                 <div key={cat}>
-                  <button
-                    onClick={() => toggleCategory(cat)}
-                    style={s.categoryHeader}
-                  >
+                  <button onClick={() => toggleCategory(cat)} style={s.categoryHeader}>
                     <span style={s.categoryChevron}>
-                      {collapsedCategories.has(cat) ? '▸' : '▾'}
+                      {ts.collapsedCategories.has(cat) ? '▸' : '▾'}
                     </span>
                     <span style={s.categoryName}>{cat}</span>
                     <span style={s.categoryCount}>{items.length}</span>
                   </button>
-
-                  {!collapsedCategories.has(cat) && items.map((p) => (
+                  {!ts.collapsedCategories.has(cat) && items.map((p) => (
                     <button
                       key={p.originalIndex}
                       onClick={() => handleSelectPayload(p.originalIndex)}
-                      style={{ ...s.listItem, ...s.listItemIndented, ...(p.originalIndex === selectedIndex ? s.listItemActive : {}) }}
+                      style={{
+                        ...s.listItem,
+                        ...s.listItemIndented,
+                        ...(p.originalIndex === ts.selectedIndex ? s.listItemActive : {}),
+                      }}
                     >
                       <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
                       <div style={s.listItemText}>
                         <span style={s.listName}>{p.name}</span>
                         {p.description && <span style={s.listDescription}>{p.description}</span>}
                       </div>
-                      {p.originalIndex === selectedIndex && <span style={s.listArrow}>›</span>}
+                      {p.originalIndex === ts.selectedIndex && <span style={s.listArrow}>›</span>}
                     </button>
                   ))}
                 </div>
@@ -425,7 +593,7 @@ export default function PayloadLibrary() {
             </div>
           </div>
 
-          {/* ── Right: stacked detail ───────────────────────────────────── */}
+          {/* ── Right: stacked detail ────────────────────────────────────── */}
           <div style={s.detailCol}>
 
             {/* ── URL / Auth card ──────────────────────────────────────── */}
@@ -433,8 +601,8 @@ export default function PayloadLibrary() {
               <div style={s.cardTopRow}>
                 <span style={s.sectionLabel}>Provider URL</span>
                 <select
-                  value={authType}
-                  onChange={(e) => setAuthType(e.target.value)}
+                  value={ts.authType}
+                  onChange={(e) => upd({ authType: e.target.value })}
                   style={s.authSelect}
                   title="Authentication mode for this run"
                 >
@@ -445,22 +613,14 @@ export default function PayloadLibrary() {
               </div>
 
               <div style={s.urlRow}>
-                {/* Preset dropdown — only shown when backend has configured URLs */}
-                {providerConfig.urls.length > 0 && (
+                {/* Preset dropdown — shown when this environment has configured URLs */}
+                {activeUrls.length > 0 && (
                   <select
-                    value={urlMode === 'preset' ? `p:${selectedUrlIdx}` : 'custom'}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === 'custom') {
-                        setUrlMode('custom');
-                      } else {
-                        setUrlMode('preset');
-                        setSelectedUrlIdx(parseInt(v.slice(2), 10));
-                      }
-                    }}
+                    value={ts.urlMode === 'preset' ? `p:${ts.selectedUrlIdx}` : 'custom'}
+                    onChange={(e) => handleSelectUrl(e.target.value)}
                     style={s.urlSelect}
                   >
-                    {providerConfig.urls.map((u, i) => (
+                    {activeUrls.map((u, i) => (
                       <option key={i} value={`p:${i}`}>{u.label}</option>
                     ))}
                     <option value="custom">Custom URL…</option>
@@ -468,21 +628,21 @@ export default function PayloadLibrary() {
                 )}
 
                 {/* Custom URL input — shown when custom mode or no presets */}
-                {(urlMode === 'custom' || providerConfig.urls.length === 0) && (
+                {(ts.urlMode === 'custom' || activeUrls.length === 0) && (
                   <input
                     type="url"
                     placeholder="https://provider.example.com/api/endpoint"
-                    value={customUrl}
-                    onChange={(e) => setCustomUrl(e.target.value)}
+                    value={ts.customUrl}
+                    onChange={(e) => upd({ customUrl: e.target.value })}
                     style={s.urlInput}
                     spellCheck={false}
                   />
                 )}
               </div>
 
-              {/* Show the full URL when preset is selected */}
-              {urlMode === 'preset' && providerConfig.urls[selectedUrlIdx] && (
-                <p style={s.urlHint}>{providerConfig.urls[selectedUrlIdx].url}</p>
+              {/* Full URL hint when preset is active */}
+              {ts.urlMode === 'preset' && activeUrls[ts.selectedUrlIdx] && (
+                <p style={s.urlHint}>{activeUrls[ts.selectedUrlIdx].url}</p>
               )}
             </div>
 
@@ -492,19 +652,16 @@ export default function PayloadLibrary() {
                 <div>
                   <h2 style={s.detailTitle}>{selected.name}</h2>
                   <span style={s.detailBadge}>JSON Payload</span>
-                  {isModified && (
-                    <span style={s.modifiedBadge}>Modified</span>
-                  )}
+                  {isModified && <span style={s.modifiedBadge}>Modified</span>}
                 </div>
                 <div style={s.btnRow}>
                   <button
                     onClick={handleCopyPayload}
-                    style={{ ...s.outlineBtn, ...(copied ? s.outlineBtnOk : {}) }}
+                    style={{ ...s.outlineBtn, ...(ts.copied ? s.outlineBtnOk : {}) }}
                   >
-                    {copied ? '✓ Copied' : 'Copy'}
+                    {ts.copied ? '✓ Copied' : 'Copy'}
                   </button>
-                  {/* Edit / Reset toggle */}
-                  {!isEditingPayload ? (
+                  {!ts.isEditingPayload ? (
                     <button
                       onClick={handleEditPayload}
                       style={s.outlineBtn}
@@ -527,10 +684,10 @@ export default function PayloadLibrary() {
                     style={{ ...s.runBtn, ...(!canRun ? s.runBtnDisabled : {}) }}
                     title={
                       !activeUrl ? 'Enter a provider URL above to run' :
-                      payloadParseError ? 'Fix JSON errors before running' : ''
+                      ts.payloadParseError ? 'Fix JSON errors before running' : ''
                     }
                   >
-                    {runState === 'running'
+                    {ts.runState === 'running'
                       ? <><span style={s.btnSpinner} />{'Running…'}</>
                       : '▶ Run'
                     }
@@ -538,8 +695,7 @@ export default function PayloadLibrary() {
                 </div>
               </div>
 
-              {/* Payload body — textarea in edit mode, pre otherwise */}
-              {isEditingPayload ? (
+              {ts.isEditingPayload ? (
                 <>
                   <textarea
                     value={getEffectivePayloadStr()}
@@ -548,8 +704,8 @@ export default function PayloadLibrary() {
                     spellCheck={false}
                     autoFocus
                   />
-                  {payloadParseError && (
-                    <p style={s.parseError}>⚠ Invalid JSON: {payloadParseError}</p>
+                  {ts.payloadParseError && (
+                    <p style={s.parseError}>⚠ Invalid JSON: {ts.payloadParseError}</p>
                   )}
                 </>
               ) : (
@@ -558,17 +714,17 @@ export default function PayloadLibrary() {
             </div>
 
             {/* ── Response card ────────────────────────────────────────── */}
-            {(runState === 'running' || displayedResult) && (
+            {(ts.runState === 'running' || displayedResult) && (
               <div style={s.card} ref={responseCardRef}>
                 <div style={s.cardTopRow}>
                   <span style={s.sectionLabel}>
-                    {viewingEntry
-                      ? `History · ${viewingEntry.payloadName} · ${viewingEntry.requestedAt}`
+                    {ts.viewingEntry
+                      ? `History · ${ts.viewingEntry.payloadName} · ${ts.viewingEntry.requestedAt}`
                       : 'Provider Response'}
                   </span>
                   <div style={s.responseMetaRow}>
-                    {viewingEntry && (
-                      <button onClick={() => setViewingEntry(null)} style={s.ghostBtn}>
+                    {ts.viewingEntry && (
+                      <button onClick={() => upd({ viewingEntry: null })} style={s.ghostBtn}>
                         ← Current
                       </button>
                     )}
@@ -580,9 +736,9 @@ export default function PayloadLibrary() {
                         )}
                         <button
                           onClick={handleCopyResponse}
-                          style={{ ...s.outlineBtn, ...(responseCopied ? s.outlineBtnOk : {}) }}
+                          style={{ ...s.outlineBtn, ...(ts.responseCopied ? s.outlineBtnOk : {}) }}
                         >
-                          {responseCopied ? '✓' : 'Copy'}
+                          {ts.responseCopied ? '✓' : 'Copy'}
                         </button>
                       </>
                     )}
@@ -594,7 +750,7 @@ export default function PayloadLibrary() {
                   </div>
                 </div>
 
-                {runState === 'running' && !displayedResult ? (
+                {ts.runState === 'running' && !displayedResult ? (
                   <div style={s.responseLoading}>
                     <div style={s.spinner} />
                     <p style={s.mutedText}>Calling provider…</p>
@@ -625,15 +781,15 @@ export default function PayloadLibrary() {
             )}
 
             {/* ── History card ─────────────────────────────────────────── */}
-            {history.length > 0 && (
+            {ts.history.length > 0 && (
               <div style={s.card}>
                 <div style={s.cardTopRow}>
                   <button
-                    onClick={() => setHistoryOpen((v) => !v)}
+                    onClick={() => upd({ historyOpen: !ts.historyOpen })}
                     style={s.ghostBtn}
                   >
                     <span style={s.sectionLabel}>
-                      {historyOpen ? '▾' : '▸'} Run History ({history.length})
+                      {ts.historyOpen ? '▾' : '▸'} Run History ({ts.history.length})
                     </span>
                   </button>
                   <button onClick={handleClearHistory} style={s.ghostBtn}>
@@ -641,15 +797,15 @@ export default function PayloadLibrary() {
                   </button>
                 </div>
 
-                {historyOpen && (
+                {ts.historyOpen && (
                   <div style={s.historyList}>
-                    {history.map((entry) => (
+                    {ts.history.map((entry) => (
                       <button
                         key={entry.id}
-                        onClick={() => setViewingEntry(entry)}
+                        onClick={() => upd({ viewingEntry: entry })}
                         style={{
                           ...s.historyItem,
-                          ...(viewingEntry?.id === entry.id ? s.historyItemActive : {}),
+                          ...(ts.viewingEntry?.id === entry.id ? s.historyItemActive : {}),
                         }}
                       >
                         <span style={s.historyName}>{entry.payloadName}</span>
@@ -692,7 +848,7 @@ const s = {
     margin: '0 auto',
   },
   header: {
-    marginBottom: '1.75rem',
+    marginBottom: '1rem',
   },
   title: {
     fontSize: '1.6rem',
@@ -706,6 +862,46 @@ const s = {
     color: 'var(--text-secondary)',
     margin: 0,
   },
+
+  // ── Tab strip ─────────────────────────────────────────────────────────────
+  // Horizontally scrollable; white-space: nowrap keeps all tabs on one line.
+  tabStrip: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: '2px',
+    overflowX: 'auto',
+    whiteSpace: 'nowrap',
+    borderBottom: '2px solid var(--border)',
+    marginBottom: '1.25rem',
+    paddingBottom: '0',
+    // Hide scrollbar on WebKit while keeping scroll functionality
+    scrollbarWidth: 'thin',
+    scrollbarColor: 'var(--border) transparent',
+  },
+  tab: {
+    display: 'inline-block',
+    padding: '0.45rem 1.1rem',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-2px',   // sits on top of the strip's border-bottom
+    background: 'none',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+    fontSize: '0.82rem',
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    cursor: 'pointer',
+    borderRadius: '6px 6px 0 0',
+    transition: 'color 0.15s, border-color 0.15s',
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+  },
+  tabActive: {
+    color: 'var(--accent)',
+    borderBottomColor: 'var(--accent)',
+    background: 'var(--accent-light)',
+  },
+
   columns: {
     display: 'grid',
     gridTemplateColumns: '260px minmax(0, 1fr)',
@@ -1177,7 +1373,6 @@ const s = {
     background: 'var(--bg)',
     overflow: 'hidden',   // gives the box a definite width for the pre's wrap boundary
   },
-  // Error text inside the response panel — full-width, left-aligned, monospace for long messages
   responseErrorText: {
     margin: 0,
     padding: 0,
@@ -1251,7 +1446,7 @@ const s = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '60vh',
+    minHeight: '40vh',
     gap: '1rem',
   },
   spinner: {
