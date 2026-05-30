@@ -55,30 +55,90 @@ spec:
               value: {{ .Values.backend.env.PROVIDER_ENVS | quote }}
             - name: PROVIDER_ENV_PAYLOAD_FILES
               value: {{ .Values.backend.env.PROVIDER_ENV_PAYLOAD_FILES | quote }}
+            # ADM-DEV — URL triplet + per-env credentials
             - name: PROVIDER_ADM_DEV_URLS
               value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URLS | quote }}
             - name: PROVIDER_ADM_DEV_URL_LABELS
               value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URL_LABELS | quote }}
             - name: PROVIDER_ADM_DEV_URL_AUTH_TYPES
               value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_ADM_DEV_API_KEY
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_API_KEY | quote }}
+            - name: PROVIDER_ADM_DEV_ENTRA_TENANT_ID
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_ENTRA_TENANT_ID | quote }}
+            - name: PROVIDER_ADM_DEV_ENTRA_CLIENT_ID
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_ENTRA_CLIENT_ID | quote }}
+            - name: PROVIDER_ADM_DEV_ENTRA_CLIENT_SECRET
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_ENTRA_CLIENT_SECRET | quote }}
+            - name: PROVIDER_ADM_DEV_ENTRA_SCOPE
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_ENTRA_SCOPE | quote }}
+            - name: PROVIDER_ADM_DEV_X_APIKEY
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_X_APIKEY | quote }}
+            - name: PROVIDER_ADM_DEV_X_APISECRET
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_X_APISECRET | quote }}
+            # DEV — URL triplet + per-env credentials
             - name: PROVIDER_DEV_URLS
               value: {{ .Values.backend.env.PROVIDER_DEV_URLS | quote }}
             - name: PROVIDER_DEV_URL_LABELS
               value: {{ .Values.backend.env.PROVIDER_DEV_URL_LABELS | quote }}
             - name: PROVIDER_DEV_URL_AUTH_TYPES
               value: {{ .Values.backend.env.PROVIDER_DEV_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_DEV_API_KEY
+              value: {{ .Values.backend.env.PROVIDER_DEV_API_KEY | quote }}
+            - name: PROVIDER_DEV_ENTRA_TENANT_ID
+              value: {{ .Values.backend.env.PROVIDER_DEV_ENTRA_TENANT_ID | quote }}
+            - name: PROVIDER_DEV_ENTRA_CLIENT_ID
+              value: {{ .Values.backend.env.PROVIDER_DEV_ENTRA_CLIENT_ID | quote }}
+            - name: PROVIDER_DEV_ENTRA_CLIENT_SECRET
+              value: {{ .Values.backend.env.PROVIDER_DEV_ENTRA_CLIENT_SECRET | quote }}
+            - name: PROVIDER_DEV_ENTRA_SCOPE
+              value: {{ .Values.backend.env.PROVIDER_DEV_ENTRA_SCOPE | quote }}
+            - name: PROVIDER_DEV_X_APIKEY
+              value: {{ .Values.backend.env.PROVIDER_DEV_X_APIKEY | quote }}
+            - name: PROVIDER_DEV_X_APISECRET
+              value: {{ .Values.backend.env.PROVIDER_DEV_X_APISECRET | quote }}
+            # NPE — URL triplet + per-env credentials
             - name: PROVIDER_NPE_URLS
               value: {{ .Values.backend.env.PROVIDER_NPE_URLS | quote }}
             - name: PROVIDER_NPE_URL_LABELS
               value: {{ .Values.backend.env.PROVIDER_NPE_URL_LABELS | quote }}
             - name: PROVIDER_NPE_URL_AUTH_TYPES
               value: {{ .Values.backend.env.PROVIDER_NPE_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_NPE_API_KEY
+              value: {{ .Values.backend.env.PROVIDER_NPE_API_KEY | quote }}
+            - name: PROVIDER_NPE_ENTRA_TENANT_ID
+              value: {{ .Values.backend.env.PROVIDER_NPE_ENTRA_TENANT_ID | quote }}
+            - name: PROVIDER_NPE_ENTRA_CLIENT_ID
+              value: {{ .Values.backend.env.PROVIDER_NPE_ENTRA_CLIENT_ID | quote }}
+            - name: PROVIDER_NPE_ENTRA_CLIENT_SECRET
+              value: {{ .Values.backend.env.PROVIDER_NPE_ENTRA_CLIENT_SECRET | quote }}
+            - name: PROVIDER_NPE_ENTRA_SCOPE
+              value: {{ .Values.backend.env.PROVIDER_NPE_ENTRA_SCOPE | quote }}
+            - name: PROVIDER_NPE_X_APIKEY
+              value: {{ .Values.backend.env.PROVIDER_NPE_X_APIKEY | quote }}
+            - name: PROVIDER_NPE_X_APISECRET
+              value: {{ .Values.backend.env.PROVIDER_NPE_X_APISECRET | quote }}
+            # PROD — URL triplet + per-env credentials
             - name: PROVIDER_PROD_URLS
               value: {{ .Values.backend.env.PROVIDER_PROD_URLS | quote }}
             - name: PROVIDER_PROD_URL_LABELS
               value: {{ .Values.backend.env.PROVIDER_PROD_URL_LABELS | quote }}
             - name: PROVIDER_PROD_URL_AUTH_TYPES
               value: {{ .Values.backend.env.PROVIDER_PROD_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_PROD_API_KEY
+              value: {{ .Values.backend.env.PROVIDER_PROD_API_KEY | quote }}
+            - name: PROVIDER_PROD_ENTRA_TENANT_ID
+              value: {{ .Values.backend.env.PROVIDER_PROD_ENTRA_TENANT_ID | quote }}
+            - name: PROVIDER_PROD_ENTRA_CLIENT_ID
+              value: {{ .Values.backend.env.PROVIDER_PROD_ENTRA_CLIENT_ID | quote }}
+            - name: PROVIDER_PROD_ENTRA_CLIENT_SECRET
+              value: {{ .Values.backend.env.PROVIDER_PROD_ENTRA_CLIENT_SECRET | quote }}
+            - name: PROVIDER_PROD_ENTRA_SCOPE
+              value: {{ .Values.backend.env.PROVIDER_PROD_ENTRA_SCOPE | quote }}
+            - name: PROVIDER_PROD_X_APIKEY
+              value: {{ .Values.backend.env.PROVIDER_PROD_X_APIKEY | quote }}
+            - name: PROVIDER_PROD_X_APISECRET
+              value: {{ .Values.backend.env.PROVIDER_PROD_X_APISECRET | quote }}
             # ── Legacy mode (backward compat when PROVIDER_ENVS not set) ───
             - name: PROVIDER_URLS
               value: {{ .Values.backend.env.PROVIDER_URLS | quote }}
@@ -86,7 +146,7 @@ spec:
               value: {{ .Values.backend.env.PROVIDER_URL_LABELS | quote }}
             - name: PROVIDER_AUTH_TYPE
               value: {{ .Values.backend.env.PROVIDER_AUTH_TYPE | quote }}
-            # ── Auth credentials (shared) ───────────────────────────────────
+            # ── Global credential fallbacks ─────────────────────────────────
             - name: PROVIDER_TIMEOUT_MS
               value: {{ .Values.backend.env.PROVIDER_TIMEOUT_MS | quote }}
             - name: PROVIDER_API_KEY

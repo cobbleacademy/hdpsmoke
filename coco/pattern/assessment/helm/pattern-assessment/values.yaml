@@ -37,20 +37,54 @@ backend:
     PROVIDER_ADM_DEV_URLS: ""
     PROVIDER_ADM_DEV_URL_LABELS: ""
     PROVIDER_ADM_DEV_URL_AUTH_TYPES: ""
+    # Per-env credentials for ADM-DEV — set via --set at deploy time
+    PROVIDER_ADM_DEV_API_KEY: ""
+    PROVIDER_ADM_DEV_ENTRA_TENANT_ID: ""
+    PROVIDER_ADM_DEV_ENTRA_CLIENT_ID: ""
+    PROVIDER_ADM_DEV_ENTRA_CLIENT_SECRET: ""
+    PROVIDER_ADM_DEV_ENTRA_SCOPE: ""
+    PROVIDER_ADM_DEV_X_APIKEY: ""
+    PROVIDER_ADM_DEV_X_APISECRET: ""
     PROVIDER_DEV_URLS: ""
     PROVIDER_DEV_URL_LABELS: ""
     PROVIDER_DEV_URL_AUTH_TYPES: ""
+    # Per-env credentials for DEV — set via --set at deploy time
+    PROVIDER_DEV_API_KEY: ""
+    PROVIDER_DEV_ENTRA_TENANT_ID: ""
+    PROVIDER_DEV_ENTRA_CLIENT_ID: ""
+    PROVIDER_DEV_ENTRA_CLIENT_SECRET: ""
+    PROVIDER_DEV_ENTRA_SCOPE: ""
+    PROVIDER_DEV_X_APIKEY: ""
+    PROVIDER_DEV_X_APISECRET: ""
     PROVIDER_NPE_URLS: ""
     PROVIDER_NPE_URL_LABELS: ""
     PROVIDER_NPE_URL_AUTH_TYPES: ""
+    # Per-env credentials for NPE — set via --set at deploy time
+    PROVIDER_NPE_API_KEY: ""
+    PROVIDER_NPE_ENTRA_TENANT_ID: ""
+    PROVIDER_NPE_ENTRA_CLIENT_ID: ""
+    PROVIDER_NPE_ENTRA_CLIENT_SECRET: ""
+    PROVIDER_NPE_ENTRA_SCOPE: ""
+    PROVIDER_NPE_X_APIKEY: ""
+    PROVIDER_NPE_X_APISECRET: ""
     PROVIDER_PROD_URLS: ""
     PROVIDER_PROD_URL_LABELS: ""
     PROVIDER_PROD_URL_AUTH_TYPES: ""
+    # Per-env credentials for PROD — set via --set at deploy time
+    PROVIDER_PROD_API_KEY: ""
+    PROVIDER_PROD_ENTRA_TENANT_ID: ""
+    PROVIDER_PROD_ENTRA_CLIENT_ID: ""
+    PROVIDER_PROD_ENTRA_CLIENT_SECRET: ""
+    PROVIDER_PROD_ENTRA_SCOPE: ""
+    PROVIDER_PROD_X_APIKEY: ""
+    PROVIDER_PROD_X_APISECRET: ""
     # ── Legacy mode (used when PROVIDER_ENVS is not set) ──────────────────────
     PROVIDER_URLS: ""
     PROVIDER_URL_LABELS: ""
     PROVIDER_AUTH_TYPE: none
-    # ── Auth credentials (shared by both modes) ───────────────────────────────
+    # ── Global credential fallbacks ───────────────────────────────────────────
+    # Used when the matching PROVIDER_{ENV}_* var above is not set.
+    # In legacy mode (PROVIDER_ENVS unset) these are the only credential vars.
     # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
     PROVIDER_TIMEOUT_MS: "15000"
     # For api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
