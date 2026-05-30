@@ -50,13 +50,43 @@ spec:
                   name: pattern-secrets
                   key: OPENAI_API_KEY
 
-            # ── Provider API (Payload Library "Run" feature) ────────────────
+            # ── Provider API — tab mode ─────────────────────────────────────
+            - name: PROVIDER_ENVS
+              value: {{ .Values.backend.env.PROVIDER_ENVS | quote }}
+            - name: PROVIDER_ENV_PAYLOAD_FILES
+              value: {{ .Values.backend.env.PROVIDER_ENV_PAYLOAD_FILES | quote }}
+            - name: PROVIDER_ADM_DEV_URLS
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URLS | quote }}
+            - name: PROVIDER_ADM_DEV_URL_LABELS
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URL_LABELS | quote }}
+            - name: PROVIDER_ADM_DEV_URL_AUTH_TYPES
+              value: {{ .Values.backend.env.PROVIDER_ADM_DEV_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_DEV_URLS
+              value: {{ .Values.backend.env.PROVIDER_DEV_URLS | quote }}
+            - name: PROVIDER_DEV_URL_LABELS
+              value: {{ .Values.backend.env.PROVIDER_DEV_URL_LABELS | quote }}
+            - name: PROVIDER_DEV_URL_AUTH_TYPES
+              value: {{ .Values.backend.env.PROVIDER_DEV_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_NPE_URLS
+              value: {{ .Values.backend.env.PROVIDER_NPE_URLS | quote }}
+            - name: PROVIDER_NPE_URL_LABELS
+              value: {{ .Values.backend.env.PROVIDER_NPE_URL_LABELS | quote }}
+            - name: PROVIDER_NPE_URL_AUTH_TYPES
+              value: {{ .Values.backend.env.PROVIDER_NPE_URL_AUTH_TYPES | quote }}
+            - name: PROVIDER_PROD_URLS
+              value: {{ .Values.backend.env.PROVIDER_PROD_URLS | quote }}
+            - name: PROVIDER_PROD_URL_LABELS
+              value: {{ .Values.backend.env.PROVIDER_PROD_URL_LABELS | quote }}
+            - name: PROVIDER_PROD_URL_AUTH_TYPES
+              value: {{ .Values.backend.env.PROVIDER_PROD_URL_AUTH_TYPES | quote }}
+            # ── Legacy mode (backward compat when PROVIDER_ENVS not set) ───
             - name: PROVIDER_URLS
               value: {{ .Values.backend.env.PROVIDER_URLS | quote }}
             - name: PROVIDER_URL_LABELS
               value: {{ .Values.backend.env.PROVIDER_URL_LABELS | quote }}
             - name: PROVIDER_AUTH_TYPE
               value: {{ .Values.backend.env.PROVIDER_AUTH_TYPE | quote }}
+            # ── Auth credentials (shared) ───────────────────────────────────
             - name: PROVIDER_TIMEOUT_MS
               value: {{ .Values.backend.env.PROVIDER_TIMEOUT_MS | quote }}
             - name: PROVIDER_API_KEY

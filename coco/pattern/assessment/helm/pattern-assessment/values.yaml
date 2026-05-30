@@ -26,15 +26,31 @@ backend:
     OPENAI_MODEL: gpt-4o-mini
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
-    # ── Provider API (Payload Library "Run" feature) ──────────────────────────
-    # Comma-separated list of pre-configured provider URLs shown in the dropdown.
-    # Leave empty to show only the custom URL input in the UI.
+    # ── Provider API (Payload Library) — tab mode ────────────────────────────
+    # Set PROVIDER_ENVS to enable the tab-per-environment Payload Library UI.
+    # Leave blank to fall back to legacy single-panel mode (PROVIDER_URLS below).
+    PROVIDER_ENVS: ""
+    PROVIDER_ENV_PAYLOAD_FILES: ""
+    # Per-environment URL triplets — set via --set at deploy time.
+    # Pattern: PROVIDER_{ID}_URLS / _URL_LABELS / _URL_AUTH_TYPES
+    # Note: hyphens in IDs become underscores (ADM-DEV → ADM_DEV).
+    PROVIDER_ADM_DEV_URLS: ""
+    PROVIDER_ADM_DEV_URL_LABELS: ""
+    PROVIDER_ADM_DEV_URL_AUTH_TYPES: ""
+    PROVIDER_DEV_URLS: ""
+    PROVIDER_DEV_URL_LABELS: ""
+    PROVIDER_DEV_URL_AUTH_TYPES: ""
+    PROVIDER_NPE_URLS: ""
+    PROVIDER_NPE_URL_LABELS: ""
+    PROVIDER_NPE_URL_AUTH_TYPES: ""
+    PROVIDER_PROD_URLS: ""
+    PROVIDER_PROD_URL_LABELS: ""
+    PROVIDER_PROD_URL_AUTH_TYPES: ""
+    # ── Legacy mode (used when PROVIDER_ENVS is not set) ──────────────────────
     PROVIDER_URLS: ""
-    # Display labels matching each URL above (same count; falls back to "Provider N")
     PROVIDER_URL_LABELS: ""
-    # Default auth type pre-selected in the frontend dropdown (user can override per run).
-    # Values: none | api-key | entraid-apigee | payload-embedded
     PROVIDER_AUTH_TYPE: none
+    # ── Auth credentials (shared by both modes) ───────────────────────────────
     # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
     PROVIDER_TIMEOUT_MS: "15000"
     # For api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
