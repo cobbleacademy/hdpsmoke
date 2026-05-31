@@ -17,8 +17,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/ ./src/
 
-# Non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Non-root user for security.
+# Create the payload storage directory BEFORE switching user so Docker
+# initialises the named volume with appuser ownership on first mount.
+# Without this the volume is root-owned and the non-root process gets EACCES.
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+ && mkdir -p /app/data/payloads \
+ && chown -R appuser:appgroup /app/data
 USER appuser
 
 EXPOSE 3001
