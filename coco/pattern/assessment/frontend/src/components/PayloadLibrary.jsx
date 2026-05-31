@@ -30,6 +30,15 @@ function makeTabState(env) {
     history: [],
     historyOpen: true,
     viewingEntry: null,
+    // ── Library YAML editor state ─────────────────────────────────────────────
+    rawYaml: '',               // raw YAML from last API fetch (pre-populates editor)
+    encryptedSource: null,     // true = served from .enc; false = plain fallback
+    editorOpen: false,         // YAML editor panel visible?
+    editorYaml: '',            // current text in editor textarea
+    editorDirty: false,        // user has typed changes not yet saved
+    editorError: '',           // YAML validation error while typing
+    saveState: 'idle',         // 'idle' | 'saving' | 'saved' | 'error'
+    saveError: '',
   };
 }
 
@@ -71,6 +80,10 @@ export default function PayloadLibrary() {
   const [legacyUrls, setLegacyUrls]     = useState([]);
   const [activeEnvIdx, setActiveEnvIdx] = useState(0);
   const [configLoaded, setConfigLoaded] = useState(false);
+  // writeAuthRequired: true when server has PAYLOAD_WRITE_AUTH_ENABLED=true
+  const [writeAuthRequired, setWriteAuthRequired] = useState(false);
+  // adminToken: entered by operator at runtime when writeAuthRequired is true
+  const [adminToken, setAdminToken] = useState('');
 
   // ── Per-tab state map ─────────────────────────────────────────────────────
   // Key: env.id in tab mode, '__legacy__' in legacy mode
@@ -109,6 +122,8 @@ export default function PayloadLibrary() {
       .then(r => r.ok ? r.json() : null)
       .then(cfg => {
         if (!cfg) { setConfigLoaded(true); return; }
+
+        if (cfg.writeAuthRequired) setWriteAuthRequired(true);
 
         if (cfg.environments?.length > 0) {
           // ── Tab mode ──────────────────────────────────────────────────────
@@ -150,8 +165,7 @@ export default function PayloadLibrary() {
 
     // Snapshot everything needed for the async path — activeEnvId may change
     // before the fetch resolves (user switches tabs mid-flight).
-    const envIdSnap    = activeEnvId;
-    const payloadFile  = activeEnv?.payloadFile ?? null;
+    const envIdSnap = activeEnvId;
 
     // Mark as loading (using setTabStates directly to avoid stale upd closure)
     setTabStates(prev => ({
@@ -162,56 +176,38 @@ export default function PayloadLibrary() {
       },
     }));
 
-    const tryFetch = (url) =>
-      fetch(url).then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
-      });
-
-    const parseText = (text) => {
-      const parsed = jsYaml.load(text);
-      if (!parsed?.payloads?.length) throw new Error('payloads key missing or empty');
-      return parsed.payloads;
-    };
-
+    // Fetch via backend API — handles decryption, fallback chain, and YAML parsing.
+    // envIdSnap is the raw environment ID (e.g. "ADM-DEV") used as the route param.
     (async () => {
-      let payloads;
-
-      // Step 1: per-environment file (e.g. payloads/dev.yaml)
-      if (payloadFile) {
-        try {
-          const text = await tryFetch(`${import.meta.env.BASE_URL}payloads/${payloadFile}.yaml`);
-          payloads = parseText(text);
-        } catch {
-          // fall through to step 2
+      try {
+        const resp = await fetch(
+          `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnap)}`
+        );
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${resp.status}`);
         }
+        const data = await resp.json();
+        setTabStates(prev => ({
+          ...prev,
+          [envIdSnap]: {
+            ...(prev[envIdSnap] ?? {}),
+            fetchStatus: 'ready',
+            payloads: data.payloads,
+            rawYaml: data.yaml,
+            encryptedSource: data.encrypted,
+          },
+        }));
+      } catch (e) {
+        setTabStates(prev => ({
+          ...prev,
+          [envIdSnap]: {
+            ...(prev[envIdSnap] ?? {}),
+            fetchStatus: 'error',
+            errorMsg: `Could not load payloads for "${envIdSnap}": ${e.message}`,
+          },
+        }));
       }
-
-      // Step 2: fallback to legacy payloads.yaml
-      if (!payloads) {
-        try {
-          const text = await tryFetch(`${import.meta.env.BASE_URL}payloads.yaml`);
-          payloads = parseText(text);
-        } catch (e) {
-          const hint = payloadFile
-            ? ` — create frontend/public/payloads/${payloadFile}.yaml`
-            : '';
-          setTabStates(prev => ({
-            ...prev,
-            [envIdSnap]: {
-              ...(prev[envIdSnap] ?? {}),
-              fetchStatus: 'error',
-              errorMsg: `Could not load payloads: ${e.message}${hint}`,
-            },
-          }));
-          return;
-        }
-      }
-
-      setTabStates(prev => ({
-        ...prev,
-        [envIdSnap]: { ...(prev[envIdSnap] ?? {}), fetchStatus: 'ready', payloads },
-      }));
     })();
   }, [activeEnvId, configLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -430,8 +426,102 @@ export default function PayloadLibrary() {
     // loading is triggered lazily by the useEffect above via loadedTabsRef.
   }
 
+  // ── Library YAML editor handlers ──────────────────────────────────────────
+
+  function handleOpenEditor() {
+    upd({
+      editorOpen: true,
+      editorYaml: ts.rawYaml,
+      editorDirty: false,
+      editorError: '',
+      saveState: 'idle',
+      saveError: '',
+    });
+  }
+
+  function handleCloseEditor() {
+    upd({ editorOpen: false, editorDirty: false, editorError: '' });
+  }
+
+  function handleEditorChange(val) {
+    // Validate YAML structure on every keystroke
+    let editorError = '';
+    try {
+      const parsed = jsYaml.load(val);
+      if (!parsed?.payloads || !Array.isArray(parsed.payloads)) {
+        editorError = 'Must contain a top-level "payloads:" array';
+      }
+    } catch (e) {
+      editorError = e.message;
+    }
+    upd({ editorYaml: val, editorDirty: true, editorError, saveState: 'idle' });
+  }
+
+  async function handleSaveEditor() {
+    if (ts.editorError || ts.saveState === 'saving') return;
+
+    const envIdSnapshot = activeEnvId;
+    const yamlToSave    = ts.editorYaml;
+
+    const updSnap = (patch) =>
+      setTabStates(prev => ({
+        ...prev,
+        [envIdSnapshot]: { ...(prev[envIdSnapshot] ?? {}), ...patch },
+      }));
+
+    updSnap({ saveState: 'saving', saveError: '' });
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (writeAuthRequired && adminToken) {
+        headers['Authorization'] = `Bearer ${adminToken}`;
+      }
+      const resp = await fetch(
+        `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnapshot)}`,
+        { method: 'PUT', headers, body: JSON.stringify({ yaml: yamlToSave }) }
+      );
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+      // Mark as saved and show loading state while we re-fetch the payload list.
+      // We cannot rely on the payload useEffect re-running here because its deps
+      // [activeEnvId, configLoaded] don't change on save — so we fetch inline.
+      updSnap({ saveState: 'saved', editorDirty: false, rawYaml: yamlToSave, fetchStatus: 'loading', payloads: [] });
+
+      // Re-fetch the updated payload list directly (async-safe — uses envIdSnapshot)
+      try {
+        const reloadResp = await fetch(
+          `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnapshot)}`
+        );
+        if (reloadResp.ok) {
+          const reloadData = await reloadResp.json();
+          setTabStates(prev => ({
+            ...prev,
+            [envIdSnapshot]: {
+              ...(prev[envIdSnapshot] ?? {}),
+              fetchStatus: 'ready',
+              payloads:    reloadData.payloads,
+              rawYaml:     reloadData.yaml,
+              encryptedSource: reloadData.encrypted,
+              editorOpen:  false,   // close editor after successful save + reload
+            },
+          }));
+        }
+      } catch {
+        // Re-fetch failed — payload list may be stale, but save succeeded;
+        // user can switch tabs and back to force a fresh load.
+        setTabStates(prev => ({
+          ...prev,
+          [envIdSnapshot]: { ...(prev[envIdSnapshot] ?? {}), fetchStatus: 'ready' },
+        }));
+      }
+    } catch (err) {
+      updSnap({ saveState: 'error', saveError: err.message });
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
-  // Tab strip (declared as a const so it can be used in early returns below)
+  // Tab strip — environment tabs only; no extra elements so overflow-x scroll works
   const tabStrip = tabMode ? (
     <div style={s.tabStrip}>
       {environments.map((env, idx) => (
@@ -496,7 +586,31 @@ export default function PayloadLibrary() {
       <div style={s.container}>
 
         <header style={s.header}>
-          <h1 style={s.title}>Payload Library</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+              <h1 style={s.title}>Payload Library</h1>
+              {ts.encryptedSource === true && (
+                <span style={s.encryptedBadge} title="Payloads served from AES-256-GCM encrypted storage">
+                  🔒 Encrypted
+                </span>
+              )}
+              {ts.encryptedSource === false && (
+                <span style={s.plaintextBadge} title="Payloads served from plain-text file — set PAYLOAD_ENCRYPTION_KEY to encrypt">
+                  ⚠ Plain text
+                </span>
+              )}
+            </div>
+            {/* Edit Library button — always visible in the header, never in the scrollable tab strip */}
+            {tabMode && (
+              <button
+                onClick={ts.editorOpen ? handleCloseEditor : handleOpenEditor}
+                style={{ ...s.editLibraryBtn, ...(ts.editorOpen ? s.editLibraryBtnActive : {}) }}
+                title={ts.editorOpen ? 'Close YAML editor' : 'Edit this environment\'s payload library'}
+              >
+                {ts.editorOpen ? '✕ Close Editor' : '✎ Edit Library'}
+              </button>
+            )}
+          </div>
           <p style={s.subtitle}>
             {ts.payloads.length} sample API payloads — select, inspect, and run against a provider.
           </p>
@@ -504,6 +618,100 @@ export default function PayloadLibrary() {
 
         {/* ── Tab strip (tab mode only — always shown, even with 1 tab) ──── */}
         {tabStrip}
+
+        {/* ── YAML Library Editor ───────────────────────────────────────── */}
+        {tabMode && ts.editorOpen && (
+          <div style={s.editorCard}>
+            <div style={s.editorHeader}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={s.sectionLabel}>YAML Editor — {activeEnv?.label}</span>
+                {ts.encryptedSource === true && (
+                  <span style={s.encryptedBadge}>🔒 Encrypted</span>
+                )}
+                {ts.editorDirty && (
+                  <span style={s.modifiedBadge}>Unsaved changes</span>
+                )}
+              </div>
+              <div style={s.btnRow}>
+                {/* Admin token input — only when write auth is required */}
+                {writeAuthRequired && (
+                  <input
+                    type="password"
+                    placeholder="Admin token"
+                    value={adminToken}
+                    onChange={(e) => setAdminToken(e.target.value)}
+                    style={s.adminTokenInput}
+                    title="Enter the PAYLOAD_ADMIN_TOKEN value to authorise saves"
+                  />
+                )}
+                <button
+                  onClick={handleCloseEditor}
+                  style={s.outlineBtn}
+                  disabled={ts.saveState === 'saving'}
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleSaveEditor}
+                  disabled={
+                    !!ts.editorError ||
+                    !ts.editorDirty ||
+                    ts.saveState === 'saving' ||
+                    (writeAuthRequired && !adminToken)
+                  }
+                  style={{
+                    ...s.runBtn,
+                    ...(ts.saveState === 'saved' ? s.saveOkBtn : {}),
+                    ...((!!ts.editorError || !ts.editorDirty || ts.saveState === 'saving' ||
+                      (writeAuthRequired && !adminToken)) ? s.runBtnDisabled : {}),
+                  }}
+                  title={
+                    writeAuthRequired && !adminToken
+                      ? 'Enter the admin token to save'
+                      : ts.editorError
+                        ? 'Fix YAML errors before saving'
+                        : !ts.editorDirty
+                          ? 'No changes to save'
+                          : ''
+                  }
+                >
+                  {ts.saveState === 'saving'
+                    ? <><span style={s.btnSpinner} />Saving…</>
+                    : ts.saveState === 'saved'
+                      ? '✓ Saved'
+                      : '💾 Save'}
+                </button>
+              </div>
+            </div>
+
+            {/* YAML textarea */}
+            <textarea
+              value={ts.editorYaml}
+              onChange={(e) => handleEditorChange(e.target.value)}
+              style={s.yamlTextarea}
+              spellCheck={false}
+              autoFocus
+              placeholder={`payloads:\n  - name: "My Payload"\n    category: "General"\n    payload: |\n      {\n        "entityId": "...",\n        "clientId": "..."\n      }`}
+            />
+
+            {/* Validation error */}
+            {ts.editorError && (
+              <p style={s.parseError}>⚠ YAML error: {ts.editorError}</p>
+            )}
+
+            {/* Save error */}
+            {ts.saveState === 'error' && ts.saveError && (
+              <p style={s.saveErrorMsg}>✕ Save failed: {ts.saveError}</p>
+            )}
+
+            {/* Instructions for write auth */}
+            {writeAuthRequired && (
+              <p style={s.editorHint}>
+                Write access is protected. Enter the <code>PAYLOAD_ADMIN_TOKEN</code> value above to enable saving.
+              </p>
+            )}
+          </div>
+        )}
 
         <div style={s.columns}>
 
@@ -1473,5 +1681,121 @@ const s = {
     margin: 0,
     textAlign: 'center',
     maxWidth: 400,
+  },
+
+  // ── Encryption badges ─────────────────────────────────────────────────────
+  encryptedBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: '#15803d',
+    background: '#f0fdf4',
+    border: '1px solid #bbf7d0',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    letterSpacing: '0.02em',
+  },
+  plaintextBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: '#b45309',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    letterSpacing: '0.02em',
+  },
+
+  // ── Edit Library header button ────────────────────────────────────────────
+  editLibraryBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    padding: '0.35rem 0.9rem',
+    borderRadius: '8px',
+    border: '1.5px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    transition: 'all 0.15s',
+  },
+  editLibraryBtnActive: {
+    background: 'var(--accent-light)',
+    borderColor: 'var(--accent)',
+    color: 'var(--accent)',
+  },
+
+  // ── YAML library editor card ──────────────────────────────────────────────
+  editorCard: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    boxShadow: 'var(--shadow)',
+    overflow: 'hidden',
+    marginBottom: '1.25rem',
+  },
+  editorHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '0.625rem 1rem',
+    borderBottom: '1px solid var(--border)',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    background: 'var(--bg)',
+  },
+  yamlTextarea: {
+    display: 'block',
+    width: '100%',
+    minHeight: '28rem',
+    padding: '1rem',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: '0.8rem',
+    lineHeight: 1.6,
+    color: 'var(--text-primary)',
+    background: 'var(--bg)',
+    border: 'none',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
+    tabSize: 2,
+  },
+  saveOkBtn: {
+    background: '#15803d',
+    borderColor: '#15803d',
+  },
+  saveErrorMsg: {
+    margin: 0,
+    padding: '0.5rem 1rem',
+    fontSize: '0.78rem',
+    color: '#b91c1c',
+    background: '#fef2f2',
+    borderTop: '1px solid #fecaca',
+  },
+  editorHint: {
+    margin: 0,
+    padding: '0.5rem 1rem',
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+    background: 'var(--bg)',
+    borderTop: '1px solid var(--border)',
+  },
+  adminTokenInput: {
+    padding: '0.25rem 0.5rem',
+    borderRadius: '6px',
+    border: '1.5px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-primary)',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    width: '14rem',
+    outline: 'none',
   },
 };
