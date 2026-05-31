@@ -88,6 +88,21 @@ services:
       PROVIDER_X_APIKEY: ${PROVIDER_X_APIKEY:-}
       PROVIDER_X_APISECRET: ${PROVIDER_X_APISECRET:-}
       PROVIDER_TIMEOUT_MS: ${PROVIDER_TIMEOUT_MS:-15000}
+      # ── Payload encryption ────────────────────────────────────────────────
+      PAYLOAD_ENCRYPTION_KEY: ${PAYLOAD_ENCRYPTION_KEY:-}
+      PAYLOAD_STORAGE_PATH: /app/data/payloads
+      PAYLOAD_WRITE_AUTH_ENABLED: ${PAYLOAD_WRITE_AUTH_ENABLED:-false}
+      PAYLOAD_ADMIN_TOKEN: ${PAYLOAD_ADMIN_TOKEN:-}
+      # Plain-text fallback paths — point to the bind-mounted frontend public files.
+      # Used by readPayload steps 2 & 3 when no .enc file exists yet.
+      PAYLOAD_FALLBACK_DIR: /app/public/payloads
+      PAYLOAD_LEGACY_YAML: /app/public/payloads.yaml
+    volumes:
+      - payload-storage:/app/data/payloads
+      # Read-only bind mounts so the backend can serve plain YAML as a fallback
+      # before encrypted files are created (migration path / first run).
+      - ./frontend/public/payloads:/app/public/payloads:ro
+      - ./frontend/public/payloads.yaml:/app/public/payloads.yaml:ro
     ports:
       - "3001:3001"     # exposed for direct curl testing; not needed by frontend
     healthcheck:
@@ -118,3 +133,9 @@ services:
 networks:
   pattern-net:
     driver: bridge
+
+volumes:
+  payload-storage:
+    # Named volume — persists encrypted payload files across container restarts.
+    # To pre-populate, run the migration script:
+    #   PAYLOAD_ENCRYPTION_KEY=<key> node backend/scripts/encrypt-payloads.js
