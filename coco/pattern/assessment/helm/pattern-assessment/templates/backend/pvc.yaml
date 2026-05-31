@@ -1,0 +1,25 @@
+{{- if .Values.payloadStorage.enabled }}
+# PersistentVolumeClaim for encrypted payload storage.
+# Stores {envId}.enc files written by the backend payload API.
+#
+# NOTE: ReadWriteOnce is sufficient for single-pod deployments.
+# If HPA scales the backend to multiple pods on different nodes,
+# switch to ReadWriteMany and use a StorageClass that supports it
+# (e.g. Azure Files, NFS, or a CSI driver).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pattern-assessment.backend.name" . }}-payload-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pattern-assessment.backend.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.payloadStorage.size | default "1Gi" }}
+  {{- if .Values.payloadStorage.storageClass }}
+  storageClassName: {{ .Values.payloadStorage.storageClass }}
+  {{- end }}
+{{- end }}

@@ -164,6 +164,16 @@ spec:
             - name: PROVIDER_X_APISECRET
               value: {{ .Values.backend.env.PROVIDER_X_APISECRET | quote }}
 
+            # ── Payload encryption ─────────────────────────────────────────
+            - name: PAYLOAD_ENCRYPTION_KEY
+              value: {{ .Values.backend.payloadEncryptionKey | quote }}
+            - name: PAYLOAD_STORAGE_PATH
+              value: {{ .Values.payloadStorage.mountPath | default "/app/data/payloads" | quote }}
+            - name: PAYLOAD_WRITE_AUTH_ENABLED
+              value: {{ .Values.backend.payloadWriteAuthEnabled | default "false" | quote }}
+            - name: PAYLOAD_ADMIN_TOKEN
+              value: {{ .Values.backend.payloadAdminToken | quote }}
+
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
 
@@ -183,12 +193,17 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
 
-          # Mount secrets from Key Vault CSI (no-op if provider is "kubernetes")
-          {{- if .Values.secrets.azureKeyVault.enabled }}
+          {{- if or .Values.secrets.azureKeyVault.enabled .Values.payloadStorage.enabled }}
           volumeMounts:
+            {{- if .Values.secrets.azureKeyVault.enabled }}
             - name: secrets-store
               mountPath: /mnt/secrets
               readOnly: true
+            {{- end }}
+            {{- if .Values.payloadStorage.enabled }}
+            - name: payload-storage
+              mountPath: {{ .Values.payloadStorage.mountPath | default "/app/data/payloads" }}
+            {{- end }}
           {{- end }}
 
           securityContext:
@@ -198,12 +213,19 @@ spec:
             capabilities:
               drop: ["ALL"]
 
-      {{- if .Values.secrets.azureKeyVault.enabled }}
+      {{- if or .Values.secrets.azureKeyVault.enabled .Values.payloadStorage.enabled }}
       volumes:
+        {{- if .Values.secrets.azureKeyVault.enabled }}
         - name: secrets-store
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
               secretProviderClass: pattern-secrets-provider
+        {{- end }}
+        {{- if .Values.payloadStorage.enabled }}
+        - name: payload-storage
+          persistentVolumeClaim:
+            claimName: {{ include "pattern-assessment.backend.name" . }}-payload-storage
+        {{- end }}
       {{- end }}

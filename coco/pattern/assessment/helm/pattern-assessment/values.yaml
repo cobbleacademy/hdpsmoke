@@ -103,6 +103,19 @@ backend:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
 
+  # ── Payload encryption env vars ─────────────────────────────────────────────
+  # Set via --set at deploy time — do not commit real values here.
+  payloadEncryptionKey: ""         # set via --set backend.payloadEncryptionKey=<hex>
+  payloadWriteAuthEnabled: "false" # set "true" to require Bearer token for saves
+  payloadAdminToken: ""            # set via --set backend.payloadAdminToken=<token>
+
+# ── Payload storage (PVC) ─────────────────────────────────────────────────────
+payloadStorage:
+  enabled: false          # set true in staging/prod values overlay
+  storageClass: ""        # empty = use cluster default StorageClass
+  size: 1Gi
+  mountPath: /app/data/payloads   # must match PAYLOAD_STORAGE_PATH in container
+
 # ── Frontend ──────────────────────────────────────────────────────────────────
 frontend:
   image: pattern-frontend
