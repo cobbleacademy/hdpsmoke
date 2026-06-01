@@ -27,8 +27,90 @@ html, body, #root {
   height: 100%;
 }
 
+/* ── Dim mode (GitHub Dimmed — soft neutral grey, easy on eyes) ─────────── */
+[data-theme="dim"] {
+  --bg:            #22272e;
+  --surface:       #2d333b;
+  --surface-hover: #373e47;
+  --border:        #444c56;
+  --border-focus:  #7c74ff;
+  --text-primary:  #adbac7;
+  --text-secondary:#768390;
+  --accent:        #7c74ff;
+  --accent-light:  #2d2a52;
+  --accent-dark:   #6c63ff;
+  --shadow:        0 4px 24px rgba(0,0,0,0.35);
+  --shadow-lg:     0 8px 40px rgba(0,0,0,0.45);
+}
+
+/* ── Slate mode (VS Code — pure neutral, zero tint) ─────────────────────── */
+[data-theme="slate"] {
+  --bg:            #1e1e1e;
+  --surface:       #252526;
+  --surface-hover: #2d2d2d;
+  --border:        #3e3e42;
+  --border-focus:  #7c74ff;
+  --text-primary:  #d4d4d4;
+  --text-secondary:#858585;
+  --accent:        #7c74ff;
+  --accent-light:  #2a2750;
+  --accent-dark:   #6c63ff;
+  --shadow:        0 4px 24px rgba(0,0,0,0.4);
+  --shadow-lg:     0 8px 40px rgba(0,0,0,0.5);
+}
+
+/* ── Mocha mode (Catppuccin — warm dark navy, popular with devs) ─────────── */
+[data-theme="mocha"] {
+  --bg:            #1e1e2e;
+  --surface:       #27273a;
+  --surface-hover: #313149;
+  --border:        #3b3b55;
+  --border-focus:  #7c74ff;
+  --text-primary:  #cdd6f4;
+  --text-secondary:#a6adc8;
+  --accent:        #7c74ff;
+  --accent-light:  #2d2a52;
+  --accent-dark:   #6c63ff;
+  --shadow:        0 4px 24px rgba(0,0,0,0.38);
+  --shadow-lg:     0 8px 40px rgba(0,0,0,0.48);
+}
+
+/* ── Ocean colour theme ──────────────────────────────────────────────────── */
+[data-color="ocean"] {
+  --accent:       #0ea5e9;
+  --accent-light: #e0f2fe;
+  --accent-dark:  #0284c7;
+  --border-focus: #0ea5e9;
+}
+/* Ocean in any dark mode */
+[data-theme="dim"][data-color="ocean"],
+[data-theme="slate"][data-color="ocean"],
+[data-theme="mocha"][data-color="ocean"] {
+  --accent:       #38bdf8;
+  --accent-light: #0c2840;
+  --accent-dark:  #0ea5e9;
+  --border-focus: #38bdf8;
+}
+
+/* ── Emerald colour theme ────────────────────────────────────────────────── */
+[data-color="emerald"] {
+  --accent:       #059669;
+  --accent-light: #d1fae5;
+  --accent-dark:  #047857;
+  --border-focus: #059669;
+}
+/* Emerald in any dark mode */
+[data-theme="dim"][data-color="emerald"],
+[data-theme="slate"][data-color="emerald"],
+[data-theme="mocha"][data-color="emerald"] {
+  --accent:       #34d399;
+  --accent-light: #0a2e1f;
+  --accent-dark:  #059669;
+  --border-focus: #34d399;
+}
+
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;

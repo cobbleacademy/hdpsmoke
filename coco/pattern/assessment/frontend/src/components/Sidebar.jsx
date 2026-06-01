@@ -36,7 +36,21 @@ const NAV_ITEMS = [
   },
 ];
 
-export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, onToggle, isMobile }) {
+const THEMES = [
+  { id: 'light', icon: '☀️', label: 'Light' },
+  { id: 'dim',   icon: '🌙', label: 'Dim'   },
+  { id: 'slate', icon: '▪️',  label: 'Slate' },
+  { id: 'mocha', icon: '☕', label: 'Mocha' },
+];
+
+const COLORS = [
+  { id: 'violet',  label: 'Violet',  hex: '#6c63ff' },
+  { id: 'ocean',   label: 'Ocean',   hex: '#0ea5e9' },
+  { id: 'emerald', label: 'Emerald', hex: '#059669' },
+];
+
+export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, onToggle, isMobile,
+                                   theme, color, onThemeChange, onColorChange }) {
   return (
     <>
       {/* Mobile backdrop overlay */}
@@ -104,6 +118,54 @@ export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, on
             <span style={styles.resultText}>Result ready</span>
           </div>
         )}
+
+        {/* ── Appearance controls ── */}
+        <div style={styles.themeSection}>
+          <p style={styles.sectionLabel}>APPEARANCE</p>
+
+          {/* Mode selector — Light / Dim / Slate / Mocha */}
+          <div style={styles.modeRow}>
+            {THEMES.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onThemeChange(t.id)}
+                title={t.label}
+                style={{
+                  ...styles.modeBtn,
+                  ...(theme === t.id ? styles.modeBtnActive : {}),
+                }}
+              >
+                <span style={styles.modeIcon}>{t.icon}</span>
+                <span style={styles.modeName}>{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Colour picker + Classic reset */}
+          <div style={styles.colorRow}>
+            {COLORS.map(c => (
+              <button
+                key={c.id}
+                onClick={() => onColorChange(c.id)}
+                title={c.label}
+                style={{
+                  ...styles.colorSwatch,
+                  background: c.hex,
+                  ...(color === c.id ? styles.colorSwatchActive : {}),
+                }}
+              />
+            ))}
+            {/* Classic = light + violet = original look */}
+            <button
+              onClick={() => { onThemeChange('light'); onColorChange('violet'); }}
+              title="Classic — restore original look"
+              style={{
+                ...styles.colorSwatchClassic,
+                ...(theme === 'light' && color === 'violet' ? styles.colorSwatchActive : {}),
+              }}
+            >↺</button>
+          </div>
+        </div>
 
         {/* Footer */}
         <div style={styles.footer}>
@@ -269,5 +331,82 @@ const styles = {
   footerText: {
     fontSize: '0.68rem',
     color: 'var(--text-secondary)',
+  },
+
+  // ── Appearance / theme controls ───────────────────────────────────────────
+  themeSection: {
+    padding: '0.75rem 0.75rem 0.5rem',
+    borderTop: '1px solid var(--border)',
+  },
+  // ── Mode selector row (Light / Dim / Slate / Mocha) ─────────────────────
+  modeRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: '4px',
+    marginBottom: '0.5rem',
+  },
+  modeBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+    padding: '0.35rem 0.2rem',
+    borderRadius: '8px',
+    border: '1.5px solid transparent',
+    background: 'transparent',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    color: 'var(--text-secondary)',
+    transition: 'all 0.15s',
+  },
+  modeBtnActive: {
+    background: 'var(--accent-light)',
+    border: '1.5px solid var(--accent)',
+    color: 'var(--accent)',
+  },
+  modeIcon: {
+    fontSize: '0.85rem',
+    lineHeight: 1,
+  },
+  modeName: {
+    fontSize: '0.56rem',
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase',
+  },
+  colorRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    padding: '0 0.125rem 0.25rem',
+  },
+  colorSwatch: {
+    width: 20,
+    height: 20,
+    borderRadius: '50%',
+    border: '2px solid transparent',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'transform 0.15s, border-color 0.15s',
+  },
+  colorSwatchActive: {
+    border: '2px solid var(--text-primary)',
+    transform: 'scale(1.2)',
+  },
+  colorSwatchClassic: {
+    width: 20,
+    height: 20,
+    borderRadius: '50%',
+    border: '2px solid var(--border)',
+    background: 'var(--surface)',
+    cursor: 'pointer',
+    fontSize: '0.6rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+    transition: 'transform 0.15s, border-color 0.15s',
   },
 };

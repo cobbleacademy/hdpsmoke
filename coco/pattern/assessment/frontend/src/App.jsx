@@ -54,6 +54,27 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  // ── Theme state — persisted in localStorage, applied as data-* on <html> ──
+  // Migrate anyone who had the old 'dark' mode saved → 'dim'
+  const [theme, setTheme] = useState(() => {
+    const stored = localStorage.getItem('pa-theme') || 'light';
+    return stored === 'dark' ? 'dim' : stored;
+  });
+  const [color, setColor] = useState(() => localStorage.getItem('pa-color') || 'violet');
+
+  useEffect(() => {
+    const root = document.documentElement;
+    // 'light' = no attribute (default :root vars); any other value = set the attribute
+    theme === 'light' ? root.removeAttribute('data-theme') : root.setAttribute('data-theme', theme);
+    localStorage.setItem('pa-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    color !== 'violet' ? root.setAttribute('data-color', color) : root.removeAttribute('data-color');
+    localStorage.setItem('pa-color', color);
+  }, [color]);
+
   // ── Sync URL on first load (redirect / → quiz path) ─────────────────────────
   useEffect(() => {
     if (!PATH_TO_VIEW[window.location.pathname]) {
@@ -193,6 +214,10 @@ export default function App() {
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen((o) => !o)}
         isMobile={isMobile}
+        theme={theme}
+        color={color}
+        onThemeChange={setTheme}
+        onColorChange={setColor}
       />
 
       {/* Main content area */}

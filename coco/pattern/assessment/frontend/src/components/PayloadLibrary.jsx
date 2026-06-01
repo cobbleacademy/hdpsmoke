@@ -20,7 +20,8 @@ function makeTabState(env) {
     urlMode: (env?.urls?.length > 0) ? 'preset' : 'custom',
     selectedUrlIdx: 0,
     customUrl: '',
-    authType: firstUrl?.authType || 'none',
+    authType:       firstUrl?.authType       || 'none',
+    skipTlsVerify:  firstUrl?.skipTlsVerify || false,  // auto-set per URL; custom toggle for ad-hoc URLs
     isEditingPayload: false,
     editedPayload: null,
     payloadParseError: '',
@@ -80,6 +81,10 @@ export default function PayloadLibrary() {
   const [legacyUrls, setLegacyUrls]     = useState([]);
   const [activeEnvIdx, setActiveEnvIdx] = useState(0);
   const [configLoaded, setConfigLoaded] = useState(false);
+  // listCollapsed is component-level (not per-tab) — a layout preference for
+  // the current session. Collapses the payload list to give more room to
+  // the detail panels.
+  const [listCollapsed, setListCollapsed] = useState(false);
   // writeAuthRequired: true when server has PAYLOAD_WRITE_AUTH_ENABLED=true
   const [writeAuthRequired, setWriteAuthRequired] = useState(false);
   // adminToken: entered by operator at runtime when writeAuthRequired is true
@@ -355,14 +360,17 @@ export default function PayloadLibrary() {
   // URL's configured authType (user can still override before running).
   function handleSelectUrl(value) {
     if (value === 'custom') {
-      upd({ urlMode: 'custom' });
+      // Reset to safe defaults for custom URLs — user explicitly controls TLS toggle
+      upd({ urlMode: 'custom', skipTlsVerify: false });
     } else {
       const idx   = parseInt(value.slice(2), 10);
       const entry = activeUrls[idx];
       upd({
-        urlMode: 'preset',
+        urlMode:       'preset',
         selectedUrlIdx: idx,
-        ...(entry?.authType ? { authType: entry.authType } : {}),
+        // Auto-set both authType and skipTlsVerify from the URL's configured values
+        ...(entry?.authType       !== undefined ? { authType:      entry.authType      } : {}),
+        ...(entry?.skipTlsVerify  !== undefined ? { skipTlsVerify: entry.skipTlsVerify } : {}),
       });
     }
   }
@@ -376,8 +384,9 @@ export default function PayloadLibrary() {
     if (!url || ts.runState === 'running') return;
 
     // Snapshot everything needed before the first await
-    const envIdSnapshot = activeEnvId;
-    const authType      = ts.authType;
+    const envIdSnapshot    = activeEnvId;
+    const authType         = ts.authType;
+    const skipTlsSnapshot  = ts.skipTlsVerify || false;
     const payload       = ts.payloads[ts.selectedIndex];
     const rawStr        = ts.editedPayload !== null ? ts.editedPayload : payload.payload;
     const requestedAt   = new Date().toLocaleTimeString();
@@ -415,10 +424,11 @@ export default function PayloadLibrary() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          payload:  payloadObj,
+          payload:       payloadObj,
           url,
           authType,
-          envId: tabMode ? envIdSnapshot : null,
+          envId:         tabMode ? envIdSnapshot : null,
+          skipTlsVerify: skipTlsSnapshot,
         }),
       });
       const data = await resp.json();
@@ -737,9 +747,18 @@ export default function PayloadLibrary() {
           </div>
         )}
 
-        <div style={s.columns}>
+        <div style={{ ...s.columns, gridTemplateColumns: listCollapsed ? '36px minmax(0,1fr)' : '260px minmax(0,1fr)' }}>
 
-          {/* ── Left: search + payload list ─────────────────────────────── */}
+          {/* ── Left: search + payload list (or collapsed strip) ────────── */}
+          {listCollapsed ? (
+            <div style={s.listColCollapsed}>
+              <button
+                onClick={() => setListCollapsed(false)}
+                style={s.panelToggleBtn}
+                title="Expand payload list"
+              >⟩</button>
+            </div>
+          ) : (
           <div style={s.listCol}>
 
             {/* Search bar */}
@@ -764,6 +783,11 @@ export default function PayloadLibrary() {
                   title="Clear"
                 >×</button>
               )}
+              <button
+                onClick={() => setListCollapsed(true)}
+                style={s.panelToggleBtn}
+                title="Collapse panel"
+              >⟨</button>
             </div>
 
             {isSearching && (
@@ -854,6 +878,7 @@ export default function PayloadLibrary() {
               })}
             </div>
           </div>
+          )} {/* end listCollapsed conditional */}
 
           {/* ── Right: stacked detail ────────────────────────────────────── */}
           <div style={s.detailCol}>
@@ -904,8 +929,30 @@ export default function PayloadLibrary() {
 
               {/* Full URL hint when preset is active */}
               {ts.urlMode === 'preset' && activeUrls[ts.selectedUrlIdx] && (
-                <p style={s.urlHint}>{activeUrls[ts.selectedUrlIdx].url}</p>
+                <p style={s.urlHint}>
+                  {activeUrls[ts.selectedUrlIdx].url}
+                </p>
               )}
+
+              {/* TLS toggle — always visible so operators can see and override TLS settings.
+                  Preset URL selected: auto-set from PROVIDER_{ENV}_URL_TLS_VERIFY config
+                  (user can still override before running, same as Auth Type dropdown).
+                  Custom URL: defaults to verified; user manually enables skip if needed. */}
+              <div style={s.tlsRow}>
+                <label style={s.tlsLabel}>
+                  <input
+                    type="checkbox"
+                    checked={ts.skipTlsVerify}
+                    onChange={(e) => upd({ skipTlsVerify: e.target.checked })}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <span style={{ ...s.tlsText, ...(ts.skipTlsVerify ? s.tlsTextActive : {}) }}>
+                    {ts.skipTlsVerify
+                      ? '⚠ Skip TLS verification (self-signed cert accepted)'
+                      : 'TLS verification on'}
+                  </span>
+                </label>
+              </div>
             </div>
 
             {/* ── Payload card ─────────────────────────────────────────── */}
@@ -1178,9 +1225,36 @@ const s = {
     gap: '0',
     background: 'var(--surface)',
     border: '1px solid var(--border)',
+    borderTop: '3px solid var(--accent)',
     borderRadius: 'var(--radius)',
     boxShadow: 'var(--shadow)',
     overflow: 'hidden',
+  },
+  // ── Collapsed strip (shows only the expand button) ────────────────────────
+  listColCollapsed: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingTop: '0.5rem',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderTop: '3px solid var(--accent)',
+    borderRadius: 'var(--radius)',
+    boxShadow: 'var(--shadow)',
+    minHeight: '3rem',
+  },
+  // ── Panel collapse / expand toggle button ─────────────────────────────────
+  panelToggleBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: 'var(--text-secondary)',
+    fontSize: '0.8rem',
+    fontFamily: 'inherit',
+    padding: '0.2rem 0.3rem',
+    borderRadius: '4px',
+    lineHeight: 1,
+    flexShrink: 0,
   },
 
   // ── Search bar ────────────────────────────────────────────────────────────
@@ -1404,6 +1478,7 @@ const s = {
   card: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
+    borderTop: '3px solid var(--accent)',   // accent strip — adapts to theme/colour
     borderRadius: 'var(--radius)',
     boxShadow: 'var(--shadow)',
     overflow: 'hidden',
@@ -1472,11 +1547,45 @@ const s = {
     outline: 'none',
   },
   urlHint: {
-    margin: '0 1rem 0.75rem',
+    margin: '0 1rem 0.5rem',
     fontSize: '0.72rem',
     color: 'var(--text-secondary)',
     fontFamily: 'ui-monospace, SFMono-Regular, monospace',
     wordBreak: 'break-all',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  tlsSkipBadge: {
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    color: '#b45309',
+    background: '#fffbeb',
+    border: '1px solid #fde68a',
+    borderRadius: '4px',
+    padding: '1px 6px',
+    whiteSpace: 'nowrap',
+    fontFamily: 'inherit',
+  },
+  // ── TLS toggle row (custom URL mode only) ────────────────────────────────
+  tlsRow: {
+    margin: '0 1rem 0.75rem',
+  },
+  tlsLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    cursor: 'pointer',
+  },
+  tlsText: {
+    fontSize: '0.72rem',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+  },
+  tlsTextActive: {
+    color: '#b45309',
+    fontWeight: 600,
   },
 
   // ── Payload section ───────────────────────────────────────────────────────
