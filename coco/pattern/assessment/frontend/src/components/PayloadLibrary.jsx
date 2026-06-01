@@ -188,6 +188,11 @@ export default function PayloadLibrary() {
           throw new Error(err.error || `HTTP ${resp.status}`);
         }
         const data = await resp.json();
+        // Collapse all categories by default so the list starts compact.
+        // User can click any header or use Expand All to open groups.
+        const allCats = new Set(
+          (data.payloads || []).map(p => p.category || 'Uncategorised')
+        );
         setTabStates(prev => ({
           ...prev,
           [envIdSnap]: {
@@ -196,6 +201,7 @@ export default function PayloadLibrary() {
             payloads: data.payloads,
             rawYaml: data.yaml,
             encryptedSource: data.encrypted,
+            collapsedCategories: allCats,
           },
         }));
       } catch (e) {
@@ -280,6 +286,15 @@ export default function PayloadLibrary() {
     upd({ collapsedCategories: next });
   }
 
+  function handleExpandAll() {
+    upd({ collapsedCategories: new Set() });
+  }
+
+  function handleCollapseAll() {
+    const allCats = new Set(ts.payloads.map(p => p.category || 'Uncategorised'));
+    upd({ collapsedCategories: allCats });
+  }
+
   // ── Event handlers ────────────────────────────────────────────────────────
   function handleCopyPayload() {
     navigator.clipboard.writeText(getEffectivePayloadStr()).then(() => {
@@ -321,8 +336,13 @@ export default function PayloadLibrary() {
   }
 
   function handleSelectPayload(i) {
+    // Auto-expand the selected item's category so it is always visible in the list.
+    const cat  = ts.payloads[i]?.category || 'Uncategorised';
+    const next = new Set(ts.collapsedCategories);
+    next.delete(cat);
     upd({
       selectedIndex: i,
+      collapsedCategories: next,
       viewingEntry: null,
       runResult: null,
       editedPayload: null,
@@ -495,6 +515,9 @@ export default function PayloadLibrary() {
         );
         if (reloadResp.ok) {
           const reloadData = await reloadResp.json();
+          const reloadAllCats = new Set(
+            (reloadData.payloads || []).map(p => p.category || 'Uncategorised')
+          );
           setTabStates(prev => ({
             ...prev,
             [envIdSnapshot]: {
@@ -503,7 +526,8 @@ export default function PayloadLibrary() {
               payloads:    reloadData.payloads,
               rawYaml:     reloadData.yaml,
               encryptedSource: reloadData.encrypted,
-              editorOpen:  false,   // close editor after successful save + reload
+              collapsedCategories: reloadAllCats,
+              editorOpen:  false,
             },
           }));
         }
@@ -748,6 +772,19 @@ export default function PayloadLibrary() {
               </p>
             )}
 
+            {/* Expand All / Collapse All — only shown in grouped mode */}
+            {!isSearching && ts.payloads.length > 0 && (
+              <div style={s.collapseToolbar}>
+                <button onClick={handleExpandAll} style={s.collapseToolbarBtn}>
+                  Expand all
+                </button>
+                <span style={s.collapseToolbarDivider}>·</span>
+                <button onClick={handleCollapseAll} style={s.collapseToolbarBtn}>
+                  Collapse all
+                </button>
+              </div>
+            )}
+
             <div style={s.list}>
               {/* Flat list while searching */}
               {isSearching && filteredPayloads.map((p) => (
@@ -774,16 +811,27 @@ export default function PayloadLibrary() {
               )}
 
               {/* Grouped list when not searching */}
-              {!isSearching && grouped && Object.entries(grouped).map(([cat, items]) => (
+              {!isSearching && grouped && Object.entries(grouped).map(([cat, items]) => {
+                const isCollapsed   = ts.collapsedCategories.has(cat);
+                const hasSelected   = items.some(p => p.originalIndex === ts.selectedIndex);
+                return (
                 <div key={cat}>
-                  <button onClick={() => toggleCategory(cat)} style={s.categoryHeader}>
+                  <button
+                    onClick={() => toggleCategory(cat)}
+                    style={{ ...s.categoryHeader, ...(hasSelected && isCollapsed ? s.categoryHeaderHasSelected : {}) }}
+                    title={isCollapsed ? `Expand ${cat}` : `Collapse ${cat}`}
+                  >
                     <span style={s.categoryChevron}>
-                      {ts.collapsedCategories.has(cat) ? '▸' : '▾'}
+                      {isCollapsed ? '▸' : '▾'}
                     </span>
                     <span style={s.categoryName}>{cat}</span>
                     <span style={s.categoryCount}>{items.length}</span>
+                    {/* Dot shown when category is collapsed and contains the selected item */}
+                    {hasSelected && isCollapsed && (
+                      <span style={s.selectedDot} title="Selected item is in this group" />
+                    )}
                   </button>
-                  {!ts.collapsedCategories.has(cat) && items.map((p) => (
+                  {!isCollapsed && items.map((p) => (
                     <button
                       key={p.originalIndex}
                       onClick={() => handleSelectPayload(p.originalIndex)}
@@ -802,7 +850,8 @@ export default function PayloadLibrary() {
                     </button>
                   ))}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -1196,6 +1245,33 @@ const s = {
   },
 
   // ── Category group header ─────────────────────────────────────────────────
+  // ── Expand All / Collapse All toolbar ────────────────────────────────────
+  collapseToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+    padding: '0.25rem 0.625rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  collapseToolbarBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '0.68rem',
+    fontWeight: 600,
+    color: 'var(--accent)',
+    fontFamily: 'inherit',
+    padding: '0.1rem 0.2rem',
+    borderRadius: '4px',
+    lineHeight: 1,
+  },
+  collapseToolbarDivider: {
+    color: 'var(--text-secondary)',
+    fontSize: '0.68rem',
+    userSelect: 'none',
+  },
+
   categoryHeader: {
     display: 'flex',
     alignItems: 'center',
@@ -1209,6 +1285,19 @@ const s = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     textAlign: 'left',
+  },
+  // Applied to the header when it's collapsed AND contains the selected item
+  categoryHeaderHasSelected: {
+    background: 'var(--accent-light)',
+  },
+  // Small accent dot shown on a collapsed header that contains the selected item
+  selectedDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    background: 'var(--accent)',
+    flexShrink: 0,
+    marginLeft: 'auto',
   },
   categoryChevron: {
     fontSize: '0.65rem',
