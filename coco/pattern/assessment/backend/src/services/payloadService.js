@@ -100,26 +100,51 @@ function decrypt(envelope, key) {
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
 }
 
+// ── File key normalisation ────────────────────────────────────────────────────
+
+/**
+ * Convert a raw environment ID to a safe, cross-platform filename stem.
+ *
+ * Rules: lowercase, every non-alphanumeric character → underscore.
+ *   "ADM-DEV" → "adm_dev"
+ *   "DEV"     → "dev"
+ *   "NPE"     → "npe"
+ *   "PROD"    → "prod"
+ *
+ * This matches the naming convention used for the static fallback files in
+ * frontend/public/payloads/ and PROVIDER_ENV_PAYLOAD_FILES.
+ * Windows filesystems are case-insensitive so the bug is silent there;
+ * Linux/Kubernetes filesystems are case-sensitive, making the mismatch fatal.
+ */
+function toFileKey(envId) {
+  return envId.toLowerCase().replace(/[^a-z0-9]/g, '_');
+}
+
 // ── Read ──────────────────────────────────────────────────────────────────────
 
 /**
  * Read and decrypt the payload YAML for a given environment.
  *
  * Resolution order (first found wins):
- *   1. {PAYLOAD_STORAGE_PATH}/{envId}.enc   — encrypted, preferred
- *   2. frontend/public/payloads/{envId}.yaml — plain-text migration fallback
- *   3. frontend/public/payloads.yaml          — legacy flat-file fallback
+ *   1.  {PAYLOAD_STORAGE_PATH}/{fileKey}.enc   — AES-256-GCM encrypted, preferred
+ *   1b. {PAYLOAD_STORAGE_PATH}/{fileKey}.yaml  — plain-text saved (no key / editor save)
+ *   2.  {PAYLOAD_FALLBACK_DIR}/{fileKey}.yaml  — read-only static fallback (bind mount / dev)
+ *   3.  {PAYLOAD_LEGACY_YAML}                  — legacy flat payloads.yaml
+ *
+ * All file paths use toFileKey(envId) so "ADM-DEV" resolves to "adm_dev.*"
+ * on every platform, including case-sensitive Linux/Kubernetes filesystems.
  *
  * @param {string} envId  Raw environment ID (e.g. "ADM-DEV", "PROD")
  * @returns {{ yaml: string, payloads: Array, encrypted: boolean } | null}
  * @throws Error if an encrypted file is found but no key is configured
  */
 function readPayload(envId) {
-  const key    = getEncryptionKey();
-  const encDir = storagePath();
-  const encFile = path.join(encDir, `${envId}.enc`);
+  const fileKey = toFileKey(envId);
+  const key     = getEncryptionKey();
+  const encDir  = storagePath();
 
   // ── Step 1: encrypted file ───────────────────────────────────────────────
+  const encFile = path.join(encDir, `${fileKey}.enc`);
   if (fs.existsSync(encFile)) {
     if (!key) {
       throw new Error(
@@ -137,7 +162,7 @@ function readPayload(envId) {
   // writePayload() writes here when PAYLOAD_ENCRYPTION_KEY is not set.
   // Must be checked BEFORE the read-only fallback dirs so that edits saved
   // via the UI take precedence over the original static files.
-  const savedPlainFile = path.join(encDir, `${envId}.yaml`);
+  const savedPlainFile = path.join(encDir, `${fileKey}.yaml`);
   if (fs.existsSync(savedPlainFile)) {
     const yaml     = fs.readFileSync(savedPlainFile, 'utf8');
     const payloads = parsePayloads(yaml, envId);
@@ -145,7 +170,7 @@ function readPayload(envId) {
   }
 
   // ── Step 2: plain per-env YAML (migration / dev fallback, read-only) ────
-  const plainFile = path.join(FRONTEND_PAYLOADS, `${envId}.yaml`);
+  const plainFile = path.join(FRONTEND_PAYLOADS, `${fileKey}.yaml`);
   if (fs.existsSync(plainFile)) {
     const yaml     = fs.readFileSync(plainFile, 'utf8');
     const payloads = parsePayloads(yaml, envId);
@@ -179,14 +204,15 @@ function writePayload(envId, yaml) {
   // Validate YAML structure before touching disk
   validateYaml(yaml);
 
-  const dir = storagePath();
+  const fileKey = toFileKey(envId);   // "ADM-DEV" → "adm_dev"
+  const dir     = storagePath();
   fs.mkdirSync(dir, { recursive: true });
 
   const key = getEncryptionKey();
   if (key) {
     const envelope = encrypt(yaml, key);
     fs.writeFileSync(
-      path.join(dir, `${envId}.enc`),
+      path.join(dir, `${fileKey}.enc`),
       JSON.stringify(envelope, null, 2),
       'utf8'
     );
@@ -196,7 +222,7 @@ function writePayload(envId, yaml) {
       `storing payload for "${envId}" as plain text. ` +
       'Set PAYLOAD_ENCRYPTION_KEY for encrypted storage.'
     );
-    fs.writeFileSync(path.join(dir, `${envId}.yaml`), yaml, 'utf8');
+    fs.writeFileSync(path.join(dir, `${fileKey}.yaml`), yaml, 'utf8');
   }
 }
 
