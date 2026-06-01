@@ -37,6 +37,7 @@ backend:
     PROVIDER_ADM_DEV_URLS: ""
     PROVIDER_ADM_DEV_URL_LABELS: ""
     PROVIDER_ADM_DEV_URL_AUTH_TYPES: ""
+    PROVIDER_ADM_DEV_URL_TLS_VERIFY: "true"
     # Per-env credentials for ADM-DEV — set via --set at deploy time
     PROVIDER_ADM_DEV_API_KEY: ""
     PROVIDER_ADM_DEV_ENTRA_TENANT_ID: ""
@@ -48,6 +49,7 @@ backend:
     PROVIDER_DEV_URLS: ""
     PROVIDER_DEV_URL_LABELS: ""
     PROVIDER_DEV_URL_AUTH_TYPES: ""
+    PROVIDER_DEV_URL_TLS_VERIFY: "true"
     # Per-env credentials for DEV — set via --set at deploy time
     PROVIDER_DEV_API_KEY: ""
     PROVIDER_DEV_ENTRA_TENANT_ID: ""
@@ -59,6 +61,7 @@ backend:
     PROVIDER_NPE_URLS: ""
     PROVIDER_NPE_URL_LABELS: ""
     PROVIDER_NPE_URL_AUTH_TYPES: ""
+    PROVIDER_NPE_URL_TLS_VERIFY: "true"
     # Per-env credentials for NPE — set via --set at deploy time
     PROVIDER_NPE_API_KEY: ""
     PROVIDER_NPE_ENTRA_TENANT_ID: ""
@@ -70,6 +73,7 @@ backend:
     PROVIDER_PROD_URLS: ""
     PROVIDER_PROD_URL_LABELS: ""
     PROVIDER_PROD_URL_AUTH_TYPES: ""
+    PROVIDER_PROD_URL_TLS_VERIFY: "true"
     # Per-env credentials for PROD — set via --set at deploy time
     PROVIDER_PROD_API_KEY: ""
     PROVIDER_PROD_ENTRA_TENANT_ID: ""
@@ -86,6 +90,7 @@ backend:
     # Used when the matching PROVIDER_{ENV}_* var above is not set.
     # In legacy mode (PROVIDER_ENVS unset) these are the only credential vars.
     # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
+    PROVIDER_SKIP_TLS_VERIFY: "false"
     PROVIDER_TIMEOUT_MS: "15000"
     # For api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
     PROVIDER_API_KEY: ""
