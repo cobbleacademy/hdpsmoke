@@ -1,5 +1,14 @@
 'use strict';
 
+const https = require('https');
+const http  = require('http');
+
+// Reusable insecure HTTPS agent — created once, used for all skipTlsVerify requests.
+// rejectUnauthorized: false bypasses certificate validation for self-signed /
+// internally-signed certs. Only applied to provider API calls, never to Entra
+// token requests or OpenAI calls.
+const _insecureAgent = new https.Agent({ rejectUnauthorized: false });
+
 // ── Per-environment credential resolver ───────────────────────────────────────
 
 /**
@@ -39,6 +48,102 @@ function getConfiguredCredentials(envId) {
     xApiKey:           get('X_APIKEY',           'PROVIDER_X_APIKEY'),
     xApiSecret:        get('X_APISECRET',        'PROVIDER_X_APISECRET'),
   };
+}
+
+// ── TLS-flexible request helper ───────────────────────────────────────────────
+
+/**
+ * Make a POST request to a provider URL.
+ *
+ * When skipTlsVerify is false (default): uses native fetch with full TLS validation.
+ * When skipTlsVerify is true:            uses https.request with the pre-built
+ *   insecure agent (rejectUnauthorized: false). This is intentionally separate
+ *   from the fetch path so Entra token requests and all other outbound calls
+ *   are never affected by the insecure setting.
+ *
+ * Returns a fetch-compatible response object:
+ *   { status, headers: { get(name) }, text() → Promise<string> }
+ *
+ * @param {{ url, headers, body, signal, skipTlsVerify }} opts
+ */
+async function makeRequest({ url, headers, body, signal, skipTlsVerify }) {
+  if (!skipTlsVerify) {
+    return fetch(url, { method: 'POST', headers, body, signal });
+  }
+
+  // ── Insecure path ─────────────────────────────────────────────────────────
+  console.warn(
+    `[providerService] ⚠  TLS verification DISABLED for ${new URL(url).hostname}. ` +
+    'Only use for dev/internal endpoints with self-signed certificates.'
+  );
+
+  return new Promise((resolve, reject) => {
+    const parsed  = new URL(url);
+    const isHttps = parsed.protocol === 'https:';
+    const mod     = isHttps ? https : http;
+    const agent   = isHttps ? _insecureAgent : undefined;
+
+    let aborted = false;
+
+    const req = mod.request(
+      {
+        hostname: parsed.hostname,
+        port:     parsed.port || (isHttps ? 443 : 80),
+        path:     parsed.pathname + (parsed.search || ''),
+        method:   'POST',
+        headers,
+        agent,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          const rawText = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status:  res.statusCode,
+            headers: {
+              get: (name) => {
+                const val = res.headers[name.toLowerCase()];
+                return Array.isArray(val) ? val.join(', ') : (val ?? null);
+              },
+            },
+            text: () => Promise.resolve(rawText),
+          });
+        });
+        res.on('error', (err) => {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          reject(err);
+        });
+      }
+    );
+
+    // Mirror AbortController → destroy the request and throw with name='AbortError'
+    // so callProvider's TIMEOUT detection works identically on both code paths.
+    function onAbort() {
+      aborted = true;
+      req.destroy();
+    }
+
+    if (signal) {
+      if (signal.aborted) { onAbort(); }
+      else { signal.addEventListener('abort', onAbort, { once: true }); }
+    }
+
+    req.on('error', (err) => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      if (aborted) {
+        const e = new Error('AbortError');
+        e.name  = 'AbortError';
+        reject(e);
+      } else {
+        reject(err);
+      }
+    });
+
+    req.write(body);
+    req.end();
+  });
 }
 
 // ── In-memory Entra token cache ───────────────────────────────────────────────
@@ -144,16 +249,20 @@ async function buildAuthHeaders(authType, creds) {
 /**
  * POST payload JSON to a provider URL.
  *
- * @param {string} url            Full HTTPS endpoint URL
- * @param {object|string} payload Already-parsed JSON object (or raw string fallback)
- * @param {string} [authType]     Auth mode: 'none'|'api-key'|'entraid-apigee'|'payload-embedded'
- *                                Falls back to PROVIDER_AUTH_TYPE env var if omitted.
- * @param {string|null} [envId]   Environment ID from the frontend tab (e.g. "ADM-DEV").
- *                                null/undefined → use global credential env vars (legacy mode).
+ * @param {string} url              Full HTTPS endpoint URL
+ * @param {object|string} payload   Already-parsed JSON object (or raw string fallback)
+ * @param {string} [authType]       Auth mode: 'none'|'api-key'|'entraid-apigee'|'payload-embedded'
+ *                                  Falls back to PROVIDER_AUTH_TYPE env var if omitted.
+ * @param {string|null} [envId]     Environment ID from the frontend tab (e.g. "ADM-DEV").
+ *                                  null/undefined → use global credential env vars (legacy mode).
+ * @param {boolean} [skipTlsVerify] When true, skips TLS certificate verification for this
+ *                                  provider call. Use only for dev/internal endpoints with
+ *                                  self-signed certificates. Falls back to the global
+ *                                  PROVIDER_SKIP_TLS_VERIFY env var if not supplied.
  * @returns {{ status: number, body: any, durationMs: number }}
  * @throws Error with .code = 'TIMEOUT' | 'NETWORK' on hard failures
  */
-async function callProvider(url, payload, authType, envId) {
+async function callProvider(url, payload, authType, envId, skipTlsVerify = false) {
   const resolvedAuthType = authType || process.env.PROVIDER_AUTH_TYPE || 'none';
   const timeoutMs = Math.max(
     10_000,
@@ -163,19 +272,23 @@ async function callProvider(url, payload, authType, envId) {
   const creds = getConfiguredCredentials(envId || null);
   const authHeaders = await buildAuthHeaders(resolvedAuthType, creds);
 
+  // TLS: explicit flag from request > PROVIDER_SKIP_TLS_VERIFY global env var
+  const resolvedSkipTls = skipTlsVerify || process.env.PROVIDER_SKIP_TLS_VERIFY === 'true';
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startMs = Date.now();
 
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
+    const resp = await makeRequest({
+      url,
       headers: {
         'Content-Type': 'application/json',
         ...authHeaders,
       },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
+      body:         JSON.stringify(payload),
+      signal:       controller.signal,
+      skipTlsVerify: resolvedSkipTls,
     });
     clearTimeout(timeoutId);
 
@@ -242,14 +355,17 @@ function getConfiguredUrls() {
  * Parse PROVIDER_ENVS + PROVIDER_ENV_PAYLOAD_FILES + per-env URL triplets
  * into an array of environment objects for the tab-based UI.
  *
- * Each environment uses three env vars keyed by its uppercased ID:
- *   PROVIDER_{ID}_URLS            — comma CSV of endpoint URLs
- *   PROVIDER_{ID}_URL_LABELS      — comma CSV of display labels (optional)
- *   PROVIDER_{ID}_URL_AUTH_TYPES  — comma CSV of auth types per URL (optional)
+ * Each environment uses four env vars keyed by its uppercased ID:
+ *   PROVIDER_{ID}_URLS              — comma CSV of endpoint URLs
+ *   PROVIDER_{ID}_URL_LABELS        — comma CSV of display labels (optional)
+ *   PROVIDER_{ID}_URL_AUTH_TYPES    — comma CSV of auth types per URL (optional)
+ *   PROVIDER_{ID}_URL_TLS_VERIFY    — comma CSV of TLS verify flags per URL (optional)
+ *                                     'true' (default) = verify cert
+ *                                     'false'          = skip verification (self-signed / internal CA)
  *
  * Returns null when PROVIDER_ENVS is not set → caller falls back to legacy mode.
  *
- * @returns {Array<{id, label, payloadFile, urls: Array<{label, url, authType}>}>|null}
+ * @returns {Array<{id, label, payloadFile, urls: Array<{label, url, authType, skipTlsVerify}>}>|null}
  */
 function getConfiguredEnvironments() {
   const rawEnvs  = process.env.PROVIDER_ENVS || '';
@@ -261,25 +377,28 @@ function getConfiguredEnvironments() {
   const payloadFiles = rawFiles.split(',').map((s) => s.trim());
 
   return envIds.map((id, i) => {
-    // Normalise the key: "DEV" → "DEV", "dev-z3" → "DEV_Z3"
     const key = id.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 
-    const rawUrls   = process.env[`PROVIDER_${key}_URLS`]           || '';
-    const rawLabels = process.env[`PROVIDER_${key}_URL_LABELS`]      || '';
-    const rawAuths  = process.env[`PROVIDER_${key}_URL_AUTH_TYPES`]  || '';
+    const rawUrls      = process.env[`PROVIDER_${key}_URLS`]             || '';
+    const rawLabels    = process.env[`PROVIDER_${key}_URL_LABELS`]        || '';
+    const rawAuths     = process.env[`PROVIDER_${key}_URL_AUTH_TYPES`]    || '';
+    const rawTlsVerify = process.env[`PROVIDER_${key}_URL_TLS_VERIFY`]    || '';
 
-    const urls   = rawUrls.split(',').map((s) => s.trim()).filter(Boolean);
-    const labels = rawLabels.split(',').map((s) => s.trim());
-    const auths  = rawAuths.split(',').map((s) => s.trim());
+    const urls      = rawUrls.split(',').map((s) => s.trim()).filter(Boolean);
+    const labels    = rawLabels.split(',').map((s) => s.trim());
+    const auths     = rawAuths.split(',').map((s) => s.trim());
+    const tlsVerify = rawTlsVerify.split(',').map((s) => s.trim());
 
     return {
       id,
       label: id,
       payloadFile: payloadFiles[i] || id.toLowerCase(),
       urls: urls.map((url, j) => ({
-        label:    labels[j] || `${id} URL ${j + 1}`,
+        label:         labels[j] || `${id} URL ${j + 1}`,
         url,
-        authType: (auths[j] || 'none').toLowerCase(),
+        authType:      (auths[j] || 'none').toLowerCase(),
+        // skipTlsVerify: true when explicitly set to 'false' — safe default is verify (false)
+        skipTlsVerify: tlsVerify[j]?.toLowerCase() === 'false',
       })),
     };
   });

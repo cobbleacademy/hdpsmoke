@@ -84,7 +84,7 @@ router.get('/provider-config', (req, res) => {
  * Body: { payload, url, authType, envId? }
  */
 router.post('/run-payload', async (req, res) => {
-  const { payload, url, authType, envId } = req.body;
+  const { payload, url, authType, envId, skipTlsVerify } = req.body;
 
   if (typeof url !== 'string' || !url.startsWith('http')) {
     return res.status(400).json({ error: 'url must be a valid http/https string' });
@@ -94,7 +94,7 @@ router.post('/run-payload', async (req, res) => {
   }
 
   try {
-    const result = await callProvider(url, payload, authType, envId || null);
+    const result = await callProvider(url, payload, authType, envId || null, Boolean(skipTlsVerify));
     res.json(result);
   } catch (err) {
     if (err.code === 'TIMEOUT') {
