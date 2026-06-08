@@ -31,6 +31,34 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/opa-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-generate': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-policies': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-policy': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-manifest': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-parse': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/opa-stale': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 });

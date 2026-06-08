@@ -6,6 +6,7 @@ import ResultCard from './components/ResultCard';
 import PatternExplorer from './components/PatternExplorer';
 import HowItWorks from './components/HowItWorks';
 import PayloadLibrary from './components/PayloadLibrary';
+import OPAPolicyGenerator from './components/OPAPolicyGenerator';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -30,6 +31,7 @@ const VIEW_PATHS = {
   explorer:       `${APP_BASE}/explorer`,
   howItWorks:     `${APP_BASE}/how-it-works`,
   payloadLibrary: `${APP_BASE}/payload-library`,
+  opaPolicy:      `${APP_BASE}/opa-generator`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -322,6 +324,9 @@ export default function App() {
 
         {/* ── Payload Library view ── */}
         {currentView === 'payloadLibrary' && <PayloadLibrary />}
+
+        {/* ── OPA Policy Generator view ── */}
+        {currentView === 'opaPolicy' && <OPAPolicyGenerator />}
       </main>
     </div>
   );

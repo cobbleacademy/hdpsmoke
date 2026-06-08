@@ -34,6 +34,13 @@ const NAV_ITEMS = [
     description: 'Browse sample API payloads',
     alwaysOn: true,
   },
+  {
+    id: 'opaPolicy',
+    label: 'OPA Generator',
+    icon: '🛡️',
+    description: 'ABAC → OPA Rego policy',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
