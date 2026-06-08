@@ -1,0 +1,43 @@
+{
+  "nodes": [
+    {
+      "catalog": "demos",
+      "schema": null,
+      "table": null,
+      "policyName": "cat_policy",
+      "scope": "catalog",
+      "filePath": "policies/demos.sql",
+      "branch": null,
+      "sha": null,
+      "status": "current",
+      "ruleCount": 4,
+      "lastGenerated": "2026-06-08T02:19:32.295Z"
+    },
+    {
+      "catalog": "demos",
+      "schema": "customers",
+      "table": null,
+      "policyName": "sch_policy",
+      "scope": "schema",
+      "filePath": null,
+      "branch": null,
+      "sha": null,
+      "status": "current",
+      "ruleCount": 4,
+      "lastGenerated": "2026-06-08T02:19:10.713Z"
+    },
+    {
+      "catalog": "demos",
+      "schema": "customers",
+      "table": "profiles",
+      "policyName": "tbl_policy",
+      "scope": "table",
+      "filePath": null,
+      "branch": null,
+      "sha": null,
+      "status": "pending",
+      "ruleCount": null,
+      "lastGenerated": null
+    }
+  ]
+}
