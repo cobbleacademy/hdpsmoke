@@ -18,11 +18,13 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY src/ ./src/
 
 # Non-root user for security.
-# Create the payload storage directory BEFORE switching user so Docker
+# Create the data storage directories BEFORE switching user so Docker
 # initialises the named volume with appuser ownership on first mount.
 # Without this the volume is root-owned and the non-root process gets EACCES.
+# Directories: payloads (Payload Library) + opa-policies (OPA Policy Generator)
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
  && mkdir -p /app/data/payloads \
+ && mkdir -p /app/data/opa-policies \
  && chown -R appuser:appgroup /app/data
 USER appuser
 
