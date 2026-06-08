@@ -1,19 +1,90 @@
 'use strict';
 
+// ── Variable resolver ─────────────────────────────────────────────────────────
+
+/**
+ * Extract Databricks widget default values from notebook.
+ * Parses: dbutils.widgets.text("varname", "default_value", "label")
+ *
+ * @param {string} content  Raw notebook content
+ * @returns {Object} Map of variable_name → default_value
+ */
+function extractWidgetDefaults(content) {
+  const variables = {};
+  const widgetRegex = /dbutils\.widgets\.text\s*\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,/g;
+
+  let match;
+  while ((match = widgetRegex.exec(content)) !== null) {
+    const varName = match[1];
+    const defaultValue = match[2];
+    variables[varName] = defaultValue;
+  }
+
+  return variables;
+}
+
+/**
+ * Resolve Python variables in SQL strings.
+ * Replaces {variable_name} with values from the variables map.
+ * Also handles common transformations like {var_name} → {var_name} with underscore conversion.
+ *
+ * @param {string} sql       SQL with {variable} placeholders
+ * @param {Object} variables Map of variable → value
+ * @returns {string} SQL with variables resolved
+ */
+function resolveSqlVariables(sql, variables) {
+  let resolved = sql;
+
+  // Find all {variable} patterns
+  const varPattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+  const foundVars = new Set();
+
+  let match;
+  while ((match = varPattern.exec(sql)) !== null) {
+    foundVars.add(match[1]);
+  }
+
+  // Resolve each variable
+  for (const varName of foundVars) {
+    let value = variables[varName];
+
+    // If not found, try variations (e.g., group_pii_readers might be accessed as pii_readers)
+    if (!value) {
+      // Try looking for a widget variable that uses this as suffix
+      for (const [widgetVar, widgetVal] of Object.entries(variables)) {
+        if (widgetVar.includes(varName) || varName.includes(widgetVar.replace('group_', ''))) {
+          value = widgetVal;
+          break;
+        }
+      }
+    }
+
+    if (value) {
+      // Use backticks if value contains special chars, otherwise keep as-is
+      const quoted = value.includes('-') || value.includes('.') ? `\`${value}\`` : value;
+      resolved = resolved.replace(new RegExp(`\\{${varName}\\}`, 'g'), quoted);
+    }
+  }
+
+  return resolved;
+}
+
 // ── Notebook SQL extractor ────────────────────────────────────────────────────
 
 /**
  * Extract SQL from a Databricks Python notebook (.py).
- * Notebooks interleave # MAGIC %sql cells with Python code and # MAGIC %md markdown.
+ * Handles both:
+ *  1. # MAGIC %sql cells (Databricks standard)
+ *  2. f-string SQL assignments (policy_sql = f"""...""") — including multi-line
  *
  * Rules:
  *  - Lines starting with "# MAGIC %sql"  → begin a SQL block
- *  - Lines starting with "# MAGIC %md"   → end the current block (markdown)
- *  - Lines starting with "# MAGIC %python" → end the current block
- *  - "# COMMAND ----------"               → cell separator, ends current block
- *  - Inside a SQL block, lines starting "# MAGIC " → strip that prefix, keep rest
- *  - Python lines (no "# MAGIC" prefix) while inSqlBlock → exit SQL block
- *  - spark.sql(f"""...""") style SQL      → detected and counted as warning
+ *  - Lines starting with "# MAGIC %md"   → end the current block
+ *  - "# COMMAND ----------"               → cell separator
+ *  - Inside a SQL block, "# MAGIC " prefix is stripped
+ *  - Python lines without "# MAGIC" while inSqlBlock → exit SQL block
+ *  - f-string assignments (= f"""...""" or = f'''...''') → extract SQL content
+ *  - spark.sql(f"""...""") → extract SQL content (both single and multi-line)
  *
  * @param {string} content  Raw .py file content
  * @returns {{ sql: string, sqlBlockCount: number, fStringCount: number }}
@@ -24,10 +95,14 @@ function extractNotebookSql(content) {
   let inSqlBlock = false;
   let sqlBlockCount = 0;
   let fStringCount = 0;
+  let inFString = false;
+  let fStringQuote = null;
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
 
+    // ── Handle # MAGIC %sql blocks ────────────────────────────────────────────
     if (trimmed === '# COMMAND ----------') {
       inSqlBlock = false;
       continue;
@@ -64,21 +139,82 @@ function extractNotebookSql(content) {
       continue;
     }
 
-    // Detect f-string SQL outside magic blocks
-    if (
-      line.includes('spark.sql(f"""') ||
-      line.includes("spark.sql(f'''") ||
-      line.includes('spark.sql(f"') ||
-      line.includes("spark.sql(f'")
-    ) {
-      fStringCount++;
+    // ── Handle f-string SQL (multi-line) ───────────────────────────────────
+    // Look for: var_name = f"""...""" or spark.sql(f"""...""")
+    if (!inFString && !inSqlBlock) {
+      // Detect start of f-string with proper quote detection
+      let fStringStart = -1;
+      let quoteType = null;
+
+      if (line.includes('= f"""')) {
+        fStringStart = line.indexOf('= f"""') + '= f'.length;
+        quoteType = '"""';
+      } else if (line.includes("= f'''")) {
+        fStringStart = line.indexOf("= f'''") + "= f".length;
+        quoteType = "'''";
+      } else if (line.includes('spark.sql(f"""')) {
+        fStringStart = line.indexOf('spark.sql(f"""') + 'spark.sql(f'.length;
+        quoteType = '"""';
+      } else if (line.includes("spark.sql(f'''")) {
+        fStringStart = line.indexOf("spark.sql(f'''") + "spark.sql(f".length;
+        quoteType = "'''";
+      }
+
+      if (fStringStart >= 0 && quoteType) {
+        fStringQuote = quoteType;
+        inFString = true;
+        fStringCount++;
+
+        // Find the content between opening and closing quotes
+        const afterOpen = line.substring(fStringStart + quoteType.length);
+        const closeIdx = afterOpen.indexOf(quoteType);
+
+        if (closeIdx >= 0) {
+          // Single-line f-string
+          const sqlContent = afterOpen.substring(0, closeIdx).trim();
+          if (sqlContent) {
+            if (sqlLines.length > 0) sqlLines.push('');
+            sqlLines.push(sqlContent);
+          }
+          inFString = false;
+          sqlBlockCount++;
+        } else {
+          // Multi-line f-string starts
+          if (afterOpen.trim()) {
+            if (sqlLines.length > 0) sqlLines.push('');
+            sqlLines.push(afterOpen);
+          }
+        }
+        continue;
+      }
+    }
+
+    // ── Continue collecting multi-line f-string content ────────────────────
+    if (inFString) {
+      if (line.includes(fStringQuote)) {
+        // Found closing quote
+        const idx = line.indexOf(fStringQuote);
+        const beforeClose = line.substring(0, idx).trim();
+        if (beforeClose) {
+          sqlLines.push(beforeClose);
+        }
+        inFString = false;
+        sqlBlockCount++;
+      } else {
+        // Still inside f-string — collect this line
+        const trimmedLine = line.trim();
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+          sqlLines.push(trimmedLine);
+        }
+      }
+      continue;
     }
   }
 
   return {
     sql: sqlLines.join('\n').trim(),
     sqlBlockCount,
-    fStringCount,
+    fStringCount: fStringCount, // Count only f-strings we actually found
   };
 }
 
@@ -182,6 +318,7 @@ async function fetchAbacPolicy({ owner, repo, branch, filePath, fetchMode = 'api
   let extractedFromNotebook = false;
   let sqlBlockCount = 0;
   const warnings = [];
+  let varsResolved = 0;
 
   if (isNotebook) {
     const extracted = extractNotebookSql(rawContent);
@@ -189,11 +326,25 @@ async function fetchAbacPolicy({ owner, repo, branch, filePath, fetchMode = 'api
     extractedFromNotebook = true;
     sqlBlockCount = extracted.sqlBlockCount;
 
-    if (extracted.fStringCount > 0) {
-      warnings.push(`${extracted.fStringCount} f-string SQL block(s) were skipped (contain Python variables). Paste them manually in Direct Input mode.`);
+    // ── Resolve Python variables in SQL ────────────────────────────────────
+    const widgetDefaults = extractWidgetDefaults(rawContent);
+    if (Object.keys(widgetDefaults).length > 0 && content.includes('{')) {
+      const resolvedContent = resolveSqlVariables(content, widgetDefaults);
+      const originalVarCount = (content.match(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g) || []).length;
+      const resolvedVarCount = (resolvedContent.match(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g) || []).length;
+      varsResolved = originalVarCount - resolvedVarCount;
+
+      if (varsResolved > 0) {
+        content = resolvedContent;
+        warnings.push(`${varsResolved} Python variable(s) resolved from widget defaults (${Object.keys(widgetDefaults).join(', ')})`);
+      }
     }
-    if (sqlBlockCount < 1) {
-      warnings.push('No # MAGIC %sql blocks found. Use Direct Input mode to paste the policy manually.');
+
+    if (extracted.fStringCount > 0) {
+      warnings.push(`${extracted.fStringCount} f-string SQL block(s) extracted and processed.`);
+    }
+    if (sqlBlockCount < 1 && extracted.fStringCount === 0) {
+      warnings.push('No SQL blocks found. Use Direct Input mode to paste the policy manually.');
     }
   }
 
