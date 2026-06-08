@@ -1,6 +1,8 @@
-{{- if .Values.payloadStorage.enabled }}
-# PersistentVolumeClaim for encrypted payload storage.
-# Stores {envId}.enc files written by the backend payload API.
+{{- if or .Values.dataStorage.enabled .Values.payloadStorage.enabled }}
+# PersistentVolumeClaim for encrypted data storage.
+# Stores two types of files:
+#   1. /app/data/payloads/ — {envId}.enc files (Payload Library)
+#   2. /app/data/opa-policies/ — manifest.json + {policyKey}.enc (OPA Policy Generator)
 #
 # NOTE: ReadWriteOnce is sufficient for single-pod deployments.
 # If HPA scales the backend to multiple pods on different nodes,
@@ -9,7 +11,11 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  {{- if .Values.dataStorage.enabled }}
+  name: {{ include "pattern-assessment.backend.name" . }}-data-storage
+  {{- else }}
   name: {{ include "pattern-assessment.backend.name" . }}-payload-storage
+  {{- end }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "pattern-assessment.backend.labels" . | nindent 4 }}
@@ -18,8 +24,18 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
+      {{- if .Values.dataStorage.enabled }}
+      storage: {{ .Values.dataStorage.size | default "5Gi" }}
+      {{- else }}
       storage: {{ .Values.payloadStorage.size | default "1Gi" }}
-  {{- if .Values.payloadStorage.storageClass }}
+      {{- end }}
+  {{- if .Values.dataStorage.enabled }}
+    {{- if .Values.dataStorage.storageClass }}
+  storageClassName: {{ .Values.dataStorage.storageClass }}
+    {{- end }}
+  {{- else }}
+    {{- if .Values.payloadStorage.storageClass }}
   storageClassName: {{ .Values.payloadStorage.storageClass }}
+    {{- end }}
   {{- end }}
 {{- end }}

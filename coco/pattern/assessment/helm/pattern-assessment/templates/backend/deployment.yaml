@@ -184,6 +184,40 @@ spec:
             - name: PAYLOAD_ADMIN_TOKEN
               value: {{ .Values.backend.payloadAdminToken | quote }}
 
+            # ── OPA Policy Generator (ABAC → Rego) ─────────────────────────
+            - name: GITHUB_DEFAULT_OWNER
+              value: {{ .Values.backend.opaGithubOwner | default "ffgdeo" | quote }}
+            - name: GITHUB_DEFAULT_REPO
+              value: {{ .Values.backend.opaGithubRepo | default "uc-governance-demo" | quote }}
+            - name: GITHUB_DEFAULT_BRANCH
+              value: {{ .Values.backend.opaGithubBranch | default "main" | quote }}
+            - name: GITHUB_DEFAULT_ABAC_PATH
+              value: {{ .Values.backend.opaGithubAbacPath | default "notebooks/04_row_filters_abac.py" | quote }}
+            - name: GITHUB_DEFAULT_FETCH_MODE
+              value: {{ .Values.backend.opaGithubFetchMode | default "api" | quote }}
+            - name: GITHUB_TOKEN
+              value: {{ .Values.backend.opaGithubToken | default "" | quote }}
+            - name: OPA_LLM_MODEL
+              value: {{ .Values.backend.opaLlmModel | default "gpt-4o" | quote }}
+            - name: OPA_POLICY_STORAGE_PATH
+              value: {{ .Values.backend.opaPolicyStoragePath | default "/app/data/opa-policies" | quote }}
+
+            # ── ABAC multi-environment support ──────────────────────────────
+            - name: ABAC_ENVS
+              value: {{ .Values.backend.abacEnvs | default "" | quote }}
+            - name: ABAC_DEV_BRANCH
+              value: {{ .Values.backend.abacDevBranch | default "dev" | quote }}
+            - name: ABAC_DEV_BASE_PATH
+              value: {{ .Values.backend.abacDevBasePath | default "policies/dev/" | quote }}
+            - name: ABAC_NPE_BRANCH
+              value: {{ .Values.backend.abacNpeBranch | default "npe" | quote }}
+            - name: ABAC_NPE_BASE_PATH
+              value: {{ .Values.backend.abacNpeBasePath | default "policies/npe/" | quote }}
+            - name: ABAC_PROD_BRANCH
+              value: {{ .Values.backend.abacProdBranch | default "main" | quote }}
+            - name: ABAC_PROD_BASE_PATH
+              value: {{ .Values.backend.abacProdBasePath | default "policies/" | quote }}
+
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
 
@@ -203,14 +237,17 @@ spec:
             periodSeconds: 10
             failureThreshold: 3
 
-          {{- if or .Values.secrets.azureKeyVault.enabled .Values.payloadStorage.enabled }}
+          {{- if or .Values.secrets.azureKeyVault.enabled .Values.dataStorage.enabled .Values.payloadStorage.enabled }}
           volumeMounts:
             {{- if .Values.secrets.azureKeyVault.enabled }}
             - name: secrets-store
               mountPath: /mnt/secrets
               readOnly: true
             {{- end }}
-            {{- if .Values.payloadStorage.enabled }}
+            {{- if .Values.dataStorage.enabled }}
+            - name: data-storage
+              mountPath: {{ .Values.dataStorage.mountPath | default "/app/data" }}
+            {{- else if .Values.payloadStorage.enabled }}
             - name: payload-storage
               mountPath: {{ .Values.payloadStorage.mountPath | default "/app/data/payloads" }}
             {{- end }}
@@ -223,7 +260,7 @@ spec:
             capabilities:
               drop: ["ALL"]
 
-      {{- if or .Values.secrets.azureKeyVault.enabled .Values.payloadStorage.enabled }}
+      {{- if or .Values.secrets.azureKeyVault.enabled .Values.dataStorage.enabled .Values.payloadStorage.enabled }}
       volumes:
         {{- if .Values.secrets.azureKeyVault.enabled }}
         - name: secrets-store
@@ -233,7 +270,11 @@ spec:
             volumeAttributes:
               secretProviderClass: pattern-secrets-provider
         {{- end }}
-        {{- if .Values.payloadStorage.enabled }}
+        {{- if .Values.dataStorage.enabled }}
+        - name: data-storage
+          persistentVolumeClaim:
+            claimName: {{ include "pattern-assessment.backend.name" . }}-data-storage
+        {{- else if .Values.payloadStorage.enabled }}
         - name: payload-storage
           persistentVolumeClaim:
             claimName: {{ include "pattern-assessment.backend.name" . }}-payload-storage

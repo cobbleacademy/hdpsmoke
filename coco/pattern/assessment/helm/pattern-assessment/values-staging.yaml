@@ -34,6 +34,12 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
 
+dataStorage:
+  enabled: true
+  storageClass: managed-premium        # or your preferred StorageClass
+  size: 5Gi
+  mountPath: /app/data
+
 secrets:
   provider: kubernetes                 # plain K8s secret on staging
   kubernetes:

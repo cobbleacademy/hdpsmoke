@@ -114,12 +114,49 @@ backend:
   payloadWriteAuthEnabled: "false" # set "true" to require Bearer token for saves
   payloadAdminToken: ""            # set via --set backend.payloadAdminToken=<token>
 
-# ── Payload storage (PVC) ─────────────────────────────────────────────────────
-payloadStorage:
+  # ── OPA Policy Generator (ABAC → Rego) ──────────────────────────────────────
+  # GitHub configuration for fetching ABAC SQL policies
+  opaGithubOwner: ffgdeo
+  opaGithubRepo: uc-governance-demo
+  opaGithubBranch: main
+  opaGithubAbacPath: notebooks/04_row_filters_abac.py
+  opaGithubFetchMode: api                    # "api" (private+public, 1MB limit) or "raw" (public only)
+  opaGithubToken: ""                         # set via --set backend.opaGithubToken=<token>
+
+  # OPA LLM configuration
+  opaLlmModel: gpt-4o                        # model for ABAC → Rego conversion
+
+  # OPA policy storage path (in container)
+  opaPolicyStoragePath: /app/data/opa-policies
+
+  # ── ABAC multi-environment support ──────────────────────────────────────────
+  # Set ABAC_ENVS to enable multi-environment tree tabs in UI
+  abacEnvs: ""                               # "DEV,NPE,PROD" or "" for single default env
+  # Per-environment Git branch and path (set via --set for each env)
+  abacDevBranch: dev
+  abacDevBasePath: policies/dev/
+  abacNpeBranch: npe
+  abacNpeBasePath: policies/npe/
+  abacProdBranch: main
+  abacProdBasePath: policies/
+
+# ── Data storage (PVC) — Payload Library + OPA Policy Generator ──────────────
+# Single PVC mounted at /app/data/ covers both:
+#   - /app/data/payloads/ (Payload Library encrypted YAML)
+#   - /app/data/opa-policies/ (OPA Policy Generator manifests + Rego)
+dataStorage:
   enabled: false          # set true in staging/prod values overlay
   storageClass: ""        # empty = use cluster default StorageClass
+  size: 5Gi               # increased from 1Gi to accommodate both payloads + policies
+  mountPath: /app/data    # both payloads and OPA policies stored here
+
+# ── Legacy: payloadStorage (deprecated, use dataStorage) ────────────────────────
+# Kept for backward compatibility; replaced by dataStorage above
+payloadStorage:
+  enabled: false          # use dataStorage.enabled instead
+  storageClass: ""
   size: 1Gi
-  mountPath: /app/data/payloads   # must match PAYLOAD_STORAGE_PATH in container
+  mountPath: /app/data/payloads
 
 # ── Frontend ──────────────────────────────────────────────────────────────────
 frontend:

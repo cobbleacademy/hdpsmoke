@@ -27,6 +27,12 @@ backend:
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
 
+dataStorage:
+  enabled: true
+  storageClass: managed-csi            # Azure managed CSI for high performance
+  size: 10Gi                            # larger size for production
+  mountPath: /app/data
+
 frontend:
   tag: ""                              # set at deploy time: --set frontend.tag=v1.2.3
   replicas: 2
