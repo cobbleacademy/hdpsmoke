@@ -103,8 +103,27 @@ services:
       # Used by readPayload steps 2 & 3 when no .enc file exists yet.
       PAYLOAD_FALLBACK_DIR: /app/public/payloads
       PAYLOAD_LEGACY_YAML: /app/public/payloads.yaml
+      # ── OPA Policy Generator (ABAC → Rego) ────────────────────────────────────
+      GITHUB_DEFAULT_OWNER: ${GITHUB_DEFAULT_OWNER:-ffgdeo}
+      GITHUB_DEFAULT_REPO: ${GITHUB_DEFAULT_REPO:-uc-governance-demo}
+      GITHUB_DEFAULT_BRANCH: ${GITHUB_DEFAULT_BRANCH:-main}
+      GITHUB_DEFAULT_ABAC_PATH: ${GITHUB_DEFAULT_ABAC_PATH:-notebooks/04_row_filters_abac.py}
+      GITHUB_DEFAULT_FETCH_MODE: ${GITHUB_DEFAULT_FETCH_MODE:-api}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OPA_LLM_MODEL: ${OPA_LLM_MODEL:-gpt-4o}
+      OPA_POLICY_STORAGE_PATH: /app/data/opa-policies
+      # ── ABAC multi-environment support ────────────────────────────────────────
+      ABAC_ENVS: ${ABAC_ENVS:-DEV,NPE,PROD}
+      ABAC_DEV_BRANCH: ${ABAC_DEV_BRANCH:-dev}
+      ABAC_DEV_BASE_PATH: ${ABAC_DEV_BASE_PATH:-policies/dev/}
+      ABAC_NPE_BRANCH: ${ABAC_NPE_BRANCH:-npe}
+      ABAC_NPE_BASE_PATH: ${ABAC_NPE_BASE_PATH:-policies/npe/}
+      ABAC_PROD_BRANCH: ${ABAC_PROD_BRANCH:-main}
+      ABAC_PROD_BASE_PATH: ${ABAC_PROD_BASE_PATH:-policies/}
     volumes:
+      # Persistent storage for encrypted payloads and OPA policies
       - payload-storage:/app/data/payloads
+      - opa-storage:/app/data/opa-policies
       # Read-only bind mounts so the backend can serve plain YAML as a fallback
       # before encrypted files are created (migration path / first run).
       - ./frontend/public/payloads:/app/public/payloads:ro
@@ -145,3 +164,8 @@ volumes:
     # Named volume — persists encrypted payload files across container restarts.
     # To pre-populate, run the migration script:
     #   PAYLOAD_ENCRYPTION_KEY=<key> node backend/scripts/encrypt-payloads.js
+
+  opa-storage:
+    # Named volume — persists encrypted OPA policy files across container restarts.
+    # Stores per-environment manifests and policy Rego files.
+    # To pre-populate with encrypted policies, mount before running migrations.
