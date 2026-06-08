@@ -43,6 +43,7 @@ export default function PolicyEditor({
   const [filePath, setFilePath]     = useState('');
   const [branch, setBranch]         = useState('');
   const [directSql, setDirectSql]   = useState(exampleSql || '');  // Pre-populate with example
+  const [originalSql, setOriginalSql] = useState('');  // Track original SQL from GitHub
 
   // ── Generation ────────────────────────────────────────────────────────────
   const [status, setStatus]         = useState('idle'); // idle|fetching|generating|ready|saving|saved|error
@@ -76,6 +77,7 @@ export default function PolicyEditor({
     setPromptEdited(false); setTokenUsage(null); setIsMock(false);
     setSourceRef(null); setPromptOpen(false); setPreviewOpen(false);
     setStatus('idle');
+    setDirectSql(''); setOriginalSql('');  // Reset SQL on node change
 
     // Pre-populate source from node metadata
     if (node.filePath) {
@@ -112,15 +114,20 @@ export default function PolicyEditor({
   // ── Generate ─────────────────────────────────────────────────────────────
   async function handleGenerate(useCustomPrompt = false) {
     setError(null); setWarning(null); setSaveError('');
-    setStatus(sourceMode === 'github' ? 'fetching' : 'generating');
+
+    // ── Detect if SQL has been edited from original ────────────────────────
+    const sqlEdited = originalSql && directSql !== originalSql;
+    const effectiveSourceMode = (sourceMode === 'github' && sqlEdited) ? 'direct' : sourceMode;
+
+    setStatus(effectiveSourceMode === 'github' ? 'fetching' : 'generating');
 
     const body = {
-      sourceMode,
+      sourceMode: effectiveSourceMode,
       envId:      envId     || undefined,
       policyKey:  node?.policyKey || undefined,
     };
 
-    if (sourceMode === 'direct') {
+    if (effectiveSourceMode === 'direct') {
       body.abacSql = directSql;
     } else {
       body.owner     = envConfig.defaultOwner || undefined;
@@ -132,7 +139,7 @@ export default function PolicyEditor({
 
     if (useCustomPrompt && promptEdited) body.customPrompt = promptText;
 
-    if (sourceMode === 'github') {
+    if (effectiveSourceMode === 'github') {
       await new Promise((r) => setTimeout(r, 500));
       setStatus('generating');
     }
@@ -152,7 +159,18 @@ export default function PolicyEditor({
       setOriginalPrompt(data.builtPrompt || '');
       setPromptEdited(false);
       setSourceRef(data.sourceRef || null);
-      setAbacPreview(sourceMode === 'direct' ? directSql : (data.sourceRef?.content || directSql));
+
+      // Store the fetched ABAC SQL as the original for edit detection
+      const fetchedSql = data.sourceRef?.content || (effectiveSourceMode === 'direct' ? directSql : '');
+      setAbacPreview(fetchedSql);
+
+      // Track original SQL from GitHub fetch for edit detection
+      if (sourceMode === 'github' && data.sourceRef?.content) {
+        // Only set originalSql from GitHub fetch (not when in direct mode)
+        setDirectSql(data.sourceRef.content);
+        setOriginalSql(data.sourceRef.content);
+      }
+
       setTokenUsage(data.tokenUsage || null);
       setIsMock(data.mock || false);
       if (data.warning) setWarning(data.warning);

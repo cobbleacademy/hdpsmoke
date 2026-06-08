@@ -246,6 +246,7 @@ export default function OPAPolicyGenerator() {
           onDeleteNode={handleDeleteNode}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          config={config}
         />
 
         {/* Right panel — policy editor */}

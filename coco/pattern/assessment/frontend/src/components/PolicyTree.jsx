@@ -202,10 +202,13 @@ export default function PolicyTree({
   onDeleteNode,
   searchQuery,
   onSearchChange,
+  config,
 }) {
   const [collapsed, setCollapsed]     = useState(new Set());
   const [addOpen, setAddOpen]         = useState(false);
   const [addMode, setAddMode]         = useState('github'); // 'github' | 'manual'
+  const [addOwner, setAddOwner]       = useState('');
+  const [addRepo, setAddRepo]         = useState('');
   const [addFilePath, setAddFilePath] = useState('');
   const [addBranch, setAddBranch]     = useState('');
   const [addCatalog, setAddCatalog]   = useState('');
@@ -254,10 +257,6 @@ export default function PolicyTree({
     setAddParsed(null);
     setAddParsing(true);
     try {
-      const body = addMode === 'github'
-        ? { sourceMode: 'github', filePath: addFilePath, branch: addBranch || undefined }
-        : null;
-
       if (addMode === 'manual') {
         // Single manual entry
         if (!addPolicyName.trim() || !addCatalog.trim())
@@ -274,7 +273,23 @@ export default function PolicyTree({
         return;
       }
 
+      // GitHub mode
       if (!addFilePath.trim()) return setAddError('File path is required');
+
+      const resolvedOwner = addOwner.trim() || config?.defaultOwner;
+      const resolvedRepo = addRepo.trim() || config?.defaultRepo;
+
+      if (!resolvedOwner || !resolvedRepo) {
+        return setAddError('Owner and repo are required (set GITHUB_DEFAULT_OWNER/REPO in .env or enter them below)');
+      }
+
+      const body = {
+        sourceMode: 'github',
+        owner: resolvedOwner,
+        repo: resolvedRepo,
+        filePath: addFilePath.trim(),
+        branch: addBranch.trim() || undefined,
+      };
 
       const resp = await fetch(`${BASE}opa-parse`, {
         method: 'POST',
@@ -297,7 +312,7 @@ export default function PolicyTree({
     onAddNodes?.(addParsed);
     setAddParsed(null);
     setAddOpen(false);
-    setAddFilePath(''); setAddBranch('');
+    setAddOwner(''); setAddRepo(''); setAddFilePath(''); setAddBranch('');
     setAddCatalog(''); setAddSchema(''); setAddTable(''); setAddPolicyName('');
   }
 
@@ -421,8 +436,20 @@ export default function PolicyTree({
 
             {addMode === 'github' && (
               <>
-                <input style={s.addInput} placeholder="File path (e.g. policies/dev/demos.sql)" value={addFilePath} onChange={(e) => setAddFilePath(e.target.value)} />
-                <input style={s.addInput} placeholder="Branch (leave blank for env default)" value={addBranch} onChange={(e) => setAddBranch(e.target.value)} />
+                <input
+                  style={s.addInput}
+                  placeholder={config?.defaultOwner ? `Owner (default: ${config.defaultOwner})` : 'GitHub owner *'}
+                  value={addOwner}
+                  onChange={(e) => setAddOwner(e.target.value)}
+                />
+                <input
+                  style={s.addInput}
+                  placeholder={config?.defaultRepo ? `Repo (default: ${config.defaultRepo})` : 'GitHub repository *'}
+                  value={addRepo}
+                  onChange={(e) => setAddRepo(e.target.value)}
+                />
+                <input style={s.addInput} placeholder="File path (e.g. policies/dev/demos.sql) *" value={addFilePath} onChange={(e) => setAddFilePath(e.target.value)} />
+                <input style={s.addInput} placeholder={config?.defaultBranch ? `Branch (default: ${config.defaultBranch})` : 'Branch (optional)'} value={addBranch} onChange={(e) => setAddBranch(e.target.value)} />
               </>
             )}
 
