@@ -5,43 +5,76 @@ import PolicyEditor from './PolicyEditor';
 const BASE = import.meta.env.BASE_URL;
 
 // ── Example SQL pre-loaded into the direct editor for new/empty policies ─────
+// This is passed to PolicyEditor as a prop
 const EXAMPLE_SQL = `-- Databricks Unity Catalog ABAC Policy — Tutorial Example
--- Source: docs.databricks.com/aws/en/data-governance/unity-catalog/abac/tutorial-sql
--- Edit below to use your own policy, then click Generate.
+-- Source: docs.databricks.com/aws/en/data-governance/unity-catalog/abac/
+-- Edit below to use your own policy, then click "▶ Generate Rego"
 
--- ── Governed tag definitions (skipped in Rego output) ────────────────────────
-CREATE GOVERNED TAG demo_sensitivity DESCRIPTION 'PII sensitivity level' VALUES ('pii');
-CREATE GOVERNED TAG demo_row_scope DESCRIPTION 'Column used for row-level scoping' VALUES ('region');
+-- ── Governed tag definitions (metadata for policy attachment) ───────────────
+CREATE GOVERNED TAG demo_sensitivity DESCRIPTION 'PII sensitivity level'
+  VALUES ('pii', 'confidential', 'public');
 
--- ── Column tagging (skipped in Rego output) ───────────────────────────────────
-ALTER TABLE demos.uc_governance.customers ALTER COLUMN email  SET TAGS ('demo_sensitivity' = 'pii');
-ALTER TABLE demos.uc_governance.customers ALTER COLUMN ssn    SET TAGS ('demo_sensitivity' = 'pii');
-ALTER TABLE demos.uc_governance.customers ALTER COLUMN region SET TAGS ('demo_row_scope'   = 'region');
+CREATE GOVERNED TAG demo_row_scope DESCRIPTION 'Column for row-level access'
+  VALUES ('region', 'department');
 
--- ── UDFs ─────────────────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION mask_pii_string(column_value STRING) RETURNS STRING RETURN '***REDACTED***';
+-- ── Column tagging (marks which columns get which policies) ────────────────
+-- These tags are used by the policies below to match columns dynamically
+ALTER TABLE demos.uc_governance.customers ALTER COLUMN email
+  SET TAGS ('demo_sensitivity' = 'pii');
 
-CREATE OR REPLACE FUNCTION region_filter_abac(region STRING)
+ALTER TABLE demos.uc_governance.customers ALTER COLUMN ssn
+  SET TAGS ('demo_sensitivity' = 'pii');
+
+ALTER TABLE demos.uc_governance.customers ALTER COLUMN salary
+  SET TAGS ('demo_sensitivity' = 'confidential');
+
+ALTER TABLE demos.uc_governance.customers ALTER COLUMN region
+  SET TAGS ('demo_row_scope' = 'region');
+
+-- ── User-Defined Functions (UDFs) — called by policies ────────────────────
+-- These functions check group membership or compute transformations
+CREATE OR REPLACE FUNCTION mask_pii_string(value STRING)
+  RETURNS STRING
+  RETURN '***REDACTED***';
+
+CREATE OR REPLACE FUNCTION mask_salary(value DECIMAL(10,2))
+  RETURNS DECIMAL(10,2)
+  RETURN 0.00;
+
+-- Row filter UDF — checks user's group + column value
+CREATE OR REPLACE FUNCTION region_filter_abac(user_region STRING)
   RETURNS BOOLEAN
-  RETURN (is_account_group_member('analysts-east') AND region = 'east')
-      OR (is_account_group_member('analysts-west') AND region = 'west');
+  RETURN (is_account_group_member('analysts-east') AND user_region = 'east')
+      OR (is_account_group_member('analysts-west') AND user_region = 'west')
+      OR is_account_group_member('data-analysts');
 
--- ── Policies ──────────────────────────────────────────────────────────────────
+-- ── Catalog-level policy (applies everywhere in demos catalog) ────────────
 CREATE POLICY mask_all_pii_strings
   ON CATALOG demos
-  COMMENT 'Mask STRING columns tagged demo_sensitivity=pii.'
+  COMMENT 'Mask STRING columns tagged with pii sensitivity across the catalog.'
   COLUMN MASK mask_pii_string
   TO \`account users\` EXCEPT \`pii-readers\`
   FOR TABLES MATCH COLUMNS has_tag_value('demo_sensitivity', 'pii') AS c
   ON COLUMN c;
 
+-- ── Schema-level policy (applies to all tables in customers schema) ───────
+CREATE POLICY mask_salary_in_schema
+  ON SCHEMA demos.uc_governance
+  COMMENT 'Mask salary column in all tables using a decimal-aware function.'
+  COLUMN MASK mask_salary
+  TO \`account users\` EXCEPT \`payroll-team\`
+  FOR TABLES MATCH COLUMNS has_tag_value('demo_sensitivity', 'confidential') AS c
+  ON COLUMN c;
+
+-- ── Table-level policy (applies only to customers table) ────────────────
 CREATE POLICY region_row_filter
-  ON CATALOG demos
-  COMMENT 'Restrict rows to analyst region. Bypassed for pii-readers.'
-  ROW FILTER region_filter_abac
-  TO \`account users\` EXCEPT \`pii-readers\`
+  ON TABLE demos.uc_governance.customers
+  COMMENT 'Restrict rows by analyst region. Users see only their region data.'
+  ROW FILTER region_filter_abac(region)
+  TO \`account users\` EXCEPT \`data-admins\`
   FOR TABLES MATCH COLUMNS has_tag_value('demo_row_scope', 'region') AS region
-  USING COLUMNS (region);`;
+  USING COLUMNS (region);
+`;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
