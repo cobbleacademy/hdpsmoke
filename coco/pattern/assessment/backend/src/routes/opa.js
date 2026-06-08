@@ -289,6 +289,7 @@ router.post('/opa-generate', async (req, res) => {
         mode: 'github',
         owner: resolvedOwner, repo: resolvedRepo, branch: resolvedBranch,
         filePath: resolvedFilePath, fetchMode: resolvedFetch,
+        content: fetched.content,  // Include fetched SQL for frontend to track edits
         sha: fetched.sha, sizeBytes: fetched.sizeBytes,
         extractedFromNotebook: fetched.extractedFromNotebook,
         sqlBlockCount: fetched.sqlBlockCount,
