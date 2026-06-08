@@ -20,6 +20,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: pattern-backend
+    env_file:
+      - ./backend/.env
     environment:
       PORT: "3001"
       NODE_ENV: production
