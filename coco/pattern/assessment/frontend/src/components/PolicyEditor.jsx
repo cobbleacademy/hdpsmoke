@@ -227,28 +227,31 @@ export default function PolicyEditor({
     saving:     'Saving…',
   }[status] || '';
 
-  if (!node) {
-    return (
-      <div style={s.empty}>
-        <span style={s.emptyIcon}>🛡️</span>
-        <p style={s.emptyTitle}>Select a policy from the tree</p>
-        <p style={s.emptyDesc}>Choose a catalog, schema, or table policy on the left to view, generate, or edit its Rego.</p>
-      </div>
-    );
-  }
+  // Allow demo mode when no policy is selected - user can still load example and experiment
+  const isDemoMode = !node;
 
   return (
     <div style={s.editor}>
       {/* Header */}
       <div style={s.editorHeader}>
         <div>
-          <div style={s.breadcrumb}>{breadcrumb || node.catalog}</div>
-          <div style={s.policyTitle}>{node.policyName}</div>
+          {isDemoMode ? (
+            <>
+              <div style={s.breadcrumb}>Demo Mode</div>
+              <div style={s.policyTitle}>Try "Load Example" to get started →</div>
+            </>
+          ) : (
+            <>
+              <div style={s.breadcrumb}>{breadcrumb || node.catalog}</div>
+              <div style={s.policyTitle}>{node.policyName}</div>
+            </>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {node.scope && (
+          {!isDemoMode && node.scope && (
             <span style={{ ...s.scopeBadge, ...scopeColors[node.scope] }}>{node.scope}</span>
           )}
+          {isDemoMode && <span style={s.mockBadge}>Try example</span>}
           {isMock && <span style={s.mockBadge}>Mock mode</span>}
         </div>
       </div>
