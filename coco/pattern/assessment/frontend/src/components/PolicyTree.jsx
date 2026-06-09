@@ -90,35 +90,73 @@ function scopeColor(scope) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function PolicyLeaf({ node, isSelected, onSelect }) {
+function PolicyLeaf({ node, isSelected, onSelect, onDelete, onRegenerate }) {
   const { icon, color } = statusIcon(node.status);
   const sc = scopeColor(node.scope);
+  const [regenerating, setRegenerating] = useState(false);
+  const canRegenerate = Boolean(node.filePath);
+
+  async function handleRegenerate(e) {
+    e.stopPropagation();
+    if (regenerating) return;
+    setRegenerating(true);
+    try {
+      await onRegenerate?.(node.policyKey);
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   return (
-    <button
-      style={{
-        ...s.leaf,
-        ...(isSelected ? s.leafSelected : {}),
-      }}
-      onClick={() => onSelect(node)}
-      title={`${node.catalog || ''}${node.schema ? '.' + node.schema : ''}${node.table ? '.' + node.table : ''} — ${node.scope}-level`}
-    >
-      <span style={{ ...s.statusIcon, color }}>{icon}</span>
-      <span style={s.leafName}>{node.policyName}</span>
-      <span style={{ ...s.scopeBadge, background: sc.bg, color: sc.text }}>
-        {node.scope}
-      </span>
-      {node.ruleCount != null && (
-        <span style={s.ruleCount}>{node.ruleCount}r</span>
-      )}
-      {node.status === 'stale' && (
-        <span style={s.stalePill}>stale</span>
-      )}
-    </button>
+    <div style={{ ...s.leafRow, ...(isSelected ? s.leafRowSelected : {}) }}>
+      <button
+        style={s.leaf}
+        onClick={() => onSelect(node)}
+        title={`${node.catalog || ''}${node.schema ? '.' + node.schema : ''}${node.table ? '.' + node.table : ''} — ${node.scope}-level`}
+      >
+        <span style={{ ...s.statusIcon, color }}>{icon}</span>
+        <span style={s.leafName}>{node.policyName}</span>
+        <span style={{ ...s.scopeBadge, background: sc.bg, color: sc.text }}>
+          {node.scope}
+        </span>
+        {node.ruleCount != null && (
+          <span style={s.ruleCount}>{node.ruleCount}r</span>
+        )}
+        {node.status === 'stale' && (
+          <span style={s.stalePill}>stale</span>
+        )}
+      </button>
+
+      {/* Action buttons — shown on hover via CSS class trick with inline style */}
+      <div style={s.leafActions}>
+        {canRegenerate && (
+          <button
+            style={{ ...s.leafActionBtn, ...(regenerating ? s.leafActionBtnSpinning : {}) }}
+            onClick={handleRegenerate}
+            title={node.status === 'stale' ? 'Re-fetch from GitHub & regenerate Rego' : 'Re-generate Rego from GitHub source'}
+            disabled={regenerating}
+          >
+            {regenerating ? '⏳' : '↺'}
+          </button>
+        )}
+        <button
+          style={{ ...s.leafActionBtn, ...s.leafActionBtnDelete }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm(`Delete policy "${node.policyName}"?\n\nThis removes it from the manifest. The Rego file will also be deleted.`)) {
+              onDelete?.(node.policyKey);
+            }
+          }}
+          title="Delete this policy"
+        >
+          🗑
+        </button>
+      </div>
+    </div>
   );
 }
 
-function TableNode({ name, data, collapsed, onToggle, selectedKey, onSelect }) {
+function TableNode({ name, data, collapsed, onToggle, selectedKey, onSelect, onDelete, onRegenerate }) {
   const hasDot = tableHasDot(data);
   const count  = data._policies.length;
 
@@ -139,6 +177,8 @@ function TableNode({ name, data, collapsed, onToggle, selectedKey, onSelect }) {
               node={n}
               isSelected={n.policyKey === selectedKey}
               onSelect={onSelect}
+              onDelete={onDelete}
+              onRegenerate={onRegenerate}
             />
           ))}
         </div>
@@ -147,7 +187,7 @@ function TableNode({ name, data, collapsed, onToggle, selectedKey, onSelect }) {
   );
 }
 
-function SchemaNode({ name, data, isCollapsed, onToggle, selectedKey, onSelect, collapsedSet, onNodeToggle }) {
+function SchemaNode({ name, data, isCollapsed, onToggle, selectedKey, onSelect, collapsedSet, onNodeToggle, onDelete, onRegenerate }) {
   const hasDot = schemaHasDot(data);
   const count  = data._policies.length + [...data.tables.values()].reduce((s, t) => s + t._policies.length, 0);
 
@@ -169,6 +209,8 @@ function SchemaNode({ name, data, isCollapsed, onToggle, selectedKey, onSelect, 
               node={n}
               isSelected={n.policyKey === selectedKey}
               onSelect={onSelect}
+              onDelete={onDelete}
+              onRegenerate={onRegenerate}
             />
           ))}
           {/* Table nodes */}
@@ -183,6 +225,8 @@ function SchemaNode({ name, data, isCollapsed, onToggle, selectedKey, onSelect, 
                 onToggle={() => onNodeToggle(tblKey)}
                 selectedKey={selectedKey}
                 onSelect={onSelect}
+                onDelete={onDelete}
+                onRegenerate={onRegenerate}
               />
             );
           })}
@@ -200,6 +244,7 @@ export default function PolicyTree({
   onSelect,
   onAddNodes,
   onDeleteNode,
+  onRegenerateNode,
   searchQuery,
   onSearchChange,
   config,
@@ -386,6 +431,8 @@ export default function PolicyTree({
                       node={n}
                       isSelected={n.policyKey === selectedKey}
                       onSelect={onSelect}
+                      onDelete={onDeleteNode}
+                      onRegenerate={onRegenerateNode}
                     />
                   ))}
 
@@ -403,6 +450,8 @@ export default function PolicyTree({
                         onSelect={onSelect}
                         collapsedSet={collapsed}
                         onNodeToggle={toggleNode}
+                        onDelete={onDeleteNode}
+                        onRegenerate={onRegenerateNode}
                       />
                     );
                   })}
@@ -633,13 +682,51 @@ const s = {
     marginLeft: 2,
   },
 
-  // Policy leaf
+  // Policy leaf row (wraps button + action icons)
+  leafRow: {
+    display: 'flex',
+    alignItems: 'center',
+    borderRadius: 6,
+    transition: 'background 0.12s',
+    position: 'relative',
+  },
+  leafRowSelected: {
+    background: 'var(--accent-light)',
+  },
+  leafActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 2,
+    paddingRight: '0.35rem',
+    flexShrink: 0,
+  },
+  leafActionBtn: {
+    background: 'none',
+    border: '1px solid transparent',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontSize: '0.72rem',
+    padding: '1px 4px',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+    lineHeight: 1.4,
+    transition: 'background 0.1s, color 0.1s',
+  },
+  leafActionBtnDelete: {
+    color: '#dc2626',
+  },
+  leafActionBtnSpinning: {
+    opacity: 0.6,
+    cursor: 'default',
+  },
+  // Policy leaf button (inner — fills row)
   leaf: {
     display: 'flex',
     alignItems: 'center',
     gap: 5,
-    width: '100%',
-    padding: '0.3rem 0.75rem 0.3rem 1.75rem',
+    flex: 1,
+    minWidth: 0,
+    padding: '0.3rem 0.4rem 0.3rem 1.75rem',
     border: 'none',
     background: 'transparent',
     cursor: 'pointer',
@@ -647,10 +734,9 @@ const s = {
     fontFamily: 'inherit',
     color: 'var(--text-primary)',
     borderRadius: 6,
-    transition: 'background 0.12s',
   },
   leafSelected: {
-    background: 'var(--accent-light)',
+    // kept for legacy compat — selection is on leafRow now
   },
   statusIcon: { fontSize: '0.75rem', fontWeight: 700, flexShrink: 0, width: 12, textAlign: 'center' },
   leafName:   { fontSize: '0.8rem', fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },

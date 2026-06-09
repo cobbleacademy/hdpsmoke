@@ -184,6 +184,27 @@ export default function OPAPolicyGenerator() {
     } catch { /* ignore */ }
   }
 
+  // ── Handle regenerate node from PolicyTree ──────────────────────────────────
+  async function handleRegenerateNode(policyKey) {
+    if (!activeEnvId) return;
+    try {
+      const resp = await fetch(`${BASE}opa-manifest/${encodeURIComponent(activeEnvId)}/node/regenerate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ policyKey }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.nodes) {
+        setNodes(enrichNodes(data.nodes));
+        // If the regenerated policy is currently selected, deselect to force editor refresh
+        if (selectedKey === policyKey) {
+          setSelectedKey(null);
+          setSelectedNode(null);
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   // ── Handle save callback from PolicyEditor ───────────────────────────────────
   function handlePolicySaved(policyKey, sha, ruleCount) {
     setNodes((prev) =>
@@ -244,6 +265,7 @@ export default function OPAPolicyGenerator() {
           onSelect={handleSelectNode}
           onAddNodes={handleAddNodes}
           onDeleteNode={handleDeleteNode}
+          onRegenerateNode={handleRegenerateNode}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           config={config}
