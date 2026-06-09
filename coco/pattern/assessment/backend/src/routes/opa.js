@@ -124,6 +124,94 @@ router.delete('/opa-manifest/:envId/node', checkWriteAuth, (req, res) => {
   }
 });
 
+// ── POST /opa-manifest/:envId/node/regenerate ────────────────────────────────
+/**
+ * Re-fetch a policy's source file from GitHub, regenerate Rego, auto-save.
+ * Node must have filePath stored in the manifest (added via GitHub mode).
+ *
+ * Body: { policyKey: string, schemaVariant?: string }
+ */
+router.post('/opa-manifest/:envId/node/regenerate', checkWriteAuth, async (req, res) => {
+  const { envId } = req.params;
+  const { policyKey, schemaVariant = 'default' } = req.body;
+
+  if (!isValidEnvId(envId)) return res.status(400).json({ error: 'Invalid envId' });
+  if (!policyKey)            return res.status(400).json({ error: 'policyKey is required' });
+
+  // Look up node from manifest
+  const manifest = readManifest(envId);
+  const node = manifest.nodes.find(
+    (n) => buildPolicyKey(n.catalog, n.schema, n.table, n.policyName) === policyKey
+  );
+  if (!node) return res.status(404).json({ error: `Policy "${policyKey}" not found in manifest` });
+  if (!node.filePath) return res.status(400).json({ error: 'Policy has no filePath — was not added via GitHub mode' });
+
+  // Resolve env config for owner/repo/branch defaults
+  const abacEnvs = getAbacEnvironments();
+  const envCfg   = abacEnvs.find((e) => e.id === envId) || {};
+
+  const resolvedOwner  = envCfg.defaultOwner || process.env.GITHUB_DEFAULT_OWNER;
+  const resolvedRepo   = envCfg.defaultRepo  || process.env.GITHUB_DEFAULT_REPO;
+  const resolvedBranch = node.branch || envCfg.defaultBranch || process.env.GITHUB_DEFAULT_BRANCH || 'main';
+
+  if (!resolvedOwner || !resolvedRepo)
+    return res.status(400).json({ error: 'GitHub owner/repo not configured for this environment' });
+
+  // 1. Re-fetch from GitHub
+  let fetched;
+  try {
+    fetched = await fetchAbacPolicy({
+      owner: resolvedOwner, repo: resolvedRepo,
+      branch: resolvedBranch, filePath: node.filePath,
+      fetchMode: process.env.GITHUB_DEFAULT_FETCH_MODE || 'api',
+      token: process.env.GITHUB_TOKEN || '',
+    });
+  } catch (err) {
+    const status = err.code === 'FILE_NOT_FOUND' ? 404 :
+                   err.code === 'UNAUTHORIZED'   ? 401 :
+                   err.code === 'RATE_LIMITED'   ? 429 : 502;
+    return res.status(status).json({ error: err.message, code: err.code });
+  }
+
+  // 2. Re-generate Rego
+  let result;
+  try {
+    result = await generateOpaPolicy(fetched.content, { schemaVariant });
+  } catch (err) {
+    return res.status(500).json({ error: `Rego generation failed: ${err.message}` });
+  }
+
+  const ruleCount = countRules(result.regoPolicy);
+
+  // 3. Auto-save Rego + update manifest
+  try {
+    writePolicyByKey(envId, policyKey, result.regoPolicy);
+    updateNodeStatus(envId, policyKey, {
+      status:        'current',
+      sha:           fetched.sha || null,
+      ruleCount,
+      lastGenerated: new Date().toISOString(),
+    });
+  } catch (saveErr) {
+    console.warn('[regenerate] Save failed:', saveErr.message);
+  }
+
+  const updatedManifest = readManifest(envId);
+  const nodes = updatedManifest.nodes.map((n) => ({
+    ...n,
+    policyKey: buildPolicyKey(n.catalog, n.schema, n.table, n.policyName),
+  }));
+
+  return res.json({
+    regoPolicy: result.regoPolicy,
+    ruleCount,
+    sha:        fetched.sha,
+    mock:       result.mock,
+    warning:    fetched.warning || null,
+    nodes,
+  });
+});
+
 // ── POST /opa-parse ───────────────────────────────────────────────────────────
 /**
  * Parse CREATE POLICY statements from SQL (fetched or direct) without saving.
