@@ -1,12 +1,4 @@
-const OpenAI = require('openai');
-
-let openaiClient = null;
-function getClient() {
-  if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openaiClient;
-}
+const { getClient, isLlmConfigured } = require('./llmClient');
 
 /**
  * Builds the prompt sent to the LLM.
@@ -64,11 +56,12 @@ Give a single, specific, practical tip for how they can leverage this pattern mo
 }
 
 /**
- * Calls the OpenAI Chat Completions API with the assessment prompt.
- * Falls back to a deterministic mock explanation if the API key is absent.
+ * Calls the OpenAI (or OpenAI-compatible, e.g. Ollama) Chat Completions API
+ * with the assessment prompt. Falls back to a deterministic mock explanation
+ * if neither OPENAI_API_KEY nor OPENAI_BASE_URL is configured.
  */
 async function generateExplanation(data) {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!isLlmConfigured()) {
     return generateMockExplanation(data.pattern, data.rankedPatterns);
   }
 
@@ -86,7 +79,7 @@ async function generateExplanation(data) {
 
 function generateMockExplanation(pattern, rankedPatterns) {
   const second = rankedPatterns[1];
-  return `[Mock explanation — add OPENAI_API_KEY to backend/.env to enable real AI responses]\n\nYour responses paint a clear picture of someone who naturally operates as ${pattern.name}. The consistency in how you answered questions about decision-making and problem-solving shows that this isn't a surface preference — it's a core cognitive orientation that shapes how you process the world around you.\n\nAs ${pattern.name}, you bring real strengths in ${pattern.description.toLowerCase()} ${second ? `Your secondary alignment with the ${second.name} profile (${second.score.toFixed(1)} pts) adds a complementary dimension, suggesting you're not one-dimensional in your approach.` : ''}\n\nA practical way to leverage this today: deliberately seek out projects that reward your dominant style. When you notice tasks that feel draining or misaligned, ask yourself how you could reframe the work to engage your natural ${pattern.category.toLowerCase()} strengths first.`;
+  return `[Mock explanation — add OPENAI_API_KEY (or OPENAI_BASE_URL for a local/Ollama model) to backend/.env to enable real AI responses]\n\nYour responses paint a clear picture of someone who naturally operates as ${pattern.name}. The consistency in how you answered questions about decision-making and problem-solving shows that this isn't a surface preference — it's a core cognitive orientation that shapes how you process the world around you.\n\nAs ${pattern.name}, you bring real strengths in ${pattern.description.toLowerCase()} ${second ? `Your secondary alignment with the ${second.name} profile (${second.score.toFixed(1)} pts) adds a complementary dimension, suggesting you're not one-dimensional in your approach.` : ''}\n\nA practical way to leverage this today: deliberately seek out projects that reward your dominant style. When you notice tasks that feel draining or misaligned, ask yourself how you could reframe the work to engage your natural ${pattern.category.toLowerCase()} strengths first.`;
 }
 
 module.exports = { generateExplanation, buildPrompt };

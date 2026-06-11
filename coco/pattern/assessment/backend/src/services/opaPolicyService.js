@@ -1,12 +1,6 @@
 'use strict';
 
-const OpenAI = require('openai');
-
-let _client = null;
-function getClient() {
-  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return _client;
-}
+const { getClient, isLlmConfigured } = require('./llmClient');
 
 // ── Prompt templates ──────────────────────────────────────────────────────────
 
@@ -133,7 +127,7 @@ function stripMarkdownFences(text) {
 }
 
 // ── Mock fallback ─────────────────────────────────────────────────────────────
-// Returned verbatim when OPENAI_API_KEY is not set.
+// Returned verbatim when neither OPENAI_API_KEY nor OPENAI_BASE_URL is set.
 // Matches the validated output from the uc-governance-demo example.
 const MOCK_REGO = `package databricks.abac
 
@@ -200,7 +194,8 @@ function buildOpaPrompt(abacContent, schemaVariant = 'default', extraHint = '') 
 }
 
 /**
- * Call OpenAI and return the generated Rego policy.
+ * Call OpenAI (or an OpenAI-compatible endpoint, e.g. Ollama via
+ * OPENAI_BASE_URL) and return the generated Rego policy.
  *
  * @param {string} abacContent     SQL content to convert
  * @param {{ schemaVariant?, model?, customPrompt? }} opts
@@ -215,7 +210,7 @@ async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model
 
   const prompt = customPrompt || buildOpaPrompt(abacContent, schemaVariant);
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!isLlmConfigured()) {
     return {
       regoPolicy: MOCK_REGO,
       builtPrompt: prompt,
