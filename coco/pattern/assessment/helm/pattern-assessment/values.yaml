@@ -24,6 +24,11 @@ backend:
 
   env:
     OPENAI_MODEL: gpt-4o-mini
+    # OPENAI_BASE_URL: point at any OpenAI-compatible endpoint (e.g. a self-hosted
+    # Ollama server). Leave unset/empty to use https://api.openai.com/v1.
+    # Setting this (with or without OPENAI_API_KEY) takes the app out of mock mode
+    # for both the assessment explanation and OPA Rego generation.
+    OPENAI_BASE_URL: ""
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
     # ── Provider API (Payload Library) — tab mode ────────────────────────────
