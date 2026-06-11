@@ -2,6 +2,23 @@ import { useState, useEffect, useRef } from 'react';
 import jsYaml from 'js-yaml';
 
 const MAX_HISTORY = 20;
+const MAX_HISTORY_BODY_CHARS = 50_000; // cap stored response body size per history entry
+
+// ── Truncate a run-history entry's response body ──────────────────────────────
+// `entry.body` may be a large object (provider JSON response) or string.
+// History only needs enough to preview/debug — full response stays available
+// in `runResult` for the live view. Caps memory growth across MAX_HISTORY
+// entries × multiple env tabs.
+function truncateHistoryEntry(entry) {
+  if (entry?.body == null) return entry;
+  const str = typeof entry.body === 'string' ? entry.body : JSON.stringify(entry.body);
+  if (str.length <= MAX_HISTORY_BODY_CHARS) return entry;
+  return {
+    ...entry,
+    body: str.slice(0, MAX_HISTORY_BODY_CHARS) + `\n…[truncated ${str.length - MAX_HISTORY_BODY_CHARS} more chars]`,
+    bodyTruncated: true,
+  };
+}
 
 // ── Per-tab default state factory ─────────────────────────────────────────────
 // Each environment tab gets its own independent state slice.
@@ -99,6 +116,13 @@ export default function PayloadLibrary() {
   const responseCardRef = useRef(null);
   // Tracks which tabs have already had their payload fetch initiated
   const loadedTabsRef = useRef(new Set());
+  // Component-lifetime AbortController for in-flight payload-content fetches.
+  // Aborted only on full unmount (see effect below) — NOT on tab switches,
+  // since loadedTabsRef marks a tab as "loaded" the moment its fetch starts;
+  // aborting on switch would strand that tab in fetchStatus:'loading' forever.
+  const fetchAbortRef = useRef(null);
+  if (fetchAbortRef.current === null) fetchAbortRef.current = new AbortController();
+  useEffect(() => () => fetchAbortRef.current.abort(), []);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const tabMode     = environments.length > 0;
@@ -183,10 +207,16 @@ export default function PayloadLibrary() {
 
     // Fetch via backend API — handles decryption, fallback chain, and YAML parsing.
     // envIdSnap is the raw environment ID (e.g. "ADM-DEV") used as the route param.
+    // AbortController: if the user navigates away (component unmounts) before
+    // this resolves, drop the result instead of holding the parsed YAML/JSON
+    // in a dangling closure until the promise settles. Uses the component-lifetime
+    // controller (fetchAbortRef) so switching tabs mid-fetch does NOT abort —
+    // only full unmount does (see ref declaration above).
     (async () => {
       try {
         const resp = await fetch(
-          `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnap)}`
+          `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnap)}`,
+          { signal: fetchAbortRef.current.signal }
         );
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -210,6 +240,7 @@ export default function PayloadLibrary() {
           },
         }));
       } catch (e) {
+        if (e.name === 'AbortError') return;
         setTabStates(prev => ({
           ...prev,
           [envIdSnap]: {
@@ -410,7 +441,7 @@ export default function PayloadLibrary() {
       setTabStates(prev => {
         const current = prev[envIdSnapshot] ?? {};
         const newHistory = [
-          { id: Date.now(), ...entry },
+          { id: Date.now(), ...truncateHistoryEntry(entry) },
           ...(current.history ?? []),
         ].slice(0, MAX_HISTORY);
         return {

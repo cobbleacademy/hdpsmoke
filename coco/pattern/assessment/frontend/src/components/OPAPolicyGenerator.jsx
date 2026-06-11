@@ -108,8 +108,12 @@ export default function OPAPolicyGenerator() {
     setSelectedNode(null);
     setSearchQuery('');
     loadManifest(activeEnvId);
-    // Background stale check
-    fetch(`${BASE}opa-stale/${encodeURIComponent(activeEnvId)}`)
+
+    // Background stale check — aborted on env change / unmount so a slow
+    // response doesn't apply a stale-check result (and hold its parsed JSON
+    // in memory) after the user has navigated away.
+    const controller = new AbortController();
+    fetch(`${BASE}opa-stale/${encodeURIComponent(activeEnvId)}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         if (data.manifest?.nodes) {
@@ -117,7 +121,9 @@ export default function OPAPolicyGenerator() {
           setNodes(enriched);
         }
       })
-      .catch(() => {/* non-blocking */});
+      .catch(() => {/* non-blocking — includes AbortError on cleanup */});
+
+    return () => controller.abort();
   }, [activeEnvId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadManifest(envId) {

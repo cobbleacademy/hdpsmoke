@@ -51,7 +51,6 @@ export default function PolicyEditor({
   const [warning, setWarning]       = useState(null);
 
   // ── Results ───────────────────────────────────────────────────────────────
-  const [abacPreview, setAbacPreview]     = useState('');
   const [promptText, setPromptText]       = useState('');
   const [originalPrompt, setOriginalPrompt] = useState('');
   const [promptEdited, setPromptEdited]   = useState(false);
@@ -73,7 +72,7 @@ export default function PolicyEditor({
   useEffect(() => {
     if (!node) return;
     setError(null); setWarning(null); setSaveError('');
-    setAbacPreview(''); setPromptText(''); setOriginalPrompt('');
+    setPromptText(''); setOriginalPrompt('');
     setPromptEdited(false); setTokenUsage(null); setIsMock(false);
     setSourceRef(null); setPromptOpen(false); setPreviewOpen(false);
     setStatus('idle');
@@ -159,10 +158,6 @@ export default function PolicyEditor({
       setOriginalPrompt(data.builtPrompt || '');
       setPromptEdited(false);
       setSourceRef(data.sourceRef || null);
-
-      // Store the fetched ABAC SQL as the original for edit detection
-      const fetchedSql = data.sourceRef?.content || (effectiveSourceMode === 'direct' ? directSql : '');
-      setAbacPreview(fetchedSql);
 
       // Track original SQL from GitHub fetch for edit detection
       if (sourceMode === 'github' && data.sourceRef?.content) {
@@ -404,7 +399,9 @@ export default function PolicyEditor({
       )}
 
       {/* ── ABAC source preview ── */}
-      {hasResult && abacPreview && (
+      {/* Derived from sourceRef.content (GitHub fetch) or directSql (direct mode) —
+          avoids keeping a redundant copy of the SQL in its own state slot. */}
+      {hasResult && (sourceRef?.content || directSql) && (
         <div style={s.card}>
           <SectionHeader
             title="ABAC Source"
@@ -412,7 +409,7 @@ export default function PolicyEditor({
             open={previewOpen}
             onToggle={() => setPreviewOpen((o) => !o)}
           />
-          {previewOpen && <pre style={s.sourcePreview}>{abacPreview}</pre>}
+          {previewOpen && <pre style={s.sourcePreview}>{sourceRef?.content || directSql}</pre>}
         </div>
       )}
 
