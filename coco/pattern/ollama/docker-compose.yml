@@ -1,0 +1,18 @@
+services:
+  ollama:
+    build: .
+    image: ollama-openai:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    environment:
+#      - MODEL=llama3.2
+      - MODEL=qwen2.5-coder:3b
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
