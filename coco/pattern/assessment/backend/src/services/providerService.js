@@ -325,6 +325,13 @@ async function callProvider(url, payload, authType, envId, skipTlsVerify = false
       e.durationMs = durationMs;
       throw e;
     }
+    // Node's fetch throws a generic "fetch failed" TypeError for DNS, connection,
+    // and TLS errors alike — the actual reason lives in err.cause (e.g.
+    // "unable to verify the first certificate" for an untrusted/self-signed cert).
+    // Surface it so the UI shows something actionable instead of just "fetch failed".
+    if (err.cause?.message) {
+      err.message = `${err.message}: ${err.cause.message}`;
+    }
     err.code = err.code || 'NETWORK';
     err.durationMs = durationMs;
     throw err;
