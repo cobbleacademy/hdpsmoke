@@ -98,13 +98,21 @@ router.post('/run-payload', async (req, res) => {
     res.json(result);
   } catch (err) {
     if (err.code === 'TIMEOUT') {
+      console.error(
+        `[run-payload] Provider call timed out after ${err.durationMs}ms: url=${url} authType=${authType} envId=${envId || 'n/a'}`
+      );
       return res.status(504).json({
         error: err.message,
         code: 'TIMEOUT',
         durationMs: err.durationMs,
       });
     }
-    console.error('[run-payload] Provider call failed:', err.message);
+    console.error(
+      `[run-payload] Provider call failed: url=${url} authType=${authType} envId=${envId || 'n/a'} code=${err.code || 'NETWORK'} durationMs=${err.durationMs ?? 'n/a'}`,
+      `\n  message: ${err.message}`,
+      err.cause ? `\n  cause: ${err.cause.message || err.cause}` : '',
+      err.stack ? `\n  stack: ${err.stack}` : ''
+    );
     res.status(502).json({
       error: `Provider call failed: ${err.message}`,
       code: err.code || 'NETWORK',
