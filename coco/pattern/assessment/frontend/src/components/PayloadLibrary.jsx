@@ -20,6 +20,29 @@ function truncateHistoryEntry(entry) {
   };
 }
 
+// ── Troubleshooting hints for failed provider calls ───────────────────────────
+// `code` is set by the backend (TIMEOUT | NETWORK); `message` is the enriched
+// error string (may include the underlying cause, e.g. TLS/DNS failure detail).
+function errorHint(code, message = '') {
+  if (code === 'TIMEOUT') {
+    return 'The provider did not respond in time. Check that the URL is reachable from the backend container, or increase PROVIDER_TIMEOUT_MS.';
+  }
+  const msg = message.toLowerCase();
+  if (msg.includes('certificate') || msg.includes('tls') || msg.includes('ssl')) {
+    return 'TLS/certificate error. If this endpoint uses a self-signed or internally-issued certificate, set this URL\'s "Skip TLS verify" option, or install the CA in the backend container.';
+  }
+  if (msg.includes('enotfound') || msg.includes('getaddrinfo')) {
+    return 'DNS lookup failed. Check that the hostname is correct and resolvable from the backend container.';
+  }
+  if (msg.includes('econnrefused')) {
+    return 'Connection refused. The host is reachable but nothing is listening on that port/path — check the URL and that the service is up.';
+  }
+  if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('forbidden')) {
+    return 'Authorization failed. Check the selected Auth Type and that the corresponding credentials are configured for this environment.';
+  }
+  return 'Check the URL, Auth Type, and credentials for this environment, and confirm the backend container can reach this host.';
+}
+
 // ── Per-tab default state factory ─────────────────────────────────────────────
 // Each environment tab gets its own independent state slice.
 // `env` is the environment object from /provider-config (tab mode)
@@ -1098,11 +1121,14 @@ export default function PayloadLibrary() {
                 ) : displayedResult?.error ? (
                   <div style={s.responseErrorBox}>
                     <pre style={s.responseErrorText}>{displayedResult.error}</pre>
-                    {displayedResult.durationMs != null && (
-                      <p style={{ ...s.mutedText, marginTop: '0.25rem' }}>
-                        {displayedResult.durationMs} ms
-                      </p>
-                    )}
+                    <p style={{ ...s.mutedText, marginTop: '0.5rem' }}>
+                      {displayedResult.code === 'TIMEOUT' ? 'Timeout' : 'Network error'}
+                      {displayedResult.durationMs != null && ` · ${displayedResult.durationMs} ms`}
+                      {(displayedResult.url || activeUrl) && ` · ${displayedResult.url || activeUrl}`}
+                    </p>
+                    <p style={{ ...s.mutedText, marginTop: '0.5rem' }}>
+                      {errorHint(displayedResult.code, displayedResult.error)}
+                    </p>
                   </div>
                 ) : (
                   <pre style={s.pre}>
