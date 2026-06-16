@@ -31,6 +31,12 @@ backend:
     OPENAI_BASE_URL: ""
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
+    # NODE_EXTRA_CA_CERTS: path to a PEM bundle of additional trusted CA certs,
+    # baked into the backend image at /app/certs/ (see backend/certs/README.md).
+    # Fixes "unable to get local issuer certificate" for provider endpoints
+    # (e.g. APIGEE) signed by an internal/corporate CA. Leave empty if not needed.
+    NODE_EXTRA_CA_CERTS: ""
+
     # ── Provider API (Payload Library) — tab mode ────────────────────────────
     # Set PROVIDER_ENVS to enable the tab-per-environment Payload Library UI.
     # Leave blank to fall back to legacy single-panel mode (PROVIDER_URLS below).
