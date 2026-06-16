@@ -59,6 +59,26 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/ranger-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/ranger-fetch': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/ranger-generate': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/ranger-manifest': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/ranger-policy': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 });
