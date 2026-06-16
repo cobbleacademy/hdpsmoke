@@ -28,6 +28,9 @@ services:
       FRONTEND_URL: "http://localhost:3000"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}        # pass via env or .env file
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Custom CA bundle for provider endpoints signed by an internal CA
+      # (fixes "unable to get local issuer certificate"). See backend/certs/README.md.
+      NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
       # ── Provider API (Payload Library) — tab mode ────────────────────
       # Set PROVIDER_ENVS to enable the tab-per-environment UI.
       # Each environment gets its own tab, payload file, and URL list.
@@ -130,6 +133,9 @@ services:
       # before encrypted files are created (migration path / first run).
       - ./frontend/public/payloads:/app/public/payloads:ro
       - ./frontend/public/payloads.yaml:/app/public/payloads.yaml:ro
+      # Custom CA bundle — drop .pem/.crt files into backend/certs/ and set
+      # NODE_EXTRA_CA_CERTS to pick them up without a rebuild.
+      - ./backend/certs:/app/certs:ro
     ports:
       - "3001:3001"     # exposed for direct curl testing; not needed by frontend
     healthcheck:
