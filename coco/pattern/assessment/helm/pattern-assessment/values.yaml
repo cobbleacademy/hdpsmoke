@@ -151,6 +151,16 @@ backend:
   abacProdBranch: main
   abacProdBasePath: policies/
 
+  # ── Ranger Library — Rego → Apache Ranger Policy ──────────────────────────
+  env:
+    RANGER_ENVS: "DEV,NPE,PROD"           # tab strip; "" = single Default env
+    RANGER_LLM_MODEL: "gpt-4o"            # falls back to OPA_LLM_MODEL → OPENAI_MODEL
+    RANGER_POLICY_STORAGE_PATH: "/app/data/ranger-policies"
+    RANGER_GITHUB_OWNER: ""
+    RANGER_GITHUB_REPO: ""
+    RANGER_GITHUB_REGO_PATH: ""
+    RANGER_GITHUB_FETCH_MODE: "api"
+
 # ── Data storage (PVC) — Payload Library + OPA Policy Generator ──────────────
 # Single PVC mounted at /app/data/ covers both:
 #   - /app/data/payloads/ (Payload Library encrypted YAML)
