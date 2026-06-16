@@ -226,6 +226,28 @@ spec:
             - name: ABAC_PROD_BASE_PATH
               value: {{ .Values.backend.abacProdBasePath | default "policies/" | quote }}
 
+            # ── Ranger Library ────────────────────────────────────────────────
+            - name: RANGER_ENVS
+              value: {{ .Values.backend.env.RANGER_ENVS | default "DEV,NPE,PROD" | quote }}
+            - name: RANGER_LLM_MODEL
+              value: {{ .Values.backend.env.RANGER_LLM_MODEL | default "gpt-4o" | quote }}
+            - name: RANGER_POLICY_STORAGE_PATH
+              value: {{ .Values.backend.env.RANGER_POLICY_STORAGE_PATH | default "/app/data/ranger-policies" | quote }}
+            {{- if .Values.backend.env.RANGER_GITHUB_OWNER }}
+            - name: RANGER_GITHUB_OWNER
+              value: {{ .Values.backend.env.RANGER_GITHUB_OWNER | quote }}
+            {{- end }}
+            {{- if .Values.backend.env.RANGER_GITHUB_REPO }}
+            - name: RANGER_GITHUB_REPO
+              value: {{ .Values.backend.env.RANGER_GITHUB_REPO | quote }}
+            {{- end }}
+            {{- if .Values.backend.env.RANGER_GITHUB_REGO_PATH }}
+            - name: RANGER_GITHUB_REGO_PATH
+              value: {{ .Values.backend.env.RANGER_GITHUB_REGO_PATH | quote }}
+            {{- end }}
+            - name: RANGER_GITHUB_FETCH_MODE
+              value: {{ .Values.backend.env.RANGER_GITHUB_FETCH_MODE | default "api" | quote }}
+
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
 
