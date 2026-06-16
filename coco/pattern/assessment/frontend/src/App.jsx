@@ -7,6 +7,7 @@ import PatternExplorer from './components/PatternExplorer';
 import HowItWorks from './components/HowItWorks';
 import PayloadLibrary from './components/PayloadLibrary';
 import OPAPolicyGenerator from './components/OPAPolicyGenerator';
+import RangerLibrary from './components/RangerLibrary';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -32,6 +33,7 @@ const VIEW_PATHS = {
   howItWorks:     `${APP_BASE}/how-it-works`,
   payloadLibrary: `${APP_BASE}/payload-library`,
   opaPolicy:      `${APP_BASE}/opa-generator`,
+  rangerLibrary:  `${APP_BASE}/ranger-library`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -327,6 +329,9 @@ export default function App() {
 
         {/* ── OPA Policy Generator view ── */}
         {currentView === 'opaPolicy' && <OPAPolicyGenerator />}
+
+        {/* ── Ranger Library view ── */}
+        {currentView === 'rangerLibrary' && <RangerLibrary />}
       </main>
     </div>
   );
