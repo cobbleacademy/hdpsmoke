@@ -138,6 +138,7 @@ function getAbacEnvironments() {
 
   if (envIds.length === 0) {
     // Single default env — still works with the tree UI
+    const showPrompt = process.env.ABAC_DEFAULT_SHOW_PROMPT !== 'false';
     return [
       {
         id:            'default',
@@ -146,12 +147,14 @@ function getAbacEnvironments() {
         basePath:      '',
         defaultOwner:  process.env.GITHUB_DEFAULT_OWNER || '',
         defaultRepo:   process.env.GITHUB_DEFAULT_REPO  || '',
+        showPrompt,
       },
     ];
   }
 
   return envIds.map((id) => {
     const key = id.toUpperCase().replace(/[^A-Z0-9]/g, '_');
+    const showPrompt = process.env[`ABAC_${key}_SHOW_PROMPT`] !== 'false';
     return {
       id,
       label:         id,
@@ -159,6 +162,7 @@ function getAbacEnvironments() {
       basePath:      process.env[`ABAC_${key}_BASE_PATH`] || '',
       defaultOwner:  process.env.GITHUB_DEFAULT_OWNER     || '',
       defaultRepo:   process.env.GITHUB_DEFAULT_REPO      || '',
+      showPrompt,
     };
   });
 }
