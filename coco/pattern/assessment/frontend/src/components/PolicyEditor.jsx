@@ -34,6 +34,7 @@ export default function PolicyEditor({
   envConfig = {},
   writeAuthRequired = false,
   encryptionEnabled = false,
+  showPrompt = true,
   onPolicySaved,
   exampleSql = '', // passed from parent (OPAPolicyGenerator)
 }) {
@@ -273,17 +274,14 @@ export default function PolicyEditor({
       <div style={s.card}>
         <div style={s.cardHeader}>
           <span style={s.cardLabel}>SOURCE</span>
-          <div style={s.modeToggle}>
-            {['direct', 'github'].map((m) => (
-              <button
-                key={m}
-                onClick={() => setSourceMode(m)}
-                style={{ ...s.modeBtn, ...(sourceMode === m ? s.modeBtnActive : {}) }}
-              >
-                {m === 'direct' ? '✏️ Direct Input' : '🐙 GitHub'}
-              </button>
-            ))}
-          </div>
+          <select
+            value={sourceMode}
+            onChange={(e) => setSourceMode(e.target.value)}
+            style={s.modeSelect}
+          >
+            <option value="direct">✏️ Direct Input</option>
+            <option value="github">🐙 GitHub</option>
+          </select>
         </div>
 
         {sourceMode === 'github' && (
@@ -362,8 +360,8 @@ export default function PolicyEditor({
         </button>
       </div>
 
-      {/* ── Prompt panel ── */}
-      {hasResult && (
+      {/* ── Prompt panel — hidden when showPrompt=false (per-env config) ── */}
+      {hasResult && showPrompt && (
         <div style={s.card}>
           <SectionHeader
             title="Prompt"
@@ -548,14 +546,12 @@ const s = {
     transition: 'transform 0.18s ease', display: 'inline-block',
   },
 
-  modeToggle: { display: 'flex', gap: 4 },
-  modeBtn: {
-    padding: '0.3rem 0.7rem', borderRadius: 7,
-    border: '1.5px solid var(--border)', background: 'transparent',
+  modeSelect: {
+    marginLeft: 'auto', padding: '0.28rem 0.6rem', borderRadius: 7,
+    border: '1.5px solid var(--border)', background: 'var(--bg)',
     color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit',
+    cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
   },
-  modeBtnActive: { background: 'var(--accent-light)', border: '1.5px solid var(--accent)', color: 'var(--accent)' },
 
   githubRow: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: '0.5rem' },
   radioGroup: { display: 'flex', gap: 8 },

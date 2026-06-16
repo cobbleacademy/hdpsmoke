@@ -285,6 +285,7 @@ export default function OPAPolicyGenerator() {
             envConfig={activeEnvConfig}
             writeAuthRequired={config.writeAuthRequired}
             encryptionEnabled={config.encryptionEnabled}
+            showPrompt={activeEnvConfig?.showPrompt !== false}
             onPolicySaved={handlePolicySaved}
             exampleSql={EXAMPLE_SQL}
           />

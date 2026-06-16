@@ -41,6 +41,13 @@ const NAV_ITEMS = [
     description: 'ABAC → OPA Rego policy',
     alwaysOn: true,
   },
+  {
+    id: 'rangerLibrary',
+    label: 'Ranger Library',
+    icon: '🏹',
+    description: 'Rego → Ranger Policy',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
