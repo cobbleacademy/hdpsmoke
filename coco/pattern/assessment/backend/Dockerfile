@@ -30,6 +30,7 @@ COPY certs/ ./certs/
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
  && mkdir -p /app/data/payloads \
  && mkdir -p /app/data/opa-policies \
+ && mkdir -p /app/data/ranger-policies \
  && chown -R appuser:appgroup /app/data
 USER appuser
 
