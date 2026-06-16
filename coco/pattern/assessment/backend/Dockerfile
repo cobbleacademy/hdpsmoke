@@ -17,6 +17,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY src/ ./src/
 
+# Optional custom CA bundle (see certs/README.md). Bind-mounted over in
+# docker-compose for cert changes without a rebuild; baked in here so the
+# image is self-contained when built standalone (e.g. for Helm/AKS).
+COPY certs/ ./certs/
+
 # Non-root user for security.
 # Create the data storage directories BEFORE switching user so Docker
 # initialises the named volume with appuser ownership on first mount.
