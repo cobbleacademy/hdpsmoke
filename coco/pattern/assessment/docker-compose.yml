@@ -26,7 +26,6 @@ services:
       PORT: "3001"
       NODE_ENV: production
       FRONTEND_URL: "http://localhost:3000"
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}        # pass via env or .env file
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       # Custom CA bundle for provider endpoints signed by an internal CA
       # (fixes "unable to get local issuer certificate"). See backend/certs/README.md.
@@ -125,10 +124,22 @@ services:
       ABAC_NPE_BASE_PATH: ${ABAC_NPE_BASE_PATH:-policies/npe/}
       ABAC_PROD_BRANCH: ${ABAC_PROD_BRANCH:-main}
       ABAC_PROD_BASE_PATH: ${ABAC_PROD_BASE_PATH:-policies/}
+      # ── Ranger Library (Rego → Apache Ranger Policy) ──────────────────────────
+      RANGER_ENVS: ${RANGER_ENVS:-DEV,NPE,PROD}
+      RANGER_LLM_MODEL: ${RANGER_LLM_MODEL:-gpt-4o}
+      RANGER_POLICY_STORAGE_PATH: /app/data/ranger-policies
+      RANGER_GITHUB_OWNER: ${RANGER_GITHUB_OWNER:-}
+      RANGER_GITHUB_REPO: ${RANGER_GITHUB_REPO:-}
+      RANGER_GITHUB_BRANCH: ${RANGER_GITHUB_BRANCH:-main}
+      RANGER_GITHUB_REGO_PATH: ${RANGER_GITHUB_REGO_PATH:-}
+      RANGER_GITHUB_FETCH_MODE: ${RANGER_GITHUB_FETCH_MODE:-api}
     volumes:
       # Persistent storage for encrypted payloads and OPA policies
       - payload-storage:/app/data/payloads
       - opa-storage:/app/data/opa-policies
+      # Bind mount — Ranger policy files written to ./backend/data/ranger-policies/ on host
+      # so they are visible alongside OPA policies in the local data folder.
+      - ./backend/data/ranger-policies:/app/data/ranger-policies
       # Read-only bind mounts so the backend can serve plain YAML as a fallback
       # before encrypted files are created (migration path / first run).
       - ./frontend/public/payloads:/app/public/payloads:ro
@@ -177,3 +188,6 @@ volumes:
     # Named volume — persists encrypted OPA policy files across container restarts.
     # Stores per-environment manifests and policy Rego files.
     # To pre-populate with encrypted policies, mount before running migrations.
+
+  # ranger-storage was replaced with a host bind mount (./backend/data/ranger-policies)
+  # so policy files are visible on the local filesystem alongside OPA policies.
