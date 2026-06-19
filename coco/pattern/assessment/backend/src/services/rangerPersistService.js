@@ -156,7 +156,7 @@ function readPolicy(envId, policyKey) {
  */
 function writePolicy(envId, policyKey, policyObj) {
   if (typeof policyObj !== 'object' || policyObj === null) {
-    throw new Error('Ranger policy must be a non-null JSON object');
+    throw new Error('Ranger policy must be a non-null JSON object or array');
   }
 
   const dir  = envDir(envId);

@@ -55,7 +55,7 @@ function normaliseRego(raw) {
  * @param {string} [extraHint]  Optional additional instruction (from customPrompt flow)
  */
 function buildRangerPrompt(regoCode, extraHint = '') {
-  return `You are an Apache Ranger policy expert. Convert the OPA Rego policy below into a valid Apache Ranger policy JSON that can be imported via the Ranger REST API (POST /service/public/v2/api/policy).
+  return `You are an Apache Ranger policy expert. Convert the OPA Rego policy below into one or more valid Apache Ranger policy JSON objects that can be imported via the Ranger REST Import API (POST /service/public/v2/api/policy/importPoliciesFromFile).
 
 ── ANALYSIS STEPS ───────────────────────────────────────────────────────────────
 1. Parse every Rego rule: identify allow/deny logic, conditions on input.groups,
@@ -66,49 +66,43 @@ function buildRangerPrompt(regoCode, extraHint = '') {
      input.hbase_table references → "hbase"
      tag-based references → "tag"
      Default to "hive" when ambiguous.
-3. Map Rego constructs to Ranger constructs:
+3. Identify ALL distinct policy types needed:
+     row_visible[...] rules   → one policy object with policyType: 2 (rowFilter)
+     column_masked[...] rules → one policy object with policyType: 1 (dataMask)
+     allow { ... } rules      → one policy object with policyType: 0 (access)
+     If MULTIPLE types are present, produce a SEPARATE object for EACH type.
+4. Map Rego constructs to Ranger constructs:
      allow { ... }                → policyItems (grant access)
      deny { ... }                 → denyPolicyItems (explicit deny)
      "group-name" in input.groups → groups: ["group-name"] in policy item
+     not "group" in input.groups  → denyPolicyItems (the group is denied, not granted)
      input.principal == "u@e.com" → users: ["u@e.com"] in policy item
      input.action / input.permission → accesses: [{ type: "<action>", isAllowed: true }]
      input.resource / path refs  → resources block (path / database / table / column)
-     not "group" in input.groups → exclude group from policyItems or add to denyPolicyItems
      row-level conditions        → rowFilterPolicyItems (policyType: 2)
      column masking functions    → dataMaskPolicyItems  (policyType: 1)
 
-── RANGER POLICY JSON SCHEMA ────────────────────────────────────────────────────
-Output a single JSON object with this shape (omit optional fields when not needed):
+── RANGER POLICY JSON SCHEMA (one object per policyType) ────────────────────────
+Each element of the output array must follow this shape:
 
 {
-  "name": "<descriptive policy name derived from Rego package/rule names>",
-  "service": "<service-name>",          // e.g. "hive_dev", "hdfs_prod" — infer from Rego context
+  "name": "<descriptive policy name — include rule name and type, e.g. 'region-row-filter'>",
+  "service": "<service-name>",          // e.g. "hive_dev" — infer from Rego context
   "serviceType": "<hdfs|hive|hbase|tag>",
-  "description": "<1-sentence summary of what the Rego policy enforces>",
+  "description": "<1-sentence summary>",
   "isEnabled": true,
   "isAuditEnabled": true,
-  "policyType": 0,                      // 0=access, 1=dataMask, 2=rowFilter
+  "policyType": 0,                      // 0=access, 1=dataMask, 2=rowFilter — set per object
   "resources": {
-    // For hive:
     "database": { "values": ["<db>"], "isExcludes": false, "isRecursive": false },
-    "table":    { "values": ["<table>", "*"], "isExcludes": false, "isRecursive": false },
-    "column":   { "values": ["*"], "isExcludes": false, "isRecursive": false }
-    // For hdfs:
-    // "path": { "values": ["/data/path/*"], "isExcludes": false, "isRecursive": true }
+    "table":    { "values": ["*"],    "isExcludes": false, "isRecursive": false },
+    "column":   { "values": ["*"],    "isExcludes": false, "isRecursive": false }
   },
-  "policyItems": [
-    {
-      "accesses": [{ "type": "select", "isAllowed": true }],
-      "users": [],
-      "groups": ["<group-from-rego>"],
-      "conditions": [],
-      "delegateAdmin": false
-    }
-  ],
-  "denyPolicyItems": [],           // populated from deny rules
+  "policyItems": [],
+  "denyPolicyItems": [],
   "denyExceptions": [],
-  "dataMaskPolicyItems": [],       // populated for column masking
-  "rowFilterPolicyItems": []       // populated for row filter with rowFilterInfo.filterExpr
+  "dataMaskPolicyItems": [],
+  "rowFilterPolicyItems": []
 }
 
 ── RANGER ACCESS TYPES by service ───────────────────────────────────────────────
@@ -116,12 +110,15 @@ hive:  select, update, create, drop, alter, index, lock, all, read, write
 hdfs:  read, write, execute
 hbase: read, write, create, admin
 
-── RULES ────────────────────────────────────────────────────────────────────────
+── OUTPUT FORMAT RULES ──────────────────────────────────────────────────────────
+- Output a JSON ARRAY [...] containing one object per distinct policyType found.
+- If the Rego has BOTH row_visible and column_masked rules, output TWO objects: one with policyType:2 and one with policyType:1.
+- If the Rego has only access (allow) rules, output ONE object with policyType:0.
 - Output valid JSON ONLY. No explanation, no markdown fences, no prose outside the JSON.
 - Use the actual group/user/resource values from the Rego — do not invent placeholders.
-- If the Rego contains multiple allow rules for different groups, emit one policyItem per group.
-- If the Rego masks a column value, set policyType: 1 and populate dataMaskPolicyItems.
-- If the Rego filters rows, set policyType: 2 and populate rowFilterPolicyItems with the filter expression.
+- Groups appearing with "not X in input.groups" are DENIED — put them in denyPolicyItems, not policyItems.
+- rowFilterPolicyItems must include rowFilterInfo.filterExpr with the row condition expression.
+- dataMaskPolicyItems must include dataMaskInfo.dataMaskType (e.g. "MASK", "MASK_NULL", "CUSTOM").
 - "service" value should follow the pattern "<serviceType>_<env>" (e.g. "hive_dev") — infer env from package name or default to "dev".
 ${extraHint ? `\n── ADDITIONAL INSTRUCTIONS ──────────────────────────────────────────────────────\n${extraHint}\n` : ''}
 ── OPA REGO INPUT ───────────────────────────────────────────────────────────────
@@ -156,14 +153,10 @@ function buildMockRangerPolicy(regoCode) {
   const tableMatch = regoCode.match(/input\.table\s*==\s*"([^"]+)"/);
   const table = tableMatch ? tableMatch[1] : '*';
 
-  // Infer policy type from rule names
-  const hasRowFilter   = /row_visible\s*\[/.test(regoCode);
-  const hasColMask     = /column_masked\s*\[/.test(regoCode);
-  const hasAllow       = /^allow\s*\{/m.test(regoCode);
-
-  let policyType = 0; // access
-  if (hasRowFilter) policyType = 2;
-  else if (hasColMask) policyType = 1;
+  // Detect which policy types are present — independent checks, not if/else
+  const hasRowFilter = /row_visible\s*\[/.test(regoCode);
+  const hasColMask   = /column_masked\s*\[/.test(regoCode);
+  const hasAllow     = /^allow\s*\{/m.test(regoCode);
 
   // Service type: look for hdfs path refs, hbase refs, default hive
   let serviceType = 'hive';
@@ -177,7 +170,7 @@ function buildMockRangerPolicy(regoCode) {
   const uniqueRules = [...new Set(ruleNames)].slice(0, 3).join(', ');
   const description = `Mock policy derived from package ${pkg}${uniqueRules ? ` — rules: ${uniqueRules}` : ''}.`;
 
-  // Build policy items from extracted groups
+  // Shared helpers
   const makeItem = (grp) => ({
     accesses:      [{ type: serviceType === 'hdfs' ? 'read' : 'select', isAllowed: true }],
     users:         [],
@@ -194,39 +187,66 @@ function buildMockRangerPolicy(regoCode) {
         column:   { values: ['*'],     isExcludes: false, isRecursive: false },
       };
 
-  const policyItems = (policyType === 0 && groups.length)
-    ? groups.map(makeItem)
-    : (policyType === 0 ? [makeItem('public')] : []);
-
-  const rowFilterPolicyItems = (policyType === 2 && groups.length)
-    ? groups.map((grp) => ({
-        ...makeItem(grp),
-        rowFilterInfo: { filterExpr: `${grp.replace(/[^a-z0-9_]/gi, '_')} = 1` },
-      }))
-    : [];
-
-  const dataMaskPolicyItems = (policyType === 1 && groups.length)
-    ? groups.map((grp) => ({
-        ...makeItem(grp),
-        dataMaskInfo: { dataMaskType: 'MASK', conditionExpr: '' },
-      }))
-    : [];
-
-  return {
-    name:            `${policyBaseName}-policy`,
+  const basePolicy = {
     service,
     serviceType,
     description,
-    isEnabled:       true,
-    isAuditEnabled:  true,
-    policyType,
+    isEnabled:      true,
+    isAuditEnabled: true,
     resources,
-    policyItems,
-    denyPolicyItems:    [],
-    denyExceptions:     [],
-    dataMaskPolicyItems,
-    rowFilterPolicyItems,
+    policyItems:         [],
+    denyPolicyItems:     [],
+    denyExceptions:      [],
+    dataMaskPolicyItems: [],
+    rowFilterPolicyItems: [],
   };
+
+  const policies = [];
+
+  // Row filter policy (policyType: 2)
+  if (hasRowFilter) {
+    const items = groups.length
+      ? groups.map((grp) => ({
+          ...makeItem(grp),
+          rowFilterInfo: { filterExpr: `${grp.replace(/[^a-z0-9_]/gi, '_')} = 1` },
+        }))
+      : [];
+    policies.push({
+      ...basePolicy,
+      name:      `${policyBaseName}-row-filter`,
+      policyType: 2,
+      rowFilterPolicyItems: items,
+    });
+  }
+
+  // Column masking policy (policyType: 1)
+  if (hasColMask) {
+    const items = groups.length
+      ? groups.map((grp) => ({
+          ...makeItem(grp),
+          dataMaskInfo: { dataMaskType: 'MASK', conditionExpr: '' },
+        }))
+      : [];
+    policies.push({
+      ...basePolicy,
+      name:      `${policyBaseName}-col-mask`,
+      policyType: 1,
+      dataMaskPolicyItems: items,
+    });
+  }
+
+  // Access policy (policyType: 0) — only when no row/col policy types detected
+  if (!hasRowFilter && !hasColMask) {
+    const items = groups.length ? groups.map(makeItem) : [makeItem('public')];
+    policies.push({
+      ...basePolicy,
+      name:      `${policyBaseName}-policy`,
+      policyType: 0,
+      policyItems: items,
+    });
+  }
+
+  return policies;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -262,9 +282,9 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
 
   if (!isLlmConfigured()) {
     return {
-      rangerPolicy: buildMockRangerPolicy(normalised),
-      builtPrompt:  prompt,
-      tokenUsage:   { promptTokens: 0, completionTokens: 0 },
+      rangerPolicies: buildMockRangerPolicy(normalised),
+      builtPrompt:    prompt,
+      tokenUsage:     { promptTokens: 0, completionTokens: 0 },
       mock: true,
     };
   }
@@ -272,16 +292,18 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
   const response = await getClient().chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 2000,
+    max_tokens: 3000,
     temperature: 0.1,
   });
 
   const raw = response.choices[0].message.content.trim();
   const jsonText = stripJsonFences(raw);
 
-  let rangerPolicy;
+  let rangerPolicies;
   try {
-    rangerPolicy = JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText);
+    // Normalise: LLM may return a single object or an array
+    rangerPolicies = Array.isArray(parsed) ? parsed : [parsed];
   } catch (err) {
     throw new Error(
       `LLM returned non-JSON output. Raw response:\n${raw.slice(0, 300)}`
@@ -289,7 +311,7 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
   }
 
   return {
-    rangerPolicy,
+    rangerPolicies,
     builtPrompt: prompt,
     tokenUsage: {
       promptTokens:      response.usage?.prompt_tokens     ?? 0,
@@ -299,4 +321,4 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
   };
 }
 
-module.exports = { buildRangerPrompt, generateRangerPolicy, normaliseRego };
+module.exports = { buildRangerPrompt, generateRangerPolicy, normaliseRego, buildMockRangerPolicy };
