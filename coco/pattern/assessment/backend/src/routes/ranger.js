@@ -90,11 +90,11 @@ router.post('/ranger-generate', async (req, res) => {
   try {
     const result = await generateRangerPolicy(normalised, { customPrompt });
     res.json({
-      rangerPolicy: result.rangerPolicy,
-      builtPrompt:  result.builtPrompt,
-      tokenUsage:   result.tokenUsage,
-      mock:         result.mock,
-      normalisedRego: normalised,   // so UI can show what was actually sent
+      rangerPolicies: result.rangerPolicies,
+      builtPrompt:    result.builtPrompt,
+      tokenUsage:     result.tokenUsage,
+      mock:           result.mock,
+      normalisedRego: normalised,
     });
   } catch (err) {
     console.error(
@@ -145,18 +145,23 @@ router.put('/ranger-policy/:envId/:policyKey', (req, res) => {
   if (!isValidEnvId(envId))        return res.status(400).json({ error: 'Invalid envId' });
   if (!isValidPolicyKey(policyKey)) return res.status(400).json({ error: 'Invalid policyKey' });
 
-  const { policy } = req.body;
+  const { policy, name: bodyName, serviceType: bodyServiceType, service: bodyService } = req.body;
   if (!policy || typeof policy !== 'object') {
-    return res.status(400).json({ error: 'policy must be a non-null JSON object in request body' });
+    return res.status(400).json({ error: 'policy must be a non-null JSON object or array in request body' });
   }
+
+  // Derive display metadata — policy may be a single object or an array of objects.
+  // Fallback chain: LLM-generated field → modal-supplied body field → policyKey.
+  const firstPolicy = Array.isArray(policy) ? policy[0] : policy;
 
   try {
     writePolicy(envId, policyKey, policy);
     upsertManifestEntry(envId, {
       policyKey,
-      name:          policy.name          || policyKey,
-      serviceType:   policy.serviceType   || 'hive',
-      service:       policy.service       || '',
+      // Modal-supplied name takes priority over the Ranger JSON's internal name field.
+      name:          bodyName          || firstPolicy?.name          || policyKey,
+      serviceType:   bodyServiceType   || firstPolicy?.serviceType   || 'hive',
+      service:       bodyService       || firstPolicy?.service       || '',
       lastGenerated: new Date().toISOString(),
     });
     res.json({ ok: true, policyKey, encrypted: Boolean(getEncryptionKey()) });
