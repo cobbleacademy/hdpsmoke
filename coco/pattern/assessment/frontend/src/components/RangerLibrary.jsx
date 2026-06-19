@@ -252,6 +252,7 @@ export default function RangerLibrary() {
       {rangerEnvs.length === 1 && (
         <div style={s.singleEnvLabel}>
           Environment: <strong>{rangerEnvs[0].label}</strong>
+          <span style={s.envHint}> · Set RANGER_ENVS in .env to add more environments</span>
         </div>
       )}
 
@@ -342,6 +343,7 @@ const s = {
     width: 6, height: 6, borderRadius: '50%',
     background: 'var(--accent)',
   },
+  envHint: { color: 'var(--text-secondary)', opacity: 0.7 },
   singleEnvLabel: {
     padding: '0.5rem 1.25rem',
     fontSize: '0.78rem',

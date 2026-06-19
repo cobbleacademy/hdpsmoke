@@ -108,7 +108,9 @@ export default function RangerPolicyEditor({
       );
       if (resp.ok) {
         const data = await resp.json();
-        setRangerJson(JSON.stringify(data.policy, null, 2));
+        // policy may be an array (multi-policy) or a legacy single object
+        const normalised = Array.isArray(data.policy) ? data.policy : [data.policy];
+        setRangerJson(JSON.stringify(normalised, null, 2));
         setStatus('ready');
       } else {
         setRangerJson(''); setStatus('idle');
@@ -181,7 +183,11 @@ export default function RangerPolicyEditor({
         setStatus('error');
         return;
       }
-      setRangerJson(JSON.stringify(data.rangerPolicy, null, 2));
+      // rangerPolicies is an array; normalise legacy single-object responses
+      const policies = Array.isArray(data.rangerPolicies)
+        ? data.rangerPolicies
+        : data.rangerPolicies ? [data.rangerPolicies] : [];
+      setRangerJson(JSON.stringify(policies, null, 2));
       setPromptText(data.builtPrompt || '');
       setOriginalPrompt(data.builtPrompt || '');
       setPromptEdited(false);
@@ -202,9 +208,13 @@ export default function RangerPolicyEditor({
     if (!rangerJson.trim() || !policyEntry?.policyKey || !envId) return;
     setSaveError(''); setStatus('saving');
 
-    let policyObj;
-    try { policyObj = JSON.parse(rangerJson); }
+    let parsed;
+    try { parsed = JSON.parse(rangerJson); }
     catch { setSaveError('JSON is invalid — fix before saving.'); setStatus('ready'); return; }
+
+    // Always save as array; normalise legacy single-object edits
+    const policyArray = Array.isArray(parsed) ? parsed : [parsed];
+    const firstPolicy = policyArray[0] || {};
 
     try {
       const resp = await fetch(
@@ -212,16 +222,25 @@ export default function RangerPolicyEditor({
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ policy: policyObj }),
+          body: JSON.stringify({
+            policy: policyArray,
+            // Pass modal metadata so backend can preserve name/serviceType/service in the
+            // manifest even when the generated Ranger JSON omits or renames those fields.
+            name:        policyEntry.name        || policyEntry.policyKey,
+            serviceType: policyEntry.serviceType || 'hive',
+            service:     policyEntry.service     || '',
+          }),
         }
       );
       const data = await resp.json();
       if (!resp.ok) { setSaveError(data.error || 'Save failed'); setStatus('ready'); return; }
       setStatus('saved');
       onPolicySaved?.(policyEntry.policyKey, {
-        name:        policyObj.name        || policyEntry.policyKey,
-        serviceType: policyObj.serviceType || 'hive',
-        service:     policyObj.service     || '',
+        // Modal name takes priority — it is the user's chosen display name.
+        // The Ranger JSON's name field is a service-level identifier, not a display name.
+        name:        policyEntry.name        || firstPolicy.name        || policyEntry.policyKey,
+        serviceType: policyEntry.serviceType || firstPolicy.serviceType || 'hive',
+        service:     policyEntry.service     || firstPolicy.service     || '',
       });
     } catch {
       setSaveError('Network error during save');
@@ -259,6 +278,11 @@ export default function RangerPolicyEditor({
   const isSaved     = status === 'saved';
   const isDemoMode  = !policyEntry;
 
+  // Count policies in current JSON output
+  const policyCount = (() => {
+    try { const p = JSON.parse(rangerJson); return Array.isArray(p) ? p.length : 1; } catch { return 0; }
+  })();
+
   const canGenerate = sourceMode === 'github'
     ? !!(filePath.trim())
     : regoCode.trim().length > 0;
@@ -277,7 +301,7 @@ export default function RangerPolicyEditor({
           {isDemoMode ? (
             <>
               <div style={s.breadcrumb}>Demo Mode</div>
-              <div style={s.policyTitle}>Select a policy or try "Load Example" →</div>
+              <div style={s.policyTitle}>Try "Load Example" to get started →</div>
             </>
           ) : (
             <>
@@ -360,9 +384,14 @@ export default function RangerPolicyEditor({
                   </>
                 )}
                 {sourceMode === 'direct' && (
-                  <button style={s.secondaryBtn} onClick={() => { setRegoCode(''); setWasCleaned(false); }}>
-                    ✕ Clear
-                  </button>
+                  <>
+                    <button style={s.secondaryBtn} onClick={() => { setRegoCode(exampleRego); setWasCleaned(false); }} title="Load the built-in example Rego">
+                      📋 Load Example
+                    </button>
+                    <button style={s.secondaryBtn} onClick={() => { setRegoCode(''); setWasCleaned(false); }}>
+                      ✕ Clear
+                    </button>
+                  </>
                 )}
               </div>
               {wasCleaned && (
@@ -464,7 +493,14 @@ export default function RangerPolicyEditor({
       {(hasResult || status === 'idle') && (
         <div style={s.card}>
           <div style={s.cardHeader}>
-            <span style={s.cardLabel}>RANGER POLICY (JSON)</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={s.cardLabel}>RANGER POLICY (JSON)</span>
+              {hasResult && policyCount > 0 && (
+                <span style={s.countBadge} title="Number of Ranger policy objects in the array">
+                  {policyCount} {policyCount === 1 ? 'policy' : 'policies'}
+                </span>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <span style={{ ...s.badge, ...(encryptionEnabled ? s.badgeGreen : s.badgeWarn) }}>
                 {encryptionEnabled ? '🔒 encrypted' : '⚠ plain text'}
@@ -675,6 +711,11 @@ const s = {
   badge: {
     fontSize: '0.65rem', fontWeight: 700, padding: '2px 6px',
     borderRadius: 4, background: 'var(--accent-light)', color: 'var(--accent)',
+  },
+  countBadge: {
+    fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px',
+    borderRadius: 10, background: '#e0f2fe', color: '#0369a1',
+    border: '1px solid #bae6fd',
   },
   badgeGreen: { background: '#f0fdf4', color: '#15803d' },
   badgeWarn:  { background: '#fffbeb', color: '#92400e' },

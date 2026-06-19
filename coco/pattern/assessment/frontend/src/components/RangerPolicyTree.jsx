@@ -145,6 +145,9 @@ export default function RangerPolicyTree({
         </div>
 
         <div style={s.toolbarRow}>
+          {policies.length > 0 && (
+            <span style={s.policyCount}>{policies.length} {policies.length === 1 ? 'policy' : 'policies'}</span>
+          )}
           <button style={s.ghostBtn} onClick={expandAll}   title="Expand All">⊞</button>
           <button style={s.ghostBtn} onClick={collapseAll} title="Collapse All">⊟</button>
           <button style={s.ghostBtn} onClick={onRefresh}   title="Refresh">↺</button>
@@ -295,6 +298,7 @@ const s = {
   toolbarRow: {
     display: 'flex', gap: 4, alignItems: 'center',
   },
+  policyCount: { fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 },
   ghostBtn: {
     padding: '0.3rem 0.5rem', borderRadius: 6,
     border: '1px solid var(--border)', background: 'transparent',
