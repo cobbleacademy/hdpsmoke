@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.audit.logger import (
@@ -94,8 +94,19 @@ def create_app() -> FastAPI:
         from app.routers import demo as demo_router
         app.include_router(demo_router.router, prefix=prefix)
 
+        # The UI lives under the same root the API does (e.g. /api/sensec/hsm),
+        # not bare "/" — so it works correctly behind an Istio route that
+        # forwards a path prefix without rewriting it. api_v1_prefix's last
+        # segment (".../v1") is the API's own versioning, not part of the
+        # service's external root, so the UI mounts one level up from it.
+        ui_root = prefix.rsplit("/", 1)[0] or "/"
+
+        @app.get("/", include_in_schema=False)
+        async def _root_redirect() -> RedirectResponse:
+            return RedirectResponse(url=f"{ui_root}/")
+
         static_dir = os.path.join(os.path.dirname(__file__), "static")
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
+        app.mount(ui_root, StaticFiles(directory=static_dir, html=True), name="ui")
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
