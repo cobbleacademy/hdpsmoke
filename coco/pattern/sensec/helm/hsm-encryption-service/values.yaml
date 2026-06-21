@@ -1,0 +1,162 @@
+# ── Image ──────────────────────────────────────────────────────────────────────
+image:
+  repository: your-registry.azurecr.io/hsm-encryption-service
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+# ── Service account & identity — the actual "no static secrets" mechanism ──────
+#
+# This app authenticates to Azure Key Vault via DefaultAzureCredential — it
+# never holds a client secret. In AKS, that credential resolves through
+# Azure AD Workload Identity, which is a federation between THIS Kubernetes
+# ServiceAccount and an Azure AD application/managed identity. The service
+# account token is what gets exchanged for an Azure AD token — nothing else.
+#
+# This SA is granted ZERO Kubernetes RBAC permissions (no Role/RoleBinding
+# is created by this chart) — it exists purely as a federation anchor, not
+# as a way for the pod to talk to the Kubernetes API. Least privilege means
+# the pod can mint a Key Vault token and nothing else inside the cluster.
+serviceAccount:
+  create: true
+  name: ""   # defaults to the chart's fullname if empty
+  annotations:
+    # Required for Workload Identity federation — set to the Azure AD
+    # application (or user-assigned managed identity) client ID that has
+    # been granted "wrap key" / "unwrap key" / "get key" on the target Key
+    # Vault, and nothing broader than that.
+    azure.workload.identity/client-id: "<AZURE_CLIENT_ID>"
+  labels: {}
+
+# Pod-level label required by the Workload Identity mutating webhook to
+# inject the federated token volume. Do not remove.
+workloadIdentity:
+  enabled: true
+
+# ── Service ────────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3005
+
+# ── Probes & health ────────────────────────────────────────────────────────────
+# Matches app/routers/admin.py's /admin/health endpoint, mounted under the
+# configured apiV1Prefix.
+probes:
+  path: /api/sensec/hsm/v1/admin/health
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ── Resources ──────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# ── Autoscaling ────────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# ── Pod Disruption Budget ──────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Security ───────────────────────────────────────────────────────────────────
+# Mirrors the Dockerfile exactly: a dedicated non-root user (uid/gid 1001,
+# "hsmsvc") created at image build time. Pod and container security contexts
+# both pin to that same UID so Kubernetes can't be configured to run the
+# image as a different (e.g. root) user than the image itself expects.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# Writable scratch space — the app itself doesn't need to write to disk in
+# production (DEMO_MODE is off, real DB is Postgres), but Python/uvicorn
+# want a writable /tmp regardless of readOnlyRootFilesystem.
+tmpVolume:
+  enabled: true
+  sizeLimit: 64Mi
+
+# ── Network policy ─────────────────────────────────────────────────────────────
+# Off by default so the chart installs cleanly without assuming your CNI
+# supports NetworkPolicy. Turn on and fill in egress targets for real
+# deployments — this app should only ever need to reach Key Vault, Postgres,
+# Splunk HEC, and DNS; nothing else.
+networkPolicy:
+  enabled: false
+  ingressFromNamespaces: []   # e.g. ["istio-system"]
+  egressCIDRs: []             # e.g. Postgres / Key Vault / Splunk endpoints
+
+# ── Application configuration ──────────────────────────────────────────────────
+# Non-secret settings → ConfigMap. Secret settings → Kubernetes Secret (see
+# `secrets` below) — never put a credential-shaped value here.
+config:
+  demoMode: "false"
+  serviceEnv: "production"
+  logLevel: "INFO"
+  apiV1Prefix: "/api/sensec/hsm/v1"
+
+  azureKeyVaultUrl: "https://<your-vault>.managedhsm.azure.net/"
+  azureKekName: "hsm-master-kek"
+  azureKekVersion: ""
+
+  jwtAudience: "hsm-encryption-service"
+  jwtIssuer: "https://login.microsoftonline.com/<tenant-id>/v2.0"
+  jwtJwksUrl: ""
+
+  splunkEnabled: "false"
+  splunkHecUrl: ""
+  splunkIndex: "hsm_audit"
+  splunkSource: "hsm-encryption-service"
+  splunkSourcetype: "_json"
+  splunkVerifySsl: "true"
+  splunkBatchSize: "50"
+  splunkFlushIntervalSeconds: "5"
+
+  kekRotationCron: "0 2 1 * *"
+  kekRotationEnabled: "true"
+
+# ── Secrets ────────────────────────────────────────────────────────────────────
+# DATABASE_URL (and, if used, JWT_PUBLIC_KEY_PEM / SPLUNK_HEC_TOKEN) are
+# credential-shaped and must never sit in a ConfigMap or in values.yaml
+# committed to source control.
+#
+# `secrets.create: true` lets this chart create a plain Kubernetes Secret
+# from `secrets.values` below — useful for a quick environment, but a plain
+# K8s Secret is base64, not encrypted-at-rest by default in every cluster.
+# For real production, prefer secrets.create: false and instead mount
+# credentials via the Azure Key Vault CSI driver or External Secrets
+# Operator into the same env var names this chart expects — consistent
+# with this service's own "no static secrets where avoidable" design.
+secrets:
+  create: false
+  existingSecretName: "hsm-encryption-service-secrets"
+  values:
+    databaseUrl: ""
+    jwtPublicKeyPem: ""
+    splunkHecToken: ""
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

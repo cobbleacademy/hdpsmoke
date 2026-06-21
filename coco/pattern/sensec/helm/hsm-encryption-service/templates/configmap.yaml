@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hsm.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+data:
+  DEMO_MODE: {{ .Values.config.demoMode | quote }}
+  SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
+
+  AZURE_KEYVAULT_URL: {{ .Values.config.azureKeyVaultUrl | quote }}
+  AZURE_KEK_NAME: {{ .Values.config.azureKekName | quote }}
+  AZURE_KEK_VERSION: {{ .Values.config.azureKekVersion | quote }}
+
+  JWT_AUDIENCE: {{ .Values.config.jwtAudience | quote }}
+  JWT_ISSUER: {{ .Values.config.jwtIssuer | quote }}
+  JWT_JWKS_URL: {{ .Values.config.jwtJwksUrl | quote }}
+
+  SPLUNK_ENABLED: {{ .Values.config.splunkEnabled | quote }}
+  SPLUNK_HEC_URL: {{ .Values.config.splunkHecUrl | quote }}
+  SPLUNK_INDEX: {{ .Values.config.splunkIndex | quote }}
+  SPLUNK_SOURCE: {{ .Values.config.splunkSource | quote }}
+  SPLUNK_SOURCETYPE: {{ .Values.config.splunkSourcetype | quote }}
+  SPLUNK_VERIFY_SSL: {{ .Values.config.splunkVerifySsl | quote }}
+  SPLUNK_BATCH_SIZE: {{ .Values.config.splunkBatchSize | quote }}
+  SPLUNK_FLUSH_INTERVAL_SECONDS: {{ .Values.config.splunkFlushIntervalSeconds | quote }}
+
+  KEK_ROTATION_CRON: {{ .Values.config.kekRotationCron | quote }}
+  KEK_ROTATION_ENABLED: {{ .Values.config.kekRotationEnabled | quote }}
