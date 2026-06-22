@@ -48,6 +48,13 @@ const NAV_ITEMS = [
     description: 'Rego → Ranger Policy',
     alwaysOn: true,
   },
+  {
+    id: 'hsmDemo',
+    label: 'Sensec HSM Demo',
+    icon: '🔐',
+    description: 'Envelope encryption microservice',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
