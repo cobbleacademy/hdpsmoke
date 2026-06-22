@@ -167,6 +167,15 @@ services:
     container_name: pattern-frontend
     ports:
       - "3000:80"       # browse at http://localhost:3000
+    # "host.docker.internal" (used by nginx.conf's /api/sensec/hsm/ block to reach
+    # the independently-run HSM encryption service on the host, port 3005) resolves
+    # automatically on Docker Desktop (Mac/Windows) — no extra_hosts entry needed here.
+    # On Linux Docker Engine with Compose 1.28+ / Docker 20.10+, add:
+    #   extra_hosts: ["host.docker.internal:host-gateway"]
+    # Older Compose/Docker on Linux: replace host.docker.internal in nginx.conf with
+    # the host's actual LAN/bridge IP, or run the HSM service in this same network.
+    # Not needed in real deployments — Istio routes /api/sensec/hsm directly to the
+    # HSM service's own pod, bypassing this frontend entirely.
     depends_on:
       backend:
         condition: service_healthy
