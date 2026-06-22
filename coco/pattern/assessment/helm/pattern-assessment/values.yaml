@@ -194,6 +194,19 @@ frontend:
       cpu: 200m
       memory: 128Mi
 
+# ── Sensec HSM Demo — optional dev-cluster proxy ───────────────────────────────
+# The HSM encryption service is independently deployed (its own Helm chart),
+# never part of this chart. In real AKS/Istio environments, the Istio
+# VirtualService for /api/sensec/hsm routes directly to that service's own
+# pod — this frontend's nginx never sees the request, and hsmService.url
+# should stay empty.
+#
+# Set hsmService.url only for non-Istio test/dev clusters (e.g. local kind/minikube)
+# where you want the frontend's nginx to proxy /api/sensec/hsm/ to a reachable
+# HSM service instance, mirroring the docker-compose local-dev convenience.
+hsmService:
+  url: ""   # e.g. "http://hsm-encryption-service.hsm.svc.cluster.local:3005"
+
 # ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: false
