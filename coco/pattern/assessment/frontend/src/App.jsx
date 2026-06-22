@@ -8,6 +8,7 @@ import HowItWorks from './components/HowItWorks';
 import PayloadLibrary from './components/PayloadLibrary';
 import OPAPolicyGenerator from './components/OPAPolicyGenerator';
 import RangerLibrary from './components/RangerLibrary';
+import HsmDemo from './pages/HsmDemo';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -34,6 +35,7 @@ const VIEW_PATHS = {
   payloadLibrary: `${APP_BASE}/payload-library`,
   opaPolicy:      `${APP_BASE}/opa-generator`,
   rangerLibrary:  `${APP_BASE}/ranger-library`,
+  hsmDemo:        `${APP_BASE}/hsm-demo`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -332,6 +334,9 @@ export default function App() {
 
         {/* ── Ranger Library view ── */}
         {currentView === 'rangerLibrary' && <RangerLibrary />}
+
+        {/* ── Sensec HSM Demo view ── */}
+        {currentView === 'hsmDemo' && <HsmDemo />}
       </main>
     </div>
   );
