@@ -79,6 +79,14 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      // ── Sensec HSM encryption service — LOCAL DEV ONLY ──────────────────────
+      // In any real environment Istio routes /api/sensec/hsm/v1/* directly to
+      // that service's own pod, independent of this app's /api/pattern/assessment
+      // route. This proxy only exists so the dev server can reach it locally.
+      '/api/sensec/hsm': {
+        target: 'http://localhost:3005',
+        changeOrigin: true,
+      },
     },
   },
 });
