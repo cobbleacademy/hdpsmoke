@@ -160,6 +160,52 @@ backend:
     RANGER_GITHUB_REPO: ""
     RANGER_GITHUB_REGO_PATH: ""
     RANGER_GITHUB_FETCH_MODE: "api"
+    # ── Group Permission Evaluation ───────────────────────────────────────────
+    USE_LLM: "false"                   # "true" reuses the OPENAI_API_KEY/OPENAI_BASE_URL client above
+    PERMISSION_LLM_MODEL: ""           # falls back to OPENAI_MODEL when empty
+    # Multi-environment mode — mirrors RANGER_ENVS. Empty (default) = single
+    # "Default" env using secrets.kubernetes.databaseUrl below. Each env's real
+    # database can use completely different table/column names — that's the
+    # point; only override the *_TABLE/*_COLUMN values that actually differ.
+    PERMISSION_ENVS: ""                          # e.g. "DEV,NPE,PROD"
+    PERMISSION_DEV_DATABASE_URL: ""
+    PERMISSION_NPE_DATABASE_URL: ""
+    PERMISSION_NPE_USERS_TABLE: ""
+    PERMISSION_NPE_USER_KEY_COLUMN: ""
+    PERMISSION_NPE_USER_LOCATION_COLUMN: ""
+    PERMISSION_NPE_GROUPS_TABLE: ""
+    PERMISSION_NPE_GROUP_KEY_COLUMN: ""
+    PERMISSION_NPE_GROUP_LOCATION_COLUMN: ""
+    PERMISSION_NPE_LOCATION_VALUE_MAP: ""
+    PERMISSION_PROD_DATABASE_URL: ""
+    PERMISSION_PROD_USERS_TABLE: ""
+    PERMISSION_PROD_USER_KEY_COLUMN: ""
+    PERMISSION_PROD_USER_LOCATION_COLUMN: ""
+    PERMISSION_PROD_GROUPS_TABLE: ""
+    PERMISSION_PROD_GROUP_KEY_COLUMN: ""
+    PERMISSION_PROD_GROUP_LOCATION_COLUMN: ""
+    PERMISSION_PROD_LOCATION_VALUE_MAP: ""
+    # ── Identity Audit ─────────────────────────────────────────────────────────
+    # Independent of USE_LLM above — separate feature, separate switch.
+    IDENTITY_AUDIT_USE_LLM: "false"
+    IDENTITY_AUDIT_LLM_MODEL: ""
+    IDENTITY_AUDIT_ENVS: ""                       # e.g. "DEV,NPE,PROD"; empty = single "Default" env
+    # Per-env Entra app registration (Microsoft Graph GroupMember.Read.All,
+    # admin consent). Plain values, mirroring PROVIDER_{ENV}_ENTRA_* — not
+    # routed through the K8s Secret/Key Vault CSI machinery, consistent with
+    # how Provider API's per-env Entra credentials are already handled here.
+    IDENTITY_AUDIT_DEV_TENANT_ID: ""
+    IDENTITY_AUDIT_DEV_CLIENT_ID: ""
+    IDENTITY_AUDIT_DEV_CLIENT_SECRET: ""
+    IDENTITY_AUDIT_DEV_DEFAULT_FILTERS: ""
+    IDENTITY_AUDIT_NPE_TENANT_ID: ""
+    IDENTITY_AUDIT_NPE_CLIENT_ID: ""
+    IDENTITY_AUDIT_NPE_CLIENT_SECRET: ""
+    IDENTITY_AUDIT_NPE_DEFAULT_FILTERS: ""
+    IDENTITY_AUDIT_PROD_TENANT_ID: ""
+    IDENTITY_AUDIT_PROD_CLIENT_ID: ""
+    IDENTITY_AUDIT_PROD_CLIENT_SECRET: ""
+    IDENTITY_AUDIT_PROD_DEFAULT_FILTERS: ""
 
 # ── Data storage (PVC) — Payload Library + OPA Policy Generator ──────────────
 # Single PVC mounted at /app/data/ covers both:
@@ -228,6 +274,11 @@ secrets:
 
   kubernetes:
     openaiApiKey: ""                   # set via --set secrets.kubernetes.openaiApiKey=sk-...
+    # Group Permission Evaluation — expects an externally managed Postgres
+    # (e.g. Azure Database for PostgreSQL Flexible Server), not an in-cluster
+    # database. Leave empty to omit DATABASE_URL entirely (feature unusable
+    # but the rest of the app is unaffected). See docs/adr/0015.
+    databaseUrl: ""                    # set via --set secrets.kubernetes.databaseUrl=postgresql://...
 
   azureKeyVault:
     enabled: false
@@ -235,6 +286,7 @@ secrets:
     tenantId: ""
     userAssignedIdentityID: ""         # managed identity client ID
     secretName: openai-api-key         # name of the secret inside Key Vault
+    databaseSecretName: ""             # name of the DATABASE_URL secret inside Key Vault (optional)
 
 # ── Service Account ───────────────────────────────────────────────────────────
 serviceAccount:
