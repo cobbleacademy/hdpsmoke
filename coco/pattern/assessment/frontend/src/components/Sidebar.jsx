@@ -55,6 +55,20 @@ const NAV_ITEMS = [
     description: 'Envelope encryption microservice',
     alwaysOn: true,
   },
+  {
+    id: 'groupPermission',
+    label: 'Permission Checker',
+    icon: '🧭',
+    description: 'Group access tier evaluation',
+    alwaysOn: true,
+  },
+  {
+    id: 'identityAudit',
+    label: 'Identity Audit',
+    icon: '🔎',
+    description: 'Entra group footprint audit',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
