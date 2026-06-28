@@ -247,6 +247,96 @@ spec:
             {{- end }}
             - name: RANGER_GITHUB_FETCH_MODE
               value: {{ .Values.backend.env.RANGER_GITHUB_FETCH_MODE | default "api" | quote }}
+            # ── Group Permission Evaluation ───────────────────────────────────
+            - name: USE_LLM
+              value: {{ .Values.backend.env.USE_LLM | default "false" | quote }}
+            {{- if .Values.backend.env.PERMISSION_LLM_MODEL }}
+            - name: PERMISSION_LLM_MODEL
+              value: {{ .Values.backend.env.PERMISSION_LLM_MODEL | quote }}
+            {{- end }}
+            {{- if .Values.secrets.kubernetes.databaseUrl }}
+            # Single-env ("Default") mode — only used when PERMISSION_ENVS below is empty.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: pattern-secrets
+                  key: DATABASE_URL
+            {{- end }}
+            # ── Group Permission Evaluation — multi-environment mode ─────────
+            # Mirrors RANGER_ENVS: set to enable the tab-per-environment UI.
+            # Per-env connection strings follow the same plain backend.env.*
+            # pattern as PROVIDER_{ENV}_* — operators supply real secrets via
+            # --set from their own shell, consistent with how Provider API
+            # credentials are already handled in this chart.
+            - name: PERMISSION_ENVS
+              value: {{ .Values.backend.env.PERMISSION_ENVS | quote }}
+            - name: PERMISSION_DEV_DATABASE_URL
+              value: {{ .Values.backend.env.PERMISSION_DEV_DATABASE_URL | quote }}
+            - name: PERMISSION_NPE_DATABASE_URL
+              value: {{ .Values.backend.env.PERMISSION_NPE_DATABASE_URL | quote }}
+            - name: PERMISSION_NPE_USERS_TABLE
+              value: {{ .Values.backend.env.PERMISSION_NPE_USERS_TABLE | quote }}
+            - name: PERMISSION_NPE_USER_KEY_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_NPE_USER_KEY_COLUMN | quote }}
+            - name: PERMISSION_NPE_USER_LOCATION_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_NPE_USER_LOCATION_COLUMN | quote }}
+            - name: PERMISSION_NPE_GROUPS_TABLE
+              value: {{ .Values.backend.env.PERMISSION_NPE_GROUPS_TABLE | quote }}
+            - name: PERMISSION_NPE_GROUP_KEY_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_NPE_GROUP_KEY_COLUMN | quote }}
+            - name: PERMISSION_NPE_GROUP_LOCATION_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_NPE_GROUP_LOCATION_COLUMN | quote }}
+            - name: PERMISSION_NPE_LOCATION_VALUE_MAP
+              value: {{ .Values.backend.env.PERMISSION_NPE_LOCATION_VALUE_MAP | quote }}
+            - name: PERMISSION_PROD_DATABASE_URL
+              value: {{ .Values.backend.env.PERMISSION_PROD_DATABASE_URL | quote }}
+            - name: PERMISSION_PROD_USERS_TABLE
+              value: {{ .Values.backend.env.PERMISSION_PROD_USERS_TABLE | quote }}
+            - name: PERMISSION_PROD_USER_KEY_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_PROD_USER_KEY_COLUMN | quote }}
+            - name: PERMISSION_PROD_USER_LOCATION_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_PROD_USER_LOCATION_COLUMN | quote }}
+            - name: PERMISSION_PROD_GROUPS_TABLE
+              value: {{ .Values.backend.env.PERMISSION_PROD_GROUPS_TABLE | quote }}
+            - name: PERMISSION_PROD_GROUP_KEY_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_PROD_GROUP_KEY_COLUMN | quote }}
+            - name: PERMISSION_PROD_GROUP_LOCATION_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_PROD_GROUP_LOCATION_COLUMN | quote }}
+            - name: PERMISSION_PROD_LOCATION_VALUE_MAP
+              value: {{ .Values.backend.env.PERMISSION_PROD_LOCATION_VALUE_MAP | quote }}
+            # ── Identity Audit ─────────────────────────────────────────────────
+            - name: IDENTITY_AUDIT_USE_LLM
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_USE_LLM | default "false" | quote }}
+            {{- if .Values.backend.env.IDENTITY_AUDIT_LLM_MODEL }}
+            - name: IDENTITY_AUDIT_LLM_MODEL
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_LLM_MODEL | quote }}
+            {{- end }}
+            - name: IDENTITY_AUDIT_ENVS
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_ENVS | quote }}
+            - name: IDENTITY_AUDIT_DEV_TENANT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_DEV_TENANT_ID | quote }}
+            - name: IDENTITY_AUDIT_DEV_CLIENT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_DEV_CLIENT_ID | quote }}
+            - name: IDENTITY_AUDIT_DEV_CLIENT_SECRET
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_DEV_CLIENT_SECRET | quote }}
+            - name: IDENTITY_AUDIT_DEV_DEFAULT_FILTERS
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_DEV_DEFAULT_FILTERS | quote }}
+            - name: IDENTITY_AUDIT_NPE_TENANT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_NPE_TENANT_ID | quote }}
+            - name: IDENTITY_AUDIT_NPE_CLIENT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_NPE_CLIENT_ID | quote }}
+            - name: IDENTITY_AUDIT_NPE_CLIENT_SECRET
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_NPE_CLIENT_SECRET | quote }}
+            - name: IDENTITY_AUDIT_NPE_DEFAULT_FILTERS
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_NPE_DEFAULT_FILTERS | quote }}
+            - name: IDENTITY_AUDIT_PROD_TENANT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_PROD_TENANT_ID | quote }}
+            - name: IDENTITY_AUDIT_PROD_CLIENT_ID
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_PROD_CLIENT_ID | quote }}
+            - name: IDENTITY_AUDIT_PROD_CLIENT_SECRET
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_PROD_CLIENT_SECRET | quote }}
+            - name: IDENTITY_AUDIT_PROD_DEFAULT_FILTERS
+              value: {{ .Values.backend.env.IDENTITY_AUDIT_PROD_DEFAULT_FILTERS | quote }}
 
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
