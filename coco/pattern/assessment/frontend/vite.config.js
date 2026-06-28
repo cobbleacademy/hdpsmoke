@@ -87,6 +87,22 @@ export default defineConfig({
         target: 'http://localhost:3005',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/permission-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/check-permission': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/identity-audit-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/identity-audit': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 });
