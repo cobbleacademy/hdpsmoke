@@ -9,6 +9,8 @@ import PayloadLibrary from './components/PayloadLibrary';
 import OPAPolicyGenerator from './components/OPAPolicyGenerator';
 import RangerLibrary from './components/RangerLibrary';
 import HsmDemo from './pages/HsmDemo';
+import GroupPermissionChecker from './pages/GroupPermissionChecker';
+import IdentityAudit from './pages/IdentityAudit';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -36,6 +38,8 @@ const VIEW_PATHS = {
   opaPolicy:      `${APP_BASE}/opa-generator`,
   rangerLibrary:  `${APP_BASE}/ranger-library`,
   hsmDemo:        `${APP_BASE}/hsm-demo`,
+  groupPermission: `${APP_BASE}/group-permission`,
+  identityAudit:   `${APP_BASE}/identity-audit`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -337,6 +341,12 @@ export default function App() {
 
         {/* ── Sensec HSM Demo view ── */}
         {currentView === 'hsmDemo' && <HsmDemo />}
+
+        {/* ── Group Permission Checker view ── */}
+        {currentView === 'groupPermission' && <GroupPermissionChecker />}
+
+        {/* ── Identity Audit view ── */}
+        {currentView === 'identityAudit' && <IdentityAudit />}
       </main>
     </div>
   );
