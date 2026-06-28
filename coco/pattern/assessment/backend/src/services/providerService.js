@@ -2,6 +2,7 @@
 
 const https = require('https');
 const http  = require('http');
+const entraAuth = require('./entraAuthService');
 
 // Reusable insecure HTTPS agent — created once, used for all skipTlsVerify requests.
 // rejectUnauthorized: false bypasses certificate validation for self-signed /
@@ -146,20 +147,12 @@ async function makeRequest({ url, headers, body, signal, skipTlsVerify }) {
   });
 }
 
-// ── In-memory Entra token cache ───────────────────────────────────────────────
-// Tokens are valid for ~3600 s; we refresh when < 5 min remain.
-// Keyed by "<tenantId>:<clientId>" so environments with different app registrations
-// maintain independent caches; environments sharing the same registration reuse
-// the same cached token without an extra fetch.
-const _entraTokenCache = new Map(); // key → { token: string, expiresAt: number }
-
-/**
- * Fetch (or return cached) an Entra OAuth2 client-credentials token.
- * @param {{ entraTenantId, entraClientId, entraClientSecret, entraScope }} creds
- */
+// ── Entra OAuth token fetch ────────────────────────────────────────────────────
+// Shared with identityAuditService.js via entraAuthService.js — see that file
+// for the token-cache implementation. This wrapper just maps providerService's
+// credential shape (entraTenantId/entraClientId/...) onto the shared helper's.
 async function fetchEntraToken(creds) {
   const { entraTenantId, entraClientId, entraClientSecret, entraScope } = creds;
-
   if (!entraTenantId || !entraClientId || !entraClientSecret) {
     throw new Error(
       'authType=entraid-apigee but one or more of ' +
@@ -167,41 +160,10 @@ async function fetchEntraToken(creds) {
         '(check per-env PROVIDER_{ENV}_ENTRA_* vars or the global PROVIDER_ENTRA_* fallbacks)'
     );
   }
-
-  const cacheKey = `${entraTenantId}:${entraClientId}`;
-  const now = Date.now();
-  const cached = _entraTokenCache.get(cacheKey);
-  if (cached && cached.expiresAt - now > 5 * 60 * 1000) {
-    return cached.token;
-  }
-
-  const tokenUrl = `https://login.microsoftonline.com/${entraTenantId}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    client_id:     entraClientId,
-    client_secret: entraClientSecret,
-    scope:         entraScope,
-    grant_type:    'client_credentials',
-  });
-
-  const resp = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(
-      `Entra token fetch failed HTTP ${resp.status}: ${text.slice(0, 300)}`
-    );
-  }
-
-  const data = await resp.json();
-  _entraTokenCache.set(cacheKey, {
-    token:     data.access_token,
-    expiresAt: now + data.expires_in * 1000,
-  });
-  return data.access_token;
+  return entraAuth.fetchEntraToken(
+    { tenantId: entraTenantId, clientId: entraClientId, clientSecret: entraClientSecret, scope: entraScope },
+    'providerService'
+  );
 }
 
 // ── Auth header builder ───────────────────────────────────────────────────────
