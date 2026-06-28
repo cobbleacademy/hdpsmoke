@@ -133,6 +133,65 @@ services:
       RANGER_GITHUB_BRANCH: ${RANGER_GITHUB_BRANCH:-main}
       RANGER_GITHUB_REGO_PATH: ${RANGER_GITHUB_REGO_PATH:-}
       RANGER_GITHUB_FETCH_MODE: ${RANGER_GITHUB_FETCH_MODE:-api}
+      # ── Group Permission Evaluation ───────────────────────────────────────────
+      # USE_LLM=true uses the shared OpenAI client (OPENAI_API_KEY/OPENAI_BASE_URL
+      # above) for structured-output prompt parsing; false uses the regex parser.
+      USE_LLM: ${USE_LLM:-false}
+      PERMISSION_LLM_MODEL: ${PERMISSION_LLM_MODEL:-}
+      # PERMISSION_ENVS enables the tab-per-environment UI (mirrors RANGER_ENVS).
+      # Each environment below points at a deliberately different table/column
+      # shape in the local postgres container — see backend/db/init.sql — to
+      # prove the per-env schema-mapping config works against real differences,
+      # not just different data. Omit PERMISSION_ENVS for a single "Default" env
+      # (falls back to the flat DATABASE_URL var, same shape as DEV below).
+      PERMISSION_ENVS: ${PERMISSION_ENVS:-DEV,NPE,PROD}
+      DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_db
+      # DEV — same shape as the flat DATABASE_URL fallback above (users/groups,
+      # location_tier enum). Listed explicitly so the tab strip's DEV entry and
+      # the bare-DATABASE_URL fallback always agree.
+      PERMISSION_DEV_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_db
+      # NPE — different table/column names, same literal tier values.
+      PERMISSION_NPE_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_npe
+      PERMISSION_NPE_USERS_TABLE: identity_users
+      PERMISSION_NPE_USER_KEY_COLUMN: upn
+      PERMISSION_NPE_USER_LOCATION_COLUMN: region_tier
+      PERMISSION_NPE_GROUPS_TABLE: resource_groups
+      PERMISSION_NPE_GROUP_KEY_COLUMN: grp_id
+      PERMISSION_NPE_GROUP_LOCATION_COLUMN: access_tier
+      # PROD — different table/column names AND abbreviated tier codes
+      # (ON/NS/OS instead of ONSHORE/NEARSHORE/OFFSHORE) — exercises
+      # PERMISSION_PROD_LOCATION_VALUE_MAP.
+      PERMISSION_PROD_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_prod
+      PERMISSION_PROD_USERS_TABLE: app_users
+      PERMISSION_PROD_USER_KEY_COLUMN: email
+      PERMISSION_PROD_USER_LOCATION_COLUMN: loc_tier
+      PERMISSION_PROD_GROUPS_TABLE: app_groups
+      PERMISSION_PROD_GROUP_KEY_COLUMN: code
+      PERMISSION_PROD_GROUP_LOCATION_COLUMN: min_tier
+      PERMISSION_PROD_LOCATION_VALUE_MAP: "ONSHORE:ON,NEARSHORE:NS,OFFSHORE:OS,NONE:NONE"
+      # ── Identity Audit ─────────────────────────────────────────────────────────
+      # IDENTITY_AUDIT_USE_LLM is independent of USE_LLM above — separate features,
+      # separate switches, sharing only the underlying OpenAI client/config.
+      IDENTITY_AUDIT_USE_LLM: ${IDENTITY_AUDIT_USE_LLM:-false}
+      IDENTITY_AUDIT_LLM_MODEL: ${IDENTITY_AUDIT_LLM_MODEL:-}
+      # PERMISSION_ENVS=DEV,NPE,PROD by default — leave Entra credentials blank
+      # (the default) to run every environment in mock mode, since there is no
+      # real Azure tenant wired into this local stack. Set real
+      # IDENTITY_AUDIT_{ENV}_TENANT_ID/_CLIENT_ID/_CLIENT_SECRET to exercise a
+      # genuine Microsoft Graph lookup for that environment.
+      IDENTITY_AUDIT_ENVS: ${IDENTITY_AUDIT_ENVS:-DEV,NPE,PROD}
+      IDENTITY_AUDIT_DEV_TENANT_ID: ${IDENTITY_AUDIT_DEV_TENANT_ID:-}
+      IDENTITY_AUDIT_DEV_CLIENT_ID: ${IDENTITY_AUDIT_DEV_CLIENT_ID:-}
+      IDENTITY_AUDIT_DEV_CLIENT_SECRET: ${IDENTITY_AUDIT_DEV_CLIENT_SECRET:-}
+      IDENTITY_AUDIT_DEV_DEFAULT_FILTERS: ${IDENTITY_AUDIT_DEV_DEFAULT_FILTERS:-}
+      IDENTITY_AUDIT_NPE_TENANT_ID: ${IDENTITY_AUDIT_NPE_TENANT_ID:-}
+      IDENTITY_AUDIT_NPE_CLIENT_ID: ${IDENTITY_AUDIT_NPE_CLIENT_ID:-}
+      IDENTITY_AUDIT_NPE_CLIENT_SECRET: ${IDENTITY_AUDIT_NPE_CLIENT_SECRET:-}
+      IDENTITY_AUDIT_NPE_DEFAULT_FILTERS: ${IDENTITY_AUDIT_NPE_DEFAULT_FILTERS:-}
+      IDENTITY_AUDIT_PROD_TENANT_ID: ${IDENTITY_AUDIT_PROD_TENANT_ID:-}
+      IDENTITY_AUDIT_PROD_CLIENT_ID: ${IDENTITY_AUDIT_PROD_CLIENT_ID:-}
+      IDENTITY_AUDIT_PROD_CLIENT_SECRET: ${IDENTITY_AUDIT_PROD_CLIENT_SECRET:-}
+      IDENTITY_AUDIT_PROD_DEFAULT_FILTERS: ${IDENTITY_AUDIT_PROD_DEFAULT_FILTERS:-}
     volumes:
       # Persistent storage for encrypted payloads and OPA policies
       - payload-storage:/app/data/payloads
@@ -155,6 +214,33 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pattern-net
+
+  # ── Postgres (Group Permission Evaluation) ───────────────────────────────────
+  # Deliberately scoped to this one feature — see docs/adr/0015-group-permission-evaluation.md
+  # for why this app otherwise stays database-free (docs/adr/0005-no-database.md).
+  postgres:
+    image: postgres:16-alpine
+    container_name: pattern-postgres
+    environment:
+      POSTGRES_USER: permission_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-permission_dev_pw}
+      POSTGRES_DB: permission_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Runs once automatically against an empty data volume — DDL + seed data.
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permission_app -d permission_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     restart: unless-stopped
     networks:
       - pattern-net
@@ -200,3 +286,7 @@ volumes:
 
   # ranger-storage was replaced with a host bind mount (./backend/data/ranger-policies)
   # so policy files are visible on the local filesystem alongside OPA policies.
+
+  postgres-data:
+    # Named volume — persists the Group Permission Evaluation database
+    # (users, groups tables) across container restarts.
