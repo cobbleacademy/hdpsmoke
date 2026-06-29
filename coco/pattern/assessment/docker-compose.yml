@@ -147,9 +147,23 @@ services:
       PERMISSION_ENVS: ${PERMISSION_ENVS:-DEV,NPE,PROD}
       DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_db
       # DEV — same shape as the flat DATABASE_URL fallback above (users/groups,
-      # location_tier enum). Listed explicitly so the tab strip's DEV entry and
-      # the bare-DATABASE_URL fallback always agree.
+      # location_tier enum). Listed explicitly — including the schema-mapping
+      # vars below, even though they match the built-in defaults — so DEV is
+      # symmetric with NPE/PROD here and isn't mistaken for missing config.
       PERMISSION_DEV_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_db
+      # SSL stays disabled for this local container — it has no certificate
+      # configured and would reject a TLS handshake attempt. Set
+      # PERMISSION_{ENV}_DB_SSL=true when pointing any environment at a real
+      # managed Postgres instance instead (see backend/.env.example).
+      PERMISSION_DEV_DB_SSL: ${PERMISSION_DEV_DB_SSL:-false}
+      PERMISSION_NPE_DB_SSL: ${PERMISSION_NPE_DB_SSL:-false}
+      PERMISSION_PROD_DB_SSL: ${PERMISSION_PROD_DB_SSL:-false}
+      PERMISSION_DEV_USERS_TABLE: users
+      PERMISSION_DEV_USER_KEY_COLUMN: user_principal_name
+      PERMISSION_DEV_USER_LOCATION_COLUMN: location
+      PERMISSION_DEV_GROUPS_TABLE: groups
+      PERMISSION_DEV_GROUP_KEY_COLUMN: group_id
+      PERMISSION_DEV_GROUP_LOCATION_COLUMN: restricted_location
       # NPE — different table/column names, same literal tier values.
       PERMISSION_NPE_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_npe
       PERMISSION_NPE_USERS_TABLE: identity_users
