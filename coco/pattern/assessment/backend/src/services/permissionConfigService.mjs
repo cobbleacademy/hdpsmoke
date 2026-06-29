@@ -74,8 +74,21 @@ export function getEnvConfig(envId) {
     );
   }
 
+  // SSL is OFF by default — the bundled local/demo Postgres (docker-compose's
+  // postgres:16-alpine) has no certificate configured and would reject an SSL
+  // handshake attempt. Real managed Postgres (Azure Database for PostgreSQL,
+  // RDS, etc.) almost always *requires* SSL and rejects plaintext connections
+  // with "no pg_hba.conf entry ... no encryption" — set {ENV}_DB_SSL=true for
+  // those. rejectUnauthorized defaults to true (full chain validation); set
+  // {ENV}_DB_SSL_REJECT_UNAUTHORIZED=false only if the provider's certificate
+  // isn't in Node's trust store and you can't supply NODE_EXTRA_CA_CERTS.
+  const dbSsl = process.env[`${prefix}_DB_SSL`] === 'true';
+  const dbSslRejectUnauthorized = process.env[`${prefix}_DB_SSL_REJECT_UNAUTHORIZED`] !== 'false';
+
   return {
     databaseUrl,
+    dbSsl,
+    dbSslRejectUnauthorized,
     usersTable:         process.env[`${prefix}_USERS_TABLE`]          || DEFAULT_SCHEMA.usersTable,
     userKeyColumn:       process.env[`${prefix}_USER_KEY_COLUMN`]      || DEFAULT_SCHEMA.userKeyColumn,
     userLocationColumn:  process.env[`${prefix}_USER_LOCATION_COLUMN`] || DEFAULT_SCHEMA.userLocationColumn,

@@ -12,9 +12,12 @@ const { Pool } = pg;
 // a genuinely different physical database, not just different config.
 const _pools = new Map();
 
-function getPool(envId, databaseUrl) {
+function getPool(envId, cfg) {
   if (!_pools.has(envId)) {
-    _pools.set(envId, new Pool({ connectionString: databaseUrl }));
+    _pools.set(envId, new Pool({
+      connectionString: cfg.databaseUrl,
+      ssl: cfg.dbSsl ? { rejectUnauthorized: cfg.dbSslRejectUnauthorized } : false,
+    }));
   }
   return _pools.get(envId);
 }
@@ -76,7 +79,7 @@ export async function checkPermission(userPrincipalName, groupId, envId = 'DEFAU
   `;
 
   const params = [userPrincipalName, groupId, vm.ONSHORE, vm.NEARSHORE, vm.OFFSHORE, vm.NONE];
-  const pool = getPool(envId, cfg.databaseUrl);
+  const pool = getPool(envId, cfg);
   const { rows } = await pool.query(query, params);
   return rows[0]?.permission_status ?? 'DENY';
 }
