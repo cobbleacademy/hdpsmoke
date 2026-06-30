@@ -176,26 +176,35 @@ backend:
     PERMISSION_DEV_DB_SSL: "false"
     PERMISSION_NPE_DB_SSL: "false"
     PERMISSION_PROD_DB_SSL: "false"
-    # DEV's schema-mapping vars are listed for symmetry with NPE/PROD below —
-    # left blank here (Helm default), but if set, DEV behaves the same as the
-    # other two: only the non-empty ones override the built-in default shape.
+    # Per-env schema-mapping vars — left blank here (Helm default).
+    # PERMISSION_{ENV}_SCHEMA: optional Postgres schema prefix. When set, all
+    # table references become "schema.tablename". Leave empty to resolve via
+    # the connection's search_path (default).
+    # PERMISSION_{ENV}_USER_SAM_COLUMN: when set, inputs without '@' are treated
+    # as SAM accounts and looked up against this column instead of USER_KEY_COLUMN.
+    PERMISSION_DEV_SCHEMA: ""
     PERMISSION_DEV_USERS_TABLE: ""
     PERMISSION_DEV_USER_KEY_COLUMN: ""
+    PERMISSION_DEV_USER_SAM_COLUMN: ""
     PERMISSION_DEV_USER_LOCATION_COLUMN: ""
     PERMISSION_DEV_GROUPS_TABLE: ""
     PERMISSION_DEV_GROUP_KEY_COLUMN: ""
     PERMISSION_DEV_GROUP_LOCATION_COLUMN: ""
     PERMISSION_NPE_DATABASE_URL: ""
+    PERMISSION_NPE_SCHEMA: ""
     PERMISSION_NPE_USERS_TABLE: ""
     PERMISSION_NPE_USER_KEY_COLUMN: ""
+    PERMISSION_NPE_USER_SAM_COLUMN: ""
     PERMISSION_NPE_USER_LOCATION_COLUMN: ""
     PERMISSION_NPE_GROUPS_TABLE: ""
     PERMISSION_NPE_GROUP_KEY_COLUMN: ""
     PERMISSION_NPE_GROUP_LOCATION_COLUMN: ""
     PERMISSION_NPE_LOCATION_VALUE_MAP: ""
     PERMISSION_PROD_DATABASE_URL: ""
+    PERMISSION_PROD_SCHEMA: ""
     PERMISSION_PROD_USERS_TABLE: ""
     PERMISSION_PROD_USER_KEY_COLUMN: ""
+    PERMISSION_PROD_USER_SAM_COLUMN: ""
     PERMISSION_PROD_USER_LOCATION_COLUMN: ""
     PERMISSION_PROD_GROUPS_TABLE: ""
     PERMISSION_PROD_GROUP_KEY_COLUMN: ""
