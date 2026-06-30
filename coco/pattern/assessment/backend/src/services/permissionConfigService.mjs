@@ -9,8 +9,10 @@
 // ES module by design — see ADR-015, Decision 3.
 
 const DEFAULT_SCHEMA = {
-  usersTable:          'users',
+  dbSchema:             '',              // no schema prefix by default (resolves via search_path)
+  usersTable:           'users',
   userKeyColumn:        'user_principal_name',
+  userSamColumn:        '',             // optional SAM account column — empty = no SAM support
   userLocationColumn:   'location',
   groupsTable:          'groups',
   groupKeyColumn:       'group_id',
@@ -89,8 +91,14 @@ export function getEnvConfig(envId) {
     databaseUrl,
     dbSsl,
     dbSslRejectUnauthorized,
-    usersTable:         process.env[`${prefix}_USERS_TABLE`]          || DEFAULT_SCHEMA.usersTable,
+    // Optional Postgres schema prefix — empty string means no prefix (resolves via search_path).
+    // Set PERMISSION_{ENV}_SCHEMA=myschema to qualify all table references as myschema.tablename.
+    dbSchema:            process.env[`${prefix}_SCHEMA`]               || DEFAULT_SCHEMA.dbSchema,
+    usersTable:          process.env[`${prefix}_USERS_TABLE`]          || DEFAULT_SCHEMA.usersTable,
     userKeyColumn:       process.env[`${prefix}_USER_KEY_COLUMN`]      || DEFAULT_SCHEMA.userKeyColumn,
+    // Optional SAM account column — when set, inputs without '@' (SAM accounts) use this column
+    // instead of userKeyColumn for the WHERE lookup. Leave empty to disable SAM support.
+    userSamColumn:       process.env[`${prefix}_USER_SAM_COLUMN`]      || DEFAULT_SCHEMA.userSamColumn,
     userLocationColumn:  process.env[`${prefix}_USER_LOCATION_COLUMN`] || DEFAULT_SCHEMA.userLocationColumn,
     groupsTable:         process.env[`${prefix}_GROUPS_TABLE`]         || DEFAULT_SCHEMA.groupsTable,
     groupKeyColumn:      process.env[`${prefix}_GROUP_KEY_COLUMN`]     || DEFAULT_SCHEMA.groupKeyColumn,

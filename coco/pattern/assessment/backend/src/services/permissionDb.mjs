@@ -33,15 +33,28 @@ function getPool(envId, cfg) {
  * tier literals (which may differ per environment, e.g. 'ON'/'NS'/'OS') are
  * still passed as real query parameters alongside userPrincipalName/groupId.
  */
+// Returns "schema.table" when a schema is configured, bare "table" otherwise.
+// Both components are validated separately so neither can contain a dot.
+function qualifyTable(schema, table) {
+  return schema ? `${schema}.${table}` : table;
+}
+
 export async function checkPermission(userPrincipalName, groupId, envId = 'DEFAULT') {
   const cfg = getEnvConfig(envId);
 
-  const usersTable          = assertSafeIdentifier(cfg.usersTable, 'usersTable');
-  const userKeyColumn       = assertSafeIdentifier(cfg.userKeyColumn, 'userKeyColumn');
+  const schema              = cfg.dbSchema ? assertSafeIdentifier(cfg.dbSchema, 'dbSchema') : null;
+  const usersTable          = qualifyTable(schema, assertSafeIdentifier(cfg.usersTable, 'usersTable'));
   const userLocationColumn  = assertSafeIdentifier(cfg.userLocationColumn, 'userLocationColumn');
-  const groupsTable         = assertSafeIdentifier(cfg.groupsTable, 'groupsTable');
+  const groupsTable         = qualifyTable(schema, assertSafeIdentifier(cfg.groupsTable, 'groupsTable'));
   const groupKeyColumn      = assertSafeIdentifier(cfg.groupKeyColumn, 'groupKeyColumn');
   const groupLocationColumn = assertSafeIdentifier(cfg.groupLocationColumn, 'groupLocationColumn');
+
+  // Detect SAM account vs UPN: inputs without '@' are treated as SAM accounts
+  // and looked up against userSamColumn when configured, falling back to userKeyColumn.
+  const isSam = !userPrincipalName.includes('@');
+  const userKeyColumn = isSam && cfg.userSamColumn
+    ? assertSafeIdentifier(cfg.userSamColumn, 'userSamColumn')
+    : assertSafeIdentifier(cfg.userKeyColumn, 'userKeyColumn');
 
   const vm = cfg.locationValueMap;
 

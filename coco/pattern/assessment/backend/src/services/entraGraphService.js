@@ -42,14 +42,41 @@ function applyFilters(groups, filters) {
 
 // ── Real Graph path ───────────────────────────────────────────────────────────
 
-async function fetchTransitiveGroupsLive(upn, envConfig) {
+// SAM accounts (no '@') cannot be used directly in the transitiveMemberOf URL.
+// Resolve them first via mailNickname — the Azure AD attribute that stores the
+// Windows SAM-compatible logon name. Throws with code SAM_NOT_FOUND when the
+// mailNickname doesn't match any user in the tenant.
+async function resolveSamToUpn(sam, token) {
+  const url = `${GRAPH_BASE}/users?$filter=mailNickname eq '${encodeURIComponent(sam)}'&$select=userPrincipalName&$top=1`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Graph mailNickname lookup failed HTTP ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  if (!data.value || data.value.length === 0) {
+    throw Object.assign(
+      new Error(`SAM account '${sam}' not found — no user with mailNickname='${sam}' in this tenant`),
+      { code: 'SAM_NOT_FOUND' }
+    );
+  }
+  return data.value[0].userPrincipalName;
+}
+
+async function fetchTransitiveGroupsLive(userIdentifier, envConfig) {
   const token = await entraAuth.fetchEntraToken(
     { tenantId: envConfig.tenantId, clientId: envConfig.clientId, clientSecret: envConfig.clientSecret, scope: envConfig.scope },
     'identityAuditService'
   );
 
+  // Resolve SAM account to UPN if the identifier has no '@'
+  let resolvedUpn = userIdentifier;
+  if (!userIdentifier.includes('@')) {
+    resolvedUpn = await resolveSamToUpn(userIdentifier, token);
+  }
+
   const groups = [];
-  let url = `${GRAPH_BASE}/users/${encodeURIComponent(upn)}/transitiveMemberOf?$select=id,displayName`;
+  let url = `${GRAPH_BASE}/users/${encodeURIComponent(resolvedUpn)}/transitiveMemberOf?$select=id,displayName`;
 
   while (url) {
     const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -64,7 +91,7 @@ async function fetchTransitiveGroupsLive(upn, envConfig) {
     url = data['@odata.nextLink'] || null; // exhaustive retrieval — loop until Graph stops paging
   }
 
-  return groups;
+  return { groups, resolvedUpn: resolvedUpn !== userIdentifier ? resolvedUpn : null };
 }
 
 // ── Mock path ─────────────────────────────────────────────────────────────────
@@ -111,12 +138,19 @@ function buildMockGroups(upn) {
  * environment, with `filters` (OR semantics) already applied.
  */
 async function getFilteredGroups(upn, filters, envConfig) {
-  const allGroups = envConfig.mock
-    ? buildMockGroups(upn)
-    : await fetchTransitiveGroupsLive(upn, envConfig);
+  let allGroups;
+  let resolvedUpn = null;
+
+  if (envConfig.mock) {
+    allGroups = buildMockGroups(upn);
+  } else {
+    const result = await fetchTransitiveGroupsLive(upn, envConfig);
+    allGroups = result.groups;
+    resolvedUpn = result.resolvedUpn; // set only when SAM → UPN resolution occurred
+  }
 
   const groups = applyFilters(allGroups, filters);
-  return { groups, totalBeforeFilter: allGroups.length, mock: envConfig.mock };
+  return { groups, totalBeforeFilter: allGroups.length, mock: envConfig.mock, resolvedUpn };
 }
 
 module.exports = { getFilteredGroups };

@@ -17,6 +17,10 @@ const { isLlmEnabled, getLlmModel } = require('./identityAuditConfigService');
 
 const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
+// SAM account keyword: "user", "account", "sam", or "sam account", optionally
+// followed by ':' or whitespace, then the SAM token (7-8 alphanumeric, no '@').
+const SAM_KEYWORD_REGEX = /\b(?:user(?:\s*(?:id|name|account))?|sam(?:\s*account)?|account)\b[\s:]*([A-Za-z0-9]{7,8})/i;
+
 // Each entry: [regex, filterType]. Tried in order; first match wins for Mode B
 // (the bundled template formats only ever carry one filter clause).
 const FILTER_PATTERNS = [
@@ -26,8 +30,15 @@ const FILTER_PATTERNS = [
 ];
 
 function parseWithRegex(prompt) {
+  // Try UPN/email first
   const emailMatch = prompt.match(EMAIL_REGEX);
-  const upn = emailMatch ? emailMatch[0] : null;
+  let upn = emailMatch ? emailMatch[0] : null;
+
+  // If no email, try SAM account via explicit user/account/sam keyword
+  if (!upn) {
+    const samMatch = prompt.match(SAM_KEYWORD_REGEX);
+    upn = samMatch ? samMatch[1] : null;
+  }
 
   const filters = [];
   for (const [regex, type] of FILTER_PATTERNS) {
@@ -46,7 +57,7 @@ function parseWithRegex(prompt) {
 const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
-    upn: { type: 'string', description: 'The target user principal name (email) whose Entra group membership is being audited' },
+    upn: { type: 'string', description: 'The target user: either a UPN/email address (contains @) or a SAM account name (short alphanumeric, no @) whose Entra group membership is being audited' },
     filters: {
       type: 'array',
       description: 'Zero or more scoping conditions on the returned group names. Empty array if the prompt names no filter.',
@@ -72,10 +83,11 @@ async function parseWithLlm(prompt) {
       {
         role: 'system',
         content:
-          'Extract the target user (upn, an email address) and zero or more group-name ' +
-          'filter conditions (startsWith / endsWith / contains) from this identity-audit ' +
-          'request. A prompt may name more than one filter condition (e.g. "contains X or ' +
-          'ends with Y") — return all of them. Do not invent a filter that is not present.',
+          'Extract the target user (upn — either a UPN/email address or a short SAM account ' +
+          'name with no @ sign) and zero or more group-name filter conditions ' +
+          '(startsWith / endsWith / contains) from this identity-audit request. ' +
+          'A prompt may name more than one filter condition (e.g. "contains X or ends with Y") ' +
+          '— return all of them. Do not invent a filter that is not present.',
       },
       { role: 'user', content: prompt },
     ],

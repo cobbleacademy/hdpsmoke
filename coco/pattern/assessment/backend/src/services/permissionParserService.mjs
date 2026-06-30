@@ -19,21 +19,32 @@ const EMAIL_REGEX = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 // then the alphanumeric token that is the actual group identifier.
 const GROUP_KEYWORD_REGEX = /\bgroup(?:\s*id)?\b[\s:]*([A-Za-z0-9]+)/i;
 
+// "user", "account", "sam", or "sam account", optionally followed by ':' or
+// whitespace, then the SAM account name (7–8 alphanumeric chars, no '@').
+const USER_KEYWORD_REGEX = /\b(?:user(?:\s*(?:id|name|account))?|sam(?:\s*account)?|account)\b[\s:]*([A-Za-z0-9]{7,8})/i;
+
 // Fallback when no "group"/"groupid" keyword is present: the first token that
 // mixes letters and digits (e.g. "Alpha12") — distinguishes a real group ID
 // from ordinary English words in the surrounding sentence.
 const ALNUM_MIXED_REGEX = /\b(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{2,}\b/;
 
 function parseWithRegex(prompt) {
+  // Try email first (UPN)
   const emailMatch = prompt.match(EMAIL_REGEX);
-  const userPrincipalName = emailMatch ? emailMatch[0] : null;
+  let userPrincipalName = emailMatch ? emailMatch[0] : null;
 
-  // Strip the email out before hunting for the group ID so the email's local
-  // part (which can itself contain digits) never gets mistaken for it.
-  const withoutEmail = userPrincipalName ? prompt.replace(userPrincipalName, ' ') : prompt;
+  // If no email, try SAM account via explicit user/account/sam keyword
+  if (!userPrincipalName) {
+    const userKeyMatch = prompt.match(USER_KEYWORD_REGEX);
+    userPrincipalName = userKeyMatch ? userKeyMatch[1] : null;
+  }
 
-  const keywordMatch = withoutEmail.match(GROUP_KEYWORD_REGEX);
-  const groupId = keywordMatch ? keywordMatch[1] : (withoutEmail.match(ALNUM_MIXED_REGEX)?.[0] ?? null);
+  // Strip the identified user from prompt before hunting for the group ID so
+  // neither the email's local part nor a SAM token gets mistaken for the group.
+  const withoutUser = userPrincipalName ? prompt.replace(userPrincipalName, ' ') : prompt;
+
+  const keywordMatch = withoutUser.match(GROUP_KEYWORD_REGEX);
+  const groupId = keywordMatch ? keywordMatch[1] : (withoutUser.match(ALNUM_MIXED_REGEX)?.[0] ?? null);
 
   return { userPrincipalName, groupId };
 }
@@ -43,7 +54,7 @@ function parseWithRegex(prompt) {
 const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
-    userPrincipalName: { type: 'string', description: 'The email address identifying the user making the access request' },
+    userPrincipalName: { type: 'string', description: 'The email address (UPN) or SAM account name (short alphanumeric, no @) identifying the user making the access request' },
     groupId: { type: 'string', description: 'The alphanumeric resource group identifier referenced in the request' },
   },
   required: ['userPrincipalName', 'groupId'],
@@ -60,9 +71,9 @@ async function parseWithLlm(prompt) {
         role: 'system',
         content:
           'Extract exactly two fields from the user\'s access-check request: ' +
-          'userPrincipalName (the email address) and groupId (the alphanumeric ' +
-          'group identifier). Return only those two fields — do not invent values ' +
-          'that are not present in the request.',
+          'userPrincipalName (the email address/UPN, or a short SAM account name ' +
+          'with no @ sign) and groupId (the alphanumeric group identifier). ' +
+          'Return only those two fields — do not invent values not present in the request.',
       },
       { role: 'user', content: prompt },
     ],
