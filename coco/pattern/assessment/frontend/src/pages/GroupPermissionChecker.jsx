@@ -4,7 +4,7 @@ const BASE = import.meta.env.BASE_URL;
 
 const EXAMPLE_PROMPTS = [
   "find user's permission on GroupID Alpha12 for test@company.com",
-  "does SAM account testuser have access to group Alpha12",
+  "does user testuser have access to group Alpha12",
 ];
 
 export default function GroupPermissionChecker() {
