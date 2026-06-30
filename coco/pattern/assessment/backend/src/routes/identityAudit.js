@@ -37,7 +37,7 @@ router.post('/identity-audit', async (req, res) => {
 
   if (!upn) {
     return res.status(422).json({
-      error: 'Could not extract a target user (UPN/email) from the prompt',
+      error: 'Could not extract a target user (UPN, email, or SAM account) from the prompt',
       code: 'EXTRACTION_INCOMPLETE',
       mode,
     });
@@ -50,10 +50,11 @@ router.post('/identity-audit', async (req, res) => {
     // static default filters when the prompt named none.
     const effectiveFilters = filters && filters.length > 0 ? filters : envConfig.defaultFilters;
 
-    const { groups, totalBeforeFilter, mock } = await getFilteredGroups(upn, effectiveFilters, envConfig);
+    const { groups, totalBeforeFilter, mock, resolvedUpn } = await getFilteredGroups(upn, effectiveFilters, envConfig);
 
     res.json({
       upn,
+      ...(resolvedUpn ? { resolvedUpn } : {}),
       groups,
       totalBeforeFilter,
       filters: effectiveFilters,
