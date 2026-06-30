@@ -43,20 +43,32 @@ function applyFilters(groups, filters) {
 // ── Real Graph path ───────────────────────────────────────────────────────────
 
 // SAM accounts (no '@') cannot be used directly in the transitiveMemberOf URL.
-// Resolve them first via mailNickname — the Azure AD attribute that stores the
-// Windows SAM-compatible logon name. Throws with code SAM_NOT_FOUND when the
-// mailNickname doesn't match any user in the tenant.
+// Resolve them first via onPremisesSamAccountName — the Graph attribute that
+// holds the on-prem AD SAM account name synced into Entra (NOT mailNickname,
+// which is an unrelated email-alias attribute and would silently match the
+// wrong users or none at all). Throws with code SAM_NOT_FOUND when no user
+// in the tenant has that SAM account.
+//
+// onPremisesSamAccountName is one of Graph's "advanced query" properties —
+// filtering on it requires the ConsistencyLevel: eventual header plus
+// $count=true, or Graph returns HTTP 400. See:
+// https://learn.microsoft.com/graph/aad-advanced-queries
 async function resolveSamToUpn(sam, token) {
-  const url = `${GRAPH_BASE}/users?$filter=mailNickname eq '${encodeURIComponent(sam)}'&$select=userPrincipalName&$top=1`;
-  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  const url = `${GRAPH_BASE}/users?$filter=onPremisesSamAccountName eq '${encodeURIComponent(sam)}'&$select=userPrincipalName&$count=true`;
+  const resp = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ConsistencyLevel: 'eventual',
+    },
+  });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Graph mailNickname lookup failed HTTP ${resp.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Graph onPremisesSamAccountName lookup failed HTTP ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
   if (!data.value || data.value.length === 0) {
     throw Object.assign(
-      new Error(`SAM account '${sam}' not found — no user with mailNickname='${sam}' in this tenant`),
+      new Error(`SAM account '${sam}' not found — no user with onPremisesSamAccountName='${sam}' in this tenant`),
       { code: 'SAM_NOT_FOUND' }
     );
   }
