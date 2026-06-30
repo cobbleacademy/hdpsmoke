@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 
 const BASE = import.meta.env.BASE_URL;
 
-const EXAMPLE_PROMPT = "find user's permission on GroupID Alpha12 for test@company.com";
+const EXAMPLE_PROMPTS = [
+  "find user's permission on GroupID Alpha12 for test@company.com",
+  "does SAM account testuser have access to group Alpha12",
+];
 
 export default function GroupPermissionChecker() {
   const [environments, setEnvironments] = useState([]);
@@ -94,26 +97,32 @@ export default function GroupPermissionChecker() {
         <section style={s.panel}>
           <div style={s.panelHead}>
             <h3 style={s.panelTitle}>Access Check Prompt</h3>
-            <p style={s.panelSub}>
-              Describe the access check in plain language — e.g. "{EXAMPLE_PROMPT}"
-            </p>
+          </div>
+
+          <div style={s.tipBox}>
+            <div style={s.tipRow}><span style={s.tipLabel}>User</span><span style={s.tipVal}>UPN / email — <code>test@company.com</code></span></div>
+            <div style={s.tipRow}><span style={s.tipLabel}>User</span><span style={s.tipVal}>SAM account — <code>testuser</code> (use "user" keyword: "user testuser …")</span></div>
+            <div style={s.tipRow}><span style={s.tipLabel}>Group</span><span style={s.tipVal}>Alphanumeric group ID — <code>Alpha12</code> (use "group" keyword: "… group Alpha12")</span></div>
           </div>
 
           <form onSubmit={handleSubmit}>
             <textarea
               style={s.textarea}
-              placeholder={EXAMPLE_PROMPT}
+              placeholder={EXAMPLE_PROMPTS[0]}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
             />
             <div style={s.formRow}>
-              <button
-                type="button"
-                style={s.secondaryBtn}
-                onClick={() => setPrompt(EXAMPLE_PROMPT)}
-              >
-                📋 Load Example
-              </button>
+              {EXAMPLE_PROMPTS.map((ex, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  style={s.secondaryBtn}
+                  onClick={() => setPrompt(ex)}
+                >
+                  {i === 0 ? '📋 Example (UPN)' : '📋 Example (SAM)'}
+                </button>
+              ))}
               <button
                 type="submit"
                 style={s.primaryBtn}
@@ -139,7 +148,7 @@ export default function GroupPermissionChecker() {
 
               <div style={s.detailRows}>
                 <div style={s.detailRow}>
-                  <span style={s.detailLabel}>userPrincipalName</span>
+                  <span style={s.detailLabel}>user</span>
                   <span style={s.detailValue}>{result.userPrincipalName}</span>
                 </div>
                 <div style={s.detailRow}>
@@ -249,6 +258,15 @@ const s = {
     padding: '0.5rem 1rem', borderRadius: 8, border: 'none', background: 'var(--accent)',
     color: '#fff', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
   },
+
+  tipBox: {
+    marginBottom: '0.85rem', padding: '0.65rem 0.85rem', borderRadius: 8,
+    background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)',
+    display: 'flex', flexDirection: 'column', gap: 4,
+  },
+  tipRow: { display: 'flex', gap: 8, alignItems: 'baseline', fontSize: '0.78rem' },
+  tipLabel: { fontWeight: 700, color: 'var(--accent)', fontFamily: 'ui-monospace, SFMono-Regular, monospace', minWidth: 44 },
+  tipVal: { color: 'var(--text-secondary)', lineHeight: 1.45 },
 
   errorBanner: {
     marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: 8,
