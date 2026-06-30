@@ -278,10 +278,14 @@ spec:
               value: {{ .Values.backend.env.PERMISSION_NPE_DB_SSL | default "false" | quote }}
             - name: PERMISSION_PROD_DB_SSL
               value: {{ .Values.backend.env.PERMISSION_PROD_DB_SSL | default "false" | quote }}
+            - name: PERMISSION_DEV_SCHEMA
+              value: {{ .Values.backend.env.PERMISSION_DEV_SCHEMA | quote }}
             - name: PERMISSION_DEV_USERS_TABLE
               value: {{ .Values.backend.env.PERMISSION_DEV_USERS_TABLE | quote }}
             - name: PERMISSION_DEV_USER_KEY_COLUMN
               value: {{ .Values.backend.env.PERMISSION_DEV_USER_KEY_COLUMN | quote }}
+            - name: PERMISSION_DEV_USER_SAM_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_DEV_USER_SAM_COLUMN | quote }}
             - name: PERMISSION_DEV_USER_LOCATION_COLUMN
               value: {{ .Values.backend.env.PERMISSION_DEV_USER_LOCATION_COLUMN | quote }}
             - name: PERMISSION_DEV_GROUPS_TABLE
@@ -292,10 +296,14 @@ spec:
               value: {{ .Values.backend.env.PERMISSION_DEV_GROUP_LOCATION_COLUMN | quote }}
             - name: PERMISSION_NPE_DATABASE_URL
               value: {{ .Values.backend.env.PERMISSION_NPE_DATABASE_URL | quote }}
+            - name: PERMISSION_NPE_SCHEMA
+              value: {{ .Values.backend.env.PERMISSION_NPE_SCHEMA | quote }}
             - name: PERMISSION_NPE_USERS_TABLE
               value: {{ .Values.backend.env.PERMISSION_NPE_USERS_TABLE | quote }}
             - name: PERMISSION_NPE_USER_KEY_COLUMN
               value: {{ .Values.backend.env.PERMISSION_NPE_USER_KEY_COLUMN | quote }}
+            - name: PERMISSION_NPE_USER_SAM_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_NPE_USER_SAM_COLUMN | quote }}
             - name: PERMISSION_NPE_USER_LOCATION_COLUMN
               value: {{ .Values.backend.env.PERMISSION_NPE_USER_LOCATION_COLUMN | quote }}
             - name: PERMISSION_NPE_GROUPS_TABLE
@@ -308,10 +316,14 @@ spec:
               value: {{ .Values.backend.env.PERMISSION_NPE_LOCATION_VALUE_MAP | quote }}
             - name: PERMISSION_PROD_DATABASE_URL
               value: {{ .Values.backend.env.PERMISSION_PROD_DATABASE_URL | quote }}
+            - name: PERMISSION_PROD_SCHEMA
+              value: {{ .Values.backend.env.PERMISSION_PROD_SCHEMA | quote }}
             - name: PERMISSION_PROD_USERS_TABLE
               value: {{ .Values.backend.env.PERMISSION_PROD_USERS_TABLE | quote }}
             - name: PERMISSION_PROD_USER_KEY_COLUMN
               value: {{ .Values.backend.env.PERMISSION_PROD_USER_KEY_COLUMN | quote }}
+            - name: PERMISSION_PROD_USER_SAM_COLUMN
+              value: {{ .Values.backend.env.PERMISSION_PROD_USER_SAM_COLUMN | quote }}
             - name: PERMISSION_PROD_USER_LOCATION_COLUMN
               value: {{ .Values.backend.env.PERMISSION_PROD_USER_LOCATION_COLUMN | quote }}
             - name: PERMISSION_PROD_GROUPS_TABLE
