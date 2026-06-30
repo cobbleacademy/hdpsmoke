@@ -38,8 +38,12 @@ END$$;
 
 -- A user always belongs to one of the three real tiers — 'NONE' is a
 -- group-only concept (no restriction), so it's explicitly disallowed here.
+-- sam_account: optional 7-8 char Windows SAM account name (e.g. ADN1234 or ADN1234S).
+-- When PERMISSION_DEV_USER_SAM_COLUMN=sam_account is set, SAM inputs (no @)
+-- are looked up against this column rather than user_principal_name.
 CREATE TABLE IF NOT EXISTS users (
   user_principal_name VARCHAR(255) PRIMARY KEY,
+  sam_account          VARCHAR(20)  UNIQUE,
   location             location_tier NOT NULL,
   CONSTRAINT users_location_not_none CHECK (location <> 'NONE')
 );
@@ -51,11 +55,11 @@ CREATE TABLE IF NOT EXISTS groups (
   restricted_location  location_tier NOT NULL DEFAULT 'NONE'
 );
 
-INSERT INTO users (user_principal_name, location) VALUES
-  ('onshore.user@company.com',   'ONSHORE'),
-  ('nearshore.user@company.com', 'NEARSHORE'),
-  ('offshore.user@company.com',  'OFFSHORE'),
-  ('test@company.com',           'NEARSHORE')
+INSERT INTO users (user_principal_name, sam_account, location) VALUES
+  ('onshore.user@company.com',   'onshore1', 'ONSHORE'),
+  ('nearshore.user@company.com', 'nearsh01', 'NEARSHORE'),
+  ('offshore.user@company.com',  'offshor1', 'OFFSHORE'),
+  ('test@company.com',           'testuser', 'NEARSHORE')
 ON CONFLICT (user_principal_name) DO NOTHING;
 
 INSERT INTO groups (group_id, restricted_location) VALUES
@@ -74,6 +78,7 @@ CREATE DATABASE permission_npe;
 
 CREATE TABLE identity_users (
   upn         VARCHAR(255) PRIMARY KEY,
+  sam_account VARCHAR(20)  UNIQUE,
   region_tier VARCHAR(20) NOT NULL CHECK (region_tier <> 'NONE')
 );
 
@@ -82,11 +87,11 @@ CREATE TABLE resource_groups (
   access_tier VARCHAR(20) NOT NULL DEFAULT 'NONE'
 );
 
-INSERT INTO identity_users (upn, region_tier) VALUES
-  ('onshore.user@company.com',   'ONSHORE'),
-  ('nearshore.user@company.com', 'NEARSHORE'),
-  ('offshore.user@company.com',  'OFFSHORE'),
-  ('test@company.com',           'NEARSHORE')
+INSERT INTO identity_users (upn, sam_account, region_tier) VALUES
+  ('onshore.user@company.com',   'onshore1', 'ONSHORE'),
+  ('nearshore.user@company.com', 'nearsh01', 'NEARSHORE'),
+  ('offshore.user@company.com',  'offshor1', 'OFFSHORE'),
+  ('test@company.com',           'testuser', 'NEARSHORE')
 ON CONFLICT (upn) DO NOTHING;
 
 INSERT INTO resource_groups (grp_id, access_tier) VALUES
