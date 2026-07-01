@@ -80,6 +80,9 @@ function makeTabState(env) {
     editorError: '',           // YAML validation error while typing
     saveState: 'idle',         // 'idle' | 'saving' | 'saved' | 'error'
     saveError: '',
+    // ── Per-tab batch selection ───────────────────────────────────────────────
+    batchChecked: new Set(),   // Set of originalIndex values checked in this tab
+    batchResults: [],          // [{index, name, status, httpStatus, durationMs, body, error, code}]
   };
 }
 
@@ -133,6 +136,14 @@ export default function PayloadLibrary() {
   // ── Per-tab state map ─────────────────────────────────────────────────────
   // Key: env.id in tab mode, '__legacy__' in legacy mode
   const [tabStates, setTabStates] = useState({});
+
+  // ── Batch run state (component-level — not per-tab) ───────────────────────
+  // batchMode=false by default → full rollback: nothing in the existing UI
+  // changes until the user explicitly toggles Batch mode on.
+  const [batchMode, setBatchMode]       = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+  // non-null → user drilled into this payload index from batch results
+  const [batchDrillIdx, setBatchDrillIdx] = useState(null);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const searchInputRef = useRef(null);
@@ -228,18 +239,17 @@ export default function PayloadLibrary() {
       },
     }));
 
-    // Fetch via backend API — handles decryption, fallback chain, and YAML parsing.
-    // envIdSnap is the raw environment ID (e.g. "ADM-DEV") used as the route param.
-    // AbortController: if the user navigates away (component unmounts) before
-    // this resolves, drop the result instead of holding the parsed YAML/JSON
-    // in a dangling closure until the promise settles. Uses the component-lifetime
-    // controller (fetchAbortRef) so switching tabs mid-fetch does NOT abort —
-    // only full unmount does (see ref declaration above).
+    // Per-invocation AbortController so React StrictMode's double-invoke
+    // cleanup doesn't cancel the real fetch. The cleanup cancels only the
+    // controller created in THIS effect invocation; on remount a fresh one
+    // is used. loadedTabsRef is cleared below so a retry fires correctly.
+    const ac = new AbortController();
+
     (async () => {
       try {
         const resp = await fetch(
           `${import.meta.env.BASE_URL}payload-content/${encodeURIComponent(envIdSnap)}`,
-          { signal: fetchAbortRef.current.signal }
+          { signal: ac.signal }
         );
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -274,6 +284,13 @@ export default function PayloadLibrary() {
         }));
       }
     })();
+
+    // Cleanup: abort the in-flight fetch and remove envId from the loaded-set
+    // so the effect can retry correctly on StrictMode's second mount.
+    return () => {
+      ac.abort();
+      loadedTabsRef.current.delete(envIdSnap);
+    };
   }, [activeEnvId, configLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scroll response card into view on run complete ────────────────────────
@@ -506,6 +523,7 @@ export default function PayloadLibrary() {
   function handleTabSwitch(idx) {
     if (idx === activeEnvIdx) return;
     setActiveEnvIdx(idx);
+    setBatchDrillIdx(null);
     // Tab state is already in tabStates (initialized on config load); payload
     // loading is triggered lazily by the useEffect above via loadedTabsRef.
   }
@@ -606,6 +624,105 @@ export default function PayloadLibrary() {
     } catch (err) {
       updSnap({ saveState: 'error', saveError: err.message });
     }
+  }
+
+  // ── Batch run handlers ────────────────────────────────────────────────────
+  function toggleBatchMode() {
+    setBatchMode(m => !m);
+    upd({ batchChecked: new Set(), batchResults: [] });
+    setBatchDrillIdx(null);
+  }
+
+  function toggleBatchCheck(idx, e) {
+    e.stopPropagation();
+    const next = new Set(ts.batchChecked);
+    next.has(idx) ? next.delete(idx) : next.add(idx);
+    upd({ batchChecked: next });
+  }
+
+  function batchSelectAll() {
+    upd({ batchChecked: new Set(getFilteredPayloads().map(p => p.originalIndex)) });
+  }
+
+  function batchClearAll() {
+    upd({ batchChecked: new Set() });
+  }
+
+  async function handleBatchRun() {
+    const url = getActiveUrl();
+    if (batchRunning || ts.batchChecked.size === 0 || !url) return;
+
+    const indices      = [...ts.batchChecked];
+    const CONCURRENCY  = 5;
+    const envIdSnap    = activeEnvId;
+    const authTypeSnap = ts.authType;
+    const skipTlsSnap  = ts.skipTlsVerify || false;
+
+    setTabStates(prev => ({
+      ...prev,
+      [envIdSnap]: { ...(prev[envIdSnap] ?? {}), batchResults: indices.map(idx => ({
+        index: idx,
+        name: prev[envIdSnap]?.payloads[idx]?.name || `Payload ${idx + 1}`,
+        status: 'pending',
+      })) },
+    }));
+    setBatchRunning(true);
+    setBatchDrillIdx(null);
+
+    async function runOne(idx) {
+      setTabStates(prev => ({ ...prev, [envIdSnap]: { ...(prev[envIdSnap] ?? {}),
+        batchResults: (prev[envIdSnap]?.batchResults ?? []).map(r => r.index === idx ? { ...r, status: 'running' } : r),
+      }}));
+      const payload = ts.payloads[idx];
+      let payloadObj;
+      try { payloadObj = JSON.parse(payload.payload); } catch { payloadObj = payload.payload; }
+      const requestedAt = new Date().toLocaleTimeString();
+      try {
+        const resp = await fetch(`${import.meta.env.BASE_URL}run-payload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload: payloadObj, url, authType: authTypeSnap, envId: tabMode ? envIdSnap : null, skipTlsVerify: skipTlsSnap }),
+        });
+        const data = await resp.json();
+        const ok   = resp.ok && !data.error;
+        setTabStates(prev => {
+          const cur = prev[envIdSnap] ?? {};
+          const entry = truncateHistoryEntry(ok ? data : { error: data.error, code: data.code, durationMs: data.durationMs });
+          return { ...prev, [envIdSnap]: { ...cur,
+            batchResults: (cur.batchResults ?? []).map(r => r.index === idx ? {
+              ...r, status: ok ? 'ok' : 'fail',
+              httpStatus: data.status, durationMs: data.durationMs,
+              body: data.body, error: data.error, code: data.code,
+            } : r),
+            historyOpen: true,
+            history: [{ id: Date.now() + idx, payloadName: payload.name, url, requestedAt, ...entry }, ...(cur.history ?? [])].slice(0, MAX_HISTORY),
+          }};
+        });
+      } catch (err) {
+        setTabStates(prev => ({ ...prev, [envIdSnap]: { ...(prev[envIdSnap] ?? {}),
+          batchResults: (prev[envIdSnap]?.batchResults ?? []).map(r => r.index === idx ? { ...r, status: 'fail', error: err.message, code: 'NETWORK' } : r),
+        }}));
+      }
+    }
+
+    let i = 0;
+    async function worker() {
+      while (i < indices.length) { await runOne(indices[i++]); }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, indices.length) }, worker));
+    setBatchRunning(false);
+  }
+
+  function handleBatchRetryFailed() {
+    upd({
+      batchChecked: new Set(ts.batchResults.filter(r => r.status === 'fail').map(r => r.index)),
+      batchResults: [],
+    });
+  }
+
+  function handleBatchDrilldown(idx) {
+    setBatchDrillIdx(idx);
+    handleSelectPayload(idx);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -850,7 +967,7 @@ export default function PayloadLibrary() {
               </p>
             )}
 
-            {/* Expand All / Collapse All — only shown in grouped mode */}
+            {/* Expand All / Collapse All / Batch toggle — only shown in grouped mode */}
             {!isSearching && ts.payloads.length > 0 && (
               <div style={s.collapseToolbar}>
                 <button onClick={handleExpandAll} style={s.collapseToolbarBtn}>
@@ -859,6 +976,38 @@ export default function PayloadLibrary() {
                 <span style={s.collapseToolbarDivider}>·</span>
                 <button onClick={handleCollapseAll} style={s.collapseToolbarBtn}>
                   Collapse all
+                </button>
+                <span style={s.collapseToolbarDivider}>·</span>
+                <button
+                  onClick={toggleBatchMode}
+                  style={{ ...s.collapseToolbarBtn, ...(batchMode ? s.collapseToolbarBtnActive : {}) }}
+                  title={batchMode ? 'Exit batch mode' : 'Select multiple payloads and run together'}
+                >
+                  {batchMode ? '✕ Batch off' : '⊞ Batch'}
+                </button>
+              </div>
+            )}
+
+            {/* Batch selection toolbar — only when batch mode is on */}
+            {batchMode && (
+              <div style={s.batchToolbar}>
+                <span style={s.batchCount}>{ts.batchChecked.size} selected</span>
+                <button onClick={batchSelectAll} style={s.collapseToolbarBtn}>All</button>
+                <span style={s.collapseToolbarDivider}>·</span>
+                <button onClick={batchClearAll} style={s.collapseToolbarBtn}>Clear</button>
+                <button
+                  onClick={handleBatchRun}
+                  disabled={ts.batchChecked.size === 0 || batchRunning || !activeUrl}
+                  style={{
+                    ...s.batchRunBtn,
+                    ...(ts.batchChecked.size === 0 || batchRunning || !activeUrl ? s.runBtnDisabled : {}),
+                  }}
+                  title={!activeUrl ? 'Set a provider URL above to run' : ''}
+                >
+                  {batchRunning
+                    ? <><span style={s.btnSpinner} />Running…</>
+                    : `▶ Run${ts.batchChecked.size > 0 ? ` (${ts.batchChecked.size})` : ''}`
+                  }
                 </button>
               </div>
             )}
@@ -872,8 +1021,18 @@ export default function PayloadLibrary() {
                   style={{
                     ...s.listItem,
                     ...(p.originalIndex === ts.selectedIndex ? s.listItemActive : {}),
+                    ...(batchMode && ts.batchChecked.has(p.originalIndex) ? s.listItemBatchChecked : {}),
                   }}
                 >
+                  {batchMode && (
+                    <input
+                      type="checkbox"
+                      checked={ts.batchChecked.has(p.originalIndex)}
+                      onChange={(e) => toggleBatchCheck(p.originalIndex, e)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={s.batchCheckbox}
+                    />
+                  )}
                   <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
                   <div style={s.listItemText}>
                     <span style={s.listName}>{p.name}</span>
@@ -917,8 +1076,18 @@ export default function PayloadLibrary() {
                         ...s.listItem,
                         ...s.listItemIndented,
                         ...(p.originalIndex === ts.selectedIndex ? s.listItemActive : {}),
+                        ...(batchMode && ts.batchChecked.has(p.originalIndex) ? s.listItemBatchChecked : {}),
                       }}
                     >
+                      {batchMode && (
+                        <input
+                          type="checkbox"
+                          checked={ts.batchChecked.has(p.originalIndex)}
+                          onChange={(e) => toggleBatchCheck(p.originalIndex, e)}
+                          onClick={(e) => e.stopPropagation()}
+                          style={s.batchCheckbox}
+                        />
+                      )}
                       <span style={s.listIndex}>{String(p.originalIndex + 1).padStart(2, '0')}</span>
                       <div style={s.listItemText}>
                         <span style={s.listName}>{p.name}</span>
@@ -936,6 +1105,16 @@ export default function PayloadLibrary() {
 
           {/* ── Right: stacked detail ────────────────────────────────────── */}
           <div style={s.detailCol}>
+
+            {/* ── Batch drilldown back-link ─────────────────────────────── */}
+            {batchMode && batchDrillIdx !== null && (
+              <button
+                onClick={() => setBatchDrillIdx(null)}
+                style={s.batchBackBtn}
+              >
+                ← Back to batch results
+              </button>
+            )}
 
             {/* ── URL / Auth card ──────────────────────────────────────── */}
             <div style={s.card}>
@@ -1009,7 +1188,80 @@ export default function PayloadLibrary() {
               </div>
             </div>
 
-            {/* ── Payload card ─────────────────────────────────────────── */}
+            {/* ── Batch results card (shown in batch mode when not drilling down) ── */}
+            {batchMode && batchDrillIdx === null && (
+              <div style={s.card}>
+                <div style={s.cardTopRow}>
+                  <span style={s.sectionLabel}>
+                    {batchRunning ? `Running batch… (${ts.batchResults.filter(r => r.status === 'ok' || r.status === 'fail').length}/${ts.batchResults.length})` : ts.batchResults.length > 0 ? 'Batch results' : 'Batch mode — select payloads and run'}
+                  </span>
+                  {!batchRunning && ts.batchResults.length > 0 && (
+                    <div style={s.responseMetaRow}>
+                      <span style={{ ...s.chip, background: '#f0fdf4', color: '#15803d' }}>
+                        ✓ {ts.batchResults.filter(r => r.status === 'ok').length} passed
+                      </span>
+                      <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c' }}>
+                        ✕ {ts.batchResults.filter(r => r.status === 'fail').length} failed
+                      </span>
+                      {ts.batchResults.some(r => r.status === 'fail') && (
+                        <button onClick={handleBatchRetryFailed} style={s.outlineBtn}>
+                          Retry failed
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {ts.batchResults.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                    Check payloads on the left, then click <strong>▶ Run</strong>
+                  </div>
+                ) : (
+                  <div style={s.batchResultsList}>
+                    {ts.batchResults.map((r) => {
+                      const isRunning = r.status === 'running';
+                      const isPending = r.status === 'pending';
+                      const isFail    = r.status === 'fail';
+                      const isOk      = r.status === 'ok';
+                      return (
+                        <div key={r.index} style={s.batchResultRow}>
+                          <div style={s.batchResultHead}>
+                            <span style={s.batchResultName}>{r.name}</span>
+                            {isRunning && <span style={{ ...s.chip, background: '#fefce8', color: '#a16207' }}>running…</span>}
+                            {isPending && <span style={{ ...s.chip }}>pending</span>}
+                            {isOk      && <span style={{ ...s.chip, background: '#f0fdf4', color: '#15803d', fontWeight: 700 }}>✓ passed</span>}
+                            {isFail    && <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c', fontWeight: 700 }}>✕ failed</span>}
+                            {r.durationMs != null && <span style={{ ...s.chip, fontSize: '0.68rem' }}>{r.durationMs} ms</span>}
+                            {isFail && (
+                              <button
+                                onClick={() => handleBatchDrilldown(r.index)}
+                                style={s.batchInspectBtn}
+                                title="Inspect and re-run this payload"
+                              >
+                                Inspect →
+                              </button>
+                            )}
+                          </div>
+                          {(isOk || isFail) && (
+                            <div style={s.batchResultSnippet}>
+                              {r.error
+                                ? <span style={{ color: '#b91c1c' }}>{r.error}</span>
+                                : typeof r.body === 'object'
+                                  ? JSON.stringify(r.body).slice(0, 120) + (JSON.stringify(r.body).length > 120 ? '…' : '')
+                                  : String(r.body ?? '').slice(0, 120)
+                              }
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Payload / Response / History cards (hidden in batch mode unless drilldown) ── */}
+            {(!batchMode || batchDrillIdx !== null) && (<>
             <div style={s.card}>
               <div style={s.payloadHeaderRow}>
                 <div>
@@ -1196,6 +1448,8 @@ export default function PayloadLibrary() {
               </div>
             )}
 
+            </>)} {/* end !batchMode || batchDrillIdx !== null */}
+
           </div>{/* end detailCol */}
         </div>
       </div>
@@ -1248,7 +1502,9 @@ const s = {
     display: 'inline-block',
     padding: '0.45rem 1.1rem',
     border: 'none',
-    borderBottom: '2px solid transparent',
+    borderBottomWidth: '2px',
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
     marginBottom: '-2px',   // sits on top of the strip's border-bottom
     background: 'none',
     color: 'var(--text-secondary)',
@@ -2052,5 +2308,121 @@ const s = {
     fontSize: '0.78rem',
     width: '14rem',
     outline: 'none',
+  },
+
+  // ── Batch run styles ──────────────────────────────────────────────────────
+  collapseToolbarBtnActive: {
+    color: 'var(--accent)',
+    background: 'var(--accent-light)',
+    borderRadius: '4px',
+  },
+  batchToolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+    padding: '0.35rem 0.625rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  batchCount: {
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--accent)',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    minWidth: '5.5rem',
+  },
+  batchRunBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    padding: '0.25rem 0.75rem',
+    borderRadius: '6px',
+    border: 'none',
+    background: 'var(--accent)',
+    color: '#fff',
+    fontFamily: 'inherit',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    marginLeft: 'auto',
+  },
+  batchCheckbox: {
+    flexShrink: 0,
+    cursor: 'pointer',
+    accentColor: 'var(--accent)',
+    width: 13,
+    height: 13,
+  },
+  listItemBatchChecked: {
+    background: 'var(--accent-light)',
+    borderColor: 'var(--accent)',
+  },
+  batchBackBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    padding: '0.3rem 0.75rem',
+    borderRadius: '8px',
+    border: '1.5px solid var(--accent)',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontFamily: 'inherit',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  batchResultsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    padding: '0.5rem',
+    maxHeight: '32rem',
+    overflowY: 'auto',
+  },
+  batchResultRow: {
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  },
+  batchResultHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.45rem 0.75rem',
+    background: 'var(--bg)',
+    flexWrap: 'wrap',
+  },
+  batchResultName: {
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    color: 'var(--text-primary)',
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  batchResultSnippet: {
+    padding: '0.35rem 0.75rem',
+    fontSize: '0.7rem',
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    color: 'var(--text-secondary)',
+    borderTop: '1px solid var(--border)',
+    background: 'var(--surface)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  batchInspectBtn: {
+    padding: '0.2rem 0.6rem',
+    borderRadius: '6px',
+    border: '1.5px solid var(--accent)',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontFamily: 'inherit',
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
 };
