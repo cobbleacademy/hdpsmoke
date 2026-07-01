@@ -1232,7 +1232,7 @@ export default function PayloadLibrary() {
                             {isOk      && <span style={{ ...s.chip, background: '#f0fdf4', color: '#15803d', fontWeight: 700 }}>✓ passed</span>}
                             {isFail    && <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c', fontWeight: 700 }}>✕ failed</span>}
                             {r.durationMs != null && <span style={{ ...s.chip, fontSize: '0.68rem' }}>{r.durationMs} ms</span>}
-                            {isFail && (
+                            {(isOk || isFail) && (
                               <button
                                 onClick={() => handleBatchDrilldown(r.index)}
                                 style={s.batchInspectBtn}
