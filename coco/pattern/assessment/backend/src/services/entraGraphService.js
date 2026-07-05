@@ -106,6 +106,27 @@ async function fetchTransitiveGroupsLive(userIdentifier, envConfig) {
   return { groups, resolvedUpn: resolvedUpn !== userIdentifier ? resolvedUpn : null };
 }
 
+// ── Real Graph path: search accounts by display name ──────────────────────────
+// Used when the prompt names a person by display name rather than an exact
+// UPN/SAM ("show groups for John Smith") — the caller must disambiguate among
+// the returned candidates before a group lookup can proceed.
+async function searchAccountsByNameLive(name, envConfig) {
+  const token = await entraAuth.fetchEntraToken(
+    { tenantId: envConfig.tenantId, clientId: envConfig.clientId, clientSecret: envConfig.clientSecret, scope: envConfig.scope },
+    'identityAuditService'
+  );
+  const url = `${GRAPH_BASE}/users?$filter=startswith(displayName,'${encodeURIComponent(name)}')&$select=id,displayName,userPrincipalName&$count=true&$top=10`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, ConsistencyLevel: 'eventual' },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Graph displayName search failed HTTP ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  return (data.value || []).map((u) => ({ id: u.id, displayName: u.displayName, userPrincipalName: u.userPrincipalName }));
+}
+
 // ── Mock path ─────────────────────────────────────────────────────────────────
 // Deterministic per-UPN (same UPN always returns the same mock groups) so the
 // demo behaves consistently across repeated calls and across LLM vs regex
@@ -143,7 +164,26 @@ function buildMockGroups(upn) {
   return groups;
 }
 
-// ── Public entry point ──────────────────────────────────────────────────────────
+// Deterministic 1-3 fake accounts per searched name, so picking any one of
+// them then re-running buildMockGroups() on its UPN is stable across calls —
+// same reasoning as buildMockGroups() above.
+function buildMockAccounts(name) {
+  const seed = hashString(name.toLowerCase());
+  const count = 1 + (seed % 3);
+  const localPart = name.trim().toLowerCase().replace(/\s+/g, '.');
+  const accounts = [];
+  for (let i = 0; i < count; i++) {
+    const suffix = i === 0 ? '' : String(i + 1);
+    accounts.push({
+      id: `mock-user-${seed}-${i}`,
+      displayName: i === 0 ? name.trim() : `${name.trim()} ${i + 1}`,
+      userPrincipalName: `${localPart}${suffix}@contoso.com`,
+    });
+  }
+  return accounts;
+}
+
+// ── Public entry points ──────────────────────────────────────────────────────────
 
 /**
  * Returns { groups, totalBeforeFilter, mock } for upn in the given
@@ -165,4 +205,16 @@ async function getFilteredGroups(upn, filters, envConfig) {
   return { groups, totalBeforeFilter: allGroups.length, mock: envConfig.mock, resolvedUpn };
 }
 
-module.exports = { getFilteredGroups };
+/**
+ * Returns { accounts, mock } — candidate accounts matching a display-name
+ * search, for the caller to disambiguate before calling getFilteredGroups().
+ */
+async function searchAccounts(name, envConfig) {
+  if (envConfig.mock) {
+    return { accounts: buildMockAccounts(name), mock: true };
+  }
+  const accounts = await searchAccountsByNameLive(name, envConfig);
+  return { accounts, mock: false };
+}
+
+module.exports = { getFilteredGroups, searchAccounts };

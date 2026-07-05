@@ -9,6 +9,12 @@
 // Mode B (default): regex against three rigid templates — no NLP library;
 //   the expected formats are fixed enough that string matching is exact,
 //   not approximate (same reasoning as permissionParserService.js).
+//
+// personName: when the prompt names a person by display name instead of an
+// exact UPN/SAM ("show groups for John Smith"), upn is null and personName
+// carries the raw name text — the route layer resolves it to a list of
+// candidate accounts via entraGraphService.searchAccounts() and asks the
+// caller to disambiguate before fetching groups.
 
 const { getClient, isLlmConfigured } = require('./llmClient');
 const { isLlmEnabled, getLlmModel } = require('./identityAuditConfigService');
@@ -29,6 +35,12 @@ const FILTER_PATTERNS = [
   [/\b(?:ending\s+in|ends?\s+with)\s+['"]?([^'"]+?)['"]?\s*$/i, 'endsWith'],
 ];
 
+// Display-name fallback: "for John Smith" / "user John Smith" — 2-4 capitalized
+// words, tried only after email/SAM extraction both fail. Matched against the
+// prompt with any trailing filter clause already stripped off (see below), so
+// "for John Smith containing Finance" doesn't swallow the filter text.
+const NAME_REGEX = /\b(?:for|user)\s+([A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*){1,3})\b/;
+
 function parseWithRegex(prompt) {
   // Try UPN/email first
   const emailMatch = prompt.match(EMAIL_REGEX);
@@ -41,15 +53,23 @@ function parseWithRegex(prompt) {
   }
 
   const filters = [];
+  let remaining = prompt;
   for (const [regex, type] of FILTER_PATTERNS) {
     const match = prompt.match(regex);
     if (match) {
       filters.push({ type, value: match[1].trim() });
+      remaining = prompt.slice(0, match.index); // strip filter clause before name search
       break; // one filter clause per template, by design
     }
   }
 
-  return { upn, filters };
+  let personName = null;
+  if (!upn) {
+    const nameMatch = remaining.match(NAME_REGEX);
+    personName = nameMatch ? nameMatch[1].trim() : null;
+  }
+
+  return { upn, personName, filters };
 }
 
 // ── Mode A: LLM structured-output extraction ──────────────────────────────────
@@ -57,7 +77,8 @@ function parseWithRegex(prompt) {
 const EXTRACTION_SCHEMA = {
   type: 'object',
   properties: {
-    upn: { type: 'string', description: 'The target user: either a UPN/email address (contains @) or a SAM account name (short alphanumeric, no @) whose Entra group membership is being audited' },
+    upn: { type: ['string', 'null'], description: 'The target user as an exact UPN/email address (contains @) or a SAM account name (short alphanumeric, no @). Null if the prompt only names a person by display name (e.g. "John Smith") rather than an exact identifier.' },
+    personName: { type: ['string', 'null'], description: 'The person\'s display name (e.g. "John Smith") when the prompt does not give an exact UPN/SAM. Null when upn is set.' },
     filters: {
       type: 'array',
       description: 'Zero or more scoping conditions on the returned group names. Empty array if the prompt names no filter.',
@@ -72,7 +93,7 @@ const EXTRACTION_SCHEMA = {
       },
     },
   },
-  required: ['upn', 'filters'],
+  required: ['upn', 'personName', 'filters'],
   additionalProperties: false,
 };
 
@@ -83,11 +104,14 @@ async function parseWithLlm(prompt) {
       {
         role: 'system',
         content:
-          'Extract the target user (upn — either a UPN/email address or a short SAM account ' +
-          'name with no @ sign) and zero or more group-name filter conditions ' +
-          '(startsWith / endsWith / contains) from this identity-audit request. ' +
-          'A prompt may name more than one filter condition (e.g. "contains X or ends with Y") ' +
-          '— return all of them. Do not invent a filter that is not present.',
+          'Extract the target user from this identity-audit request, plus zero or more ' +
+          'group-name filter conditions (startsWith / endsWith / contains). If the prompt gives ' +
+          'an exact UPN/email address or a short SAM account name (no @ sign), set upn to that ' +
+          'value and personName to null. If the prompt instead names a person only by display ' +
+          'name (e.g. "John Smith") with no exact identifier, set upn to null and personName to ' +
+          'that display name. A prompt may name more than one filter condition ' +
+          '(e.g. "contains X or ends with Y") — return all of them. Do not invent a filter that ' +
+          'is not present.',
       },
       { role: 'user', content: prompt },
     ],
@@ -103,16 +127,18 @@ async function parseWithLlm(prompt) {
 // ── Public entry point ──────────────────────────────────────────────────────────
 
 /**
- * Extracts { upn, filters, mode } from a natural-language prompt. mode is
- * 'llm' or 'regex' — regex is also the automatic fallback if
+ * Extracts { upn, personName, filters, mode } from a natural-language prompt.
+ * mode is 'llm' or 'regex' — regex is also the automatic fallback if
  * IDENTITY_AUDIT_USE_LLM=true but the LLM call fails or isn't configured.
+ * Exactly one of upn/personName is set when either is extractable; both may
+ * be null if the prompt names no user at all.
  */
 async function parsePrompt(prompt) {
   if (isLlmEnabled() && isLlmConfigured()) {
     try {
       const parsed = await parseWithLlm(prompt);
-      if (parsed?.upn) {
-        return { upn: parsed.upn, filters: parsed.filters || [], mode: 'llm' };
+      if (parsed?.upn || parsed?.personName) {
+        return { upn: parsed.upn || null, personName: parsed.personName || null, filters: parsed.filters || [], mode: 'llm' };
       }
     } catch (err) {
       console.error('[identityAuditParserService] LLM extraction failed, falling back to regex:', err.message);

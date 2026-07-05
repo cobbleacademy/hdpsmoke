@@ -70,18 +70,20 @@ export async function checkPermission(userPrincipalName, groupId, envId = 'DEFAU
       VALUES ($3::text, 3), ($4::text, 2), ($5::text, 1), ($6::text, 0)
     ),
     user_weight AS (
-      SELECT lw.weight AS weight
+      SELECT u.${userLocationColumn}::text AS location, lw.weight AS weight
       FROM ${usersTable} u
       JOIN location_weights lw ON lw.location = u.${userLocationColumn}::text
       WHERE u.${userKeyColumn} = $1
     ),
     group_weight AS (
-      SELECT lw.weight AS weight
+      SELECT g.${groupLocationColumn}::text AS location, lw.weight AS weight
       FROM ${groupsTable} g
       JOIN location_weights lw ON lw.location = g.${groupLocationColumn}::text
       WHERE g.${groupKeyColumn} = $2
     )
     SELECT
+      (SELECT location FROM user_weight)  AS user_location,
+      (SELECT location FROM group_weight) AS group_location,
       CASE
         WHEN (SELECT weight FROM user_weight)  IS NULL THEN 'DENY'
         WHEN (SELECT weight FROM group_weight) IS NULL THEN 'DENY'
@@ -94,5 +96,10 @@ export async function checkPermission(userPrincipalName, groupId, envId = 'DEFAU
   const params = [userPrincipalName, groupId, vm.ONSHORE, vm.NEARSHORE, vm.OFFSHORE, vm.NONE];
   const pool = getPool(envId, cfg);
   const { rows } = await pool.query(query, params);
-  return rows[0]?.permission_status ?? 'DENY';
+  const row = rows[0];
+  return {
+    status: row?.permission_status ?? 'DENY',
+    userLocation: row?.user_location ?? null,
+    groupLocation: row?.group_location ?? null,
+  };
 }
