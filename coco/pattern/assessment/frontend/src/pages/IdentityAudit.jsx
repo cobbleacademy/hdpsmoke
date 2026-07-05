@@ -5,6 +5,7 @@ const BASE = import.meta.env.BASE_URL;
 const EXAMPLE_PROMPTS = [
   "Find groups for alex.smith@company.com containing Sec",
   "Find groups for user asmith01 starting with AWS",
+  "Find groups for John Smith containing Finance",
 ];
 
 export default function IdentityAudit() {
@@ -16,6 +17,10 @@ export default function IdentityAudit() {
   const [status, setStatus]     = useState('idle'); // idle | loading | done | error
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState(null);
+
+  // ── Account disambiguation — set when the prompt names a person by display
+  // name rather than an exact UPN/SAM; cleared once an account is selected.
+  const [accountChoice, setAccountChoice] = useState(null); // { personName, accounts, filters, envId, mock }
 
   // ── Load env config on mount — mirrors GroupPermissionChecker/RangerLibrary ──
   useEffect(() => {
@@ -37,6 +42,7 @@ export default function IdentityAudit() {
     setStatus('loading');
     setError(null);
     setResult(null);
+    setAccountChoice(null);
     try {
       const resp = await fetch(`${BASE}identity-audit`, {
         method: 'POST',
@@ -49,6 +55,38 @@ export default function IdentityAudit() {
         setStatus('error');
         return;
       }
+      if (data.needsSelection) {
+        setAccountChoice(data);
+        setStatus('done');
+        return;
+      }
+      setResult(data);
+      setStatus('done');
+    } catch {
+      setError('Network error — is the backend running?');
+      setStatus('error');
+    }
+  }
+
+  // Called when the operator picks one of the disambiguated accounts —
+  // re-issues the request in "direct" mode with the resolved UPN, carrying
+  // over whatever filters the original prompt named.
+  async function handleSelectAccount(account) {
+    setStatus('loading');
+    setError(null);
+    try {
+      const resp = await fetch(`${BASE}identity-audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upn: account.userPrincipalName, filters: accountChoice.filters, envId: accountChoice.envId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setError(data.error || `Request failed (${resp.status})`);
+        setStatus('error');
+        return;
+      }
+      setAccountChoice(null);
       setResult(data);
       setStatus('done');
     } catch {
@@ -102,6 +140,7 @@ export default function IdentityAudit() {
           <div style={s.tipBox}>
             <div style={s.tipRow}><span style={s.tipLabel}>User</span><span style={s.tipVal}>UPN / email — <code>alex.smith@company.com</code></span></div>
             <div style={s.tipRow}><span style={s.tipLabel}>User</span><span style={s.tipVal}>SAM account — <code>asmith01</code> (use "user" keyword: "user asmith01 …")</span></div>
+            <div style={s.tipRow}><span style={s.tipLabel}>User</span><span style={s.tipVal}>Display name — <code>John Smith</code> (use "for"/"user": "for John Smith …") — shows an account picker when it matches more than one person</span></div>
             <div style={s.tipRow}><span style={s.tipLabel}>Filter</span><span style={s.tipVal}><code>containing X</code> · <code>starts with X</code> · <code>ending in X</code> — or natural language (LLM mode)</span></div>
           </div>
 
@@ -115,7 +154,7 @@ export default function IdentityAudit() {
             <div style={s.formRow}>
               {EXAMPLE_PROMPTS.map((ex, i) => (
                 <button key={i} type="button" style={s.secondaryBtn} onClick={() => setPrompt(ex)}>
-                  {i === 0 ? '📋 Example (UPN)' : '📋 Example (SAM)'}
+                  {i === 0 ? '📋 Example (UPN)' : i === 1 ? '📋 Example (SAM)' : '📋 Example (Name)'}
                 </button>
               ))}
               <button
@@ -129,6 +168,38 @@ export default function IdentityAudit() {
           </form>
 
           {error && <div style={s.errorBanner}>{error}</div>}
+
+          {accountChoice && (
+            <div style={s.resultWrap}>
+              {accountChoice.mock && (
+                <div style={s.mockBanner}>
+                  ⚠ Mock data — no Entra credentials configured for {accountChoice.envId}. Set
+                  IDENTITY_AUDIT_{accountChoice.envId}_TENANT_ID / _CLIENT_ID / _CLIENT_SECRET for a real Graph lookup.
+                </div>
+              )}
+              <p style={s.pickerHint}>
+                "{accountChoice.personName}" matched {accountChoice.accounts.length} account{accountChoice.accounts.length === 1 ? '' : 's'} — select one to load its groups:
+              </p>
+              {accountChoice.accounts.length === 0 ? (
+                <div style={s.errorBanner}>No accounts found matching "{accountChoice.personName}".</div>
+              ) : (
+                <div style={s.accountList}>
+                  {accountChoice.accounts.map((acct) => (
+                    <button
+                      key={acct.id}
+                      type="button"
+                      style={s.accountRow}
+                      onClick={() => handleSelectAccount(acct)}
+                      disabled={status === 'loading'}
+                    >
+                      <span style={s.accountName}>{acct.displayName}</span>
+                      <span style={s.accountUpn}>{acct.userPrincipalName}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {result && (
             <div style={s.resultWrap}>
@@ -168,7 +239,9 @@ export default function IdentityAudit() {
                 </div>
                 <div style={s.detailRow}>
                   <span style={s.detailLabel}>parsed via</span>
-                  <span style={s.detailValue}>{result.mode === 'llm' ? 'LLM structured output' : 'regex fallback'}</span>
+                  <span style={s.detailValue}>
+                    {result.mode === 'llm' ? 'LLM structured output' : result.mode === 'direct' ? 'account picker selection' : 'regex fallback'}
+                  </span>
                 </div>
               </div>
 
@@ -285,4 +358,15 @@ const s = {
     padding: '0.5rem 0.5rem', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)',
     fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: '0.74rem',
   },
+
+  pickerHint: { fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' },
+  accountList: { display: 'flex', flexDirection: 'column', gap: 6 },
+  accountRow: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+    padding: '0.6rem 0.85rem', borderRadius: 8, border: '1.5px solid var(--border)',
+    background: 'var(--bg)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+    width: '100%', boxSizing: 'border-box', transition: 'border-color 0.15s, background 0.15s',
+  },
+  accountName: { fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' },
+  accountUpn: { fontSize: '0.78rem', color: 'var(--text-secondary)', fontFamily: 'ui-monospace, SFMono-Regular, monospace' },
 };

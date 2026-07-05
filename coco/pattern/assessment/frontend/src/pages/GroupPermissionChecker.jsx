@@ -152,8 +152,16 @@ export default function GroupPermissionChecker() {
                   <span style={s.detailValue}>{result.userPrincipalName}</span>
                 </div>
                 <div style={s.detailRow}>
+                  <span style={s.detailLabel}>user location</span>
+                  <span style={s.detailValue}>{result.userLocation ?? 'not found'}</span>
+                </div>
+                <div style={s.detailRow}>
                   <span style={s.detailLabel}>groupId</span>
                   <span style={s.detailValue}>{result.groupId}</span>
+                </div>
+                <div style={s.detailRow}>
+                  <span style={s.detailLabel}>group location</span>
+                  <span style={s.detailValue}>{result.groupLocation ?? 'not found'}</span>
                 </div>
                 <div style={s.detailRow}>
                   <span style={s.detailLabel}>environment</span>
