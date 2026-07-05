@@ -50,8 +50,8 @@ router.post('/check-permission', async (req, res) => {
 
   try {
     const resolvedEnvId = (envId || 'DEFAULT').toUpperCase();
-    const status = await checkPermission(userPrincipalName, groupId, resolvedEnvId);
-    res.json({ status, userPrincipalName, groupId, mode, envId: resolvedEnvId });
+    const { status, userLocation, groupLocation } = await checkPermission(userPrincipalName, groupId, resolvedEnvId);
+    res.json({ status, userPrincipalName, groupId, userLocation, groupLocation, mode, envId: resolvedEnvId });
   } catch (err) {
     console.error('[permission] Database query failed:', err.message);
     const status = err.code === 'UNKNOWN_ENV' ? 400 : 500;
