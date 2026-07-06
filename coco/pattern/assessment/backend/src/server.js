@@ -5,6 +5,7 @@ const assessmentRoutes    = require('./routes/assessment');
 const opaRoutes           = require('./routes/opa');
 const rangerRoutes        = require('./routes/ranger');
 const identityAuditRoutes = require('./routes/identityAudit');
+const governanceLifecycleRoutes = require('./routes/governanceLifecycle');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -21,6 +22,7 @@ app.use('/api/pattern/assessment', assessmentRoutes);
 app.use('/api/pattern/assessment', opaRoutes);
 app.use('/api/pattern/assessment', rangerRoutes);
 app.use('/api/pattern/assessment', identityAuditRoutes);
+app.use('/api/pattern/assessment', governanceLifecycleRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
