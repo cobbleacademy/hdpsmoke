@@ -92,6 +92,7 @@ const COLORS = [
 ];
 
 export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, onToggle, isMobile,
+                                   collapsed, onToggleCollapse,
                                    theme, color, onThemeChange, onColorChange }) {
   return (
     <>
@@ -103,23 +104,36 @@ export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, on
       <aside
         style={{
           ...styles.sidebar,
+          ...(collapsed ? styles.sidebarCollapsed : {}),
           ...(isMobile
             ? { position: 'fixed', left: isOpen ? 0 : -260, boxShadow: isOpen ? '4px 0 32px rgba(0,0,0,0.14)' : 'none' }
             : { position: 'sticky', left: 0 }),
         }}
       >
         {/* Brand */}
-        <div style={styles.brand}>
+        <div style={{ ...styles.brand, ...(collapsed ? styles.brandCollapsed : {}) }}>
           <div style={styles.brandIcon}>🧠</div>
-          <div>
-            <div style={styles.brandName}>Pattern App</div>
-            <div style={styles.brandSub}>Work-style assessment</div>
-          </div>
+          {!collapsed && (
+            <div style={styles.brandText}>
+              <div style={styles.brandName}>Pattern App</div>
+              <div style={styles.brandSub}>Work-style assessment</div>
+            </div>
+          )}
+          {/* Collapse toggle — desktop only; mobile has its own hamburger in App.jsx */}
+          {!isMobile && (
+            <button
+              onClick={onToggleCollapse}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              style={{ ...styles.collapseBtn, ...(collapsed ? styles.collapseBtnCollapsed : {}) }}
+            >
+              {collapsed ? '›' : '‹'}
+            </button>
+          )}
         </div>
 
         {/* Navigation */}
         <nav style={styles.nav}>
-          <p style={styles.sectionLabel}>NAVIGATION</p>
+          {!collapsed && <p style={styles.sectionLabel}>NAVIGATION</p>}
 
           {NAV_ITEMS.map((item) => {
             const enabled = item.alwaysOn || (item.needsResult && hasResult);
@@ -130,21 +144,24 @@ export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, on
                 key={item.id}
                 disabled={!enabled}
                 onClick={() => enabled && onNavigate(item.id)}
-                title={!enabled ? 'Complete the quiz to unlock' : item.description}
+                title={!enabled ? 'Complete the quiz to unlock' : collapsed ? item.label : item.description}
                 style={{
                   ...styles.navItem,
+                  ...(collapsed ? styles.navItemCollapsed : {}),
                   ...(active ? styles.navItemActive : {}),
                   ...(!enabled ? styles.navItemDisabled : {}),
                 }}
               >
                 <span style={styles.navIcon}>{item.icon}</span>
-                <div style={styles.navText}>
-                  <span style={{ ...styles.navLabel, ...(active ? { color: 'var(--accent)' } : {}) }}>
-                    {item.label}
-                  </span>
-                  <span style={styles.navDesc}>{item.description}</span>
-                </div>
-                {item.needsResult && !hasResult && (
+                {!collapsed && (
+                  <div style={styles.navText}>
+                    <span style={{ ...styles.navLabel, ...(active ? { color: 'var(--accent)' } : {}) }}>
+                      {item.label}
+                    </span>
+                    <span style={styles.navDesc}>{item.description}</span>
+                  </div>
+                )}
+                {item.needsResult && !hasResult && !collapsed && (
                   <span style={styles.lockIcon} title="Complete quiz to unlock">🔒</span>
                 )}
                 {active && <span style={styles.activeBar} />}
@@ -154,65 +171,69 @@ export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, on
         </nav>
 
         {/* Quiz progress indicator */}
-        {hasResult && (
+        {hasResult && !collapsed && (
           <div style={styles.resultBadge}>
             <span style={styles.resultDot} />
             <span style={styles.resultText}>Result ready</span>
           </div>
         )}
 
-        {/* ── Appearance controls ── */}
-        <div style={styles.themeSection}>
-          <p style={styles.sectionLabel}>APPEARANCE</p>
+        {/* ── Appearance controls — hidden while collapsed; expand to change theme ── */}
+        {!collapsed && (
+          <div style={styles.themeSection}>
+            <p style={styles.sectionLabel}>APPEARANCE</p>
 
-          {/* Mode selector — Light / Dim / Slate / Mocha */}
-          <div style={styles.modeRow}>
-            {THEMES.map(t => (
-              <button
-                key={t.id}
-                onClick={() => onThemeChange(t.id)}
-                title={t.label}
-                style={{
-                  ...styles.modeBtn,
-                  ...(theme === t.id ? styles.modeBtnActive : {}),
-                }}
-              >
-                <span style={styles.modeIcon}>{t.icon}</span>
-                <span style={styles.modeName}>{t.label}</span>
-              </button>
-            ))}
-          </div>
+            {/* Mode selector — Light / Dim / Slate / Mocha */}
+            <div style={styles.modeRow}>
+              {THEMES.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => onThemeChange(t.id)}
+                  title={t.label}
+                  style={{
+                    ...styles.modeBtn,
+                    ...(theme === t.id ? styles.modeBtnActive : {}),
+                  }}
+                >
+                  <span style={styles.modeIcon}>{t.icon}</span>
+                  <span style={styles.modeName}>{t.label}</span>
+                </button>
+              ))}
+            </div>
 
-          {/* Colour picker + Classic reset */}
-          <div style={styles.colorRow}>
-            {COLORS.map(c => (
+            {/* Colour picker + Classic reset */}
+            <div style={styles.colorRow}>
+              {COLORS.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => onColorChange(c.id)}
+                  title={c.label}
+                  style={{
+                    ...styles.colorSwatch,
+                    background: c.hex,
+                    ...(color === c.id ? styles.colorSwatchActive : {}),
+                  }}
+                />
+              ))}
+              {/* Classic = light + violet = original look */}
               <button
-                key={c.id}
-                onClick={() => onColorChange(c.id)}
-                title={c.label}
+                onClick={() => { onThemeChange('light'); onColorChange('violet'); }}
+                title="Classic — restore original look"
                 style={{
-                  ...styles.colorSwatch,
-                  background: c.hex,
-                  ...(color === c.id ? styles.colorSwatchActive : {}),
+                  ...styles.colorSwatchClassic,
+                  ...(theme === 'light' && color === 'violet' ? styles.colorSwatchActive : {}),
                 }}
-              />
-            ))}
-            {/* Classic = light + violet = original look */}
-            <button
-              onClick={() => { onThemeChange('light'); onColorChange('violet'); }}
-              title="Classic — restore original look"
-              style={{
-                ...styles.colorSwatchClassic,
-                ...(theme === 'light' && color === 'violet' ? styles.colorSwatchActive : {}),
-              }}
-            >↺</button>
+              >↺</button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Footer */}
-        <div style={styles.footer}>
-          <span style={styles.footerText}>v1.0 · Pattern Assessment</span>
-        </div>
+        {!collapsed && (
+          <div style={styles.footer}>
+            <span style={styles.footerText}>v1.0 · Pattern Assessment</span>
+          </div>
+        )}
       </aside>
     </>
   );
@@ -237,8 +258,13 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     zIndex: 99,
-    transition: 'left 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+    transition: 'left 0.28s cubic-bezier(0.4, 0, 0.2, 1), width 0.2s ease, min-width 0.2s ease',
     overflowY: 'auto',
+    overflowX: 'hidden',
+  },
+  sidebarCollapsed: {
+    width: 68,
+    minWidth: 68,
   },
   brand: {
     display: 'flex',
@@ -247,10 +273,41 @@ const styles = {
     padding: '1.375rem 1.25rem 1.25rem',
     borderBottom: '1px solid var(--border)',
   },
+  brandCollapsed: {
+    padding: '1.375rem 0.5rem 1.25rem',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: '0.4rem',
+  },
   brandIcon: {
     fontSize: '1.5rem',
     lineHeight: 1,
     flexShrink: 0,
+  },
+  brandText: {
+    minWidth: 0,
+    flex: 1,
+  },
+  collapseBtn: {
+    marginLeft: 'auto',
+    flexShrink: 0,
+    width: 24,
+    height: 24,
+    borderRadius: '6px',
+    border: '1px solid var(--border)',
+    background: 'var(--surface-hover)',
+    color: 'var(--text-secondary)',
+    fontSize: '0.9rem',
+    lineHeight: 1,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.15s, color 0.15s',
+  },
+  collapseBtnCollapsed: {
+    marginLeft: 0,
   },
   brandName: {
     fontSize: '0.9375rem',
@@ -294,6 +351,10 @@ const styles = {
     color: 'var(--text-primary)',
     transition: 'all 0.15s ease',
     position: 'relative',
+  },
+  navItemCollapsed: {
+    justifyContent: 'center',
+    padding: '0.625rem 0',
   },
   navItemActive: {
     background: 'var(--accent-light)',
