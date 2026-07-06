@@ -103,6 +103,10 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/governance-lifecycle-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 });
