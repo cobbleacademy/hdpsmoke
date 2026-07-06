@@ -66,6 +66,16 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
+  // Desktop-only icon-rail collapse — independent of the mobile drawer
+  // (sidebarOpen above), which is a different mechanism (slide in/out).
+  // Persisted so a chosen layout survives a reload.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('pa-sidebar-collapsed') === 'true'
+  );
+  useEffect(() => {
+    localStorage.setItem('pa-sidebar-collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
   // ── Theme state — persisted in localStorage, applied as data-* on <html> ──
   // Migrate anyone who had the old 'dark' mode saved → 'dim'
   const [theme, setTheme] = useState(() => {
@@ -226,6 +236,8 @@ export default function App() {
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen((o) => !o)}
         isMobile={isMobile}
+        collapsed={!isMobile && sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         theme={theme}
         color={color}
         onThemeChange={setTheme}
