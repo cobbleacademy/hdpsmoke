@@ -1,0 +1,125 @@
+[
+  {
+    "name": "mask_all_pii_strings",
+    "service": "hive_dev",
+    "serviceType": "hive",
+    "description": "Masks STRING columns tagged pii — applied to all tables in demos catalog.",
+    "isEnabled": true,
+    "isAuditEnabled": true,
+    "policyType": 1,
+    "resources": {
+      "database": {
+        "values": [
+          "demos"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      },
+      "table": {
+        "values": [
+          "*"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      },
+      "column": {
+        "values": [
+          "*"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      }
+    },
+    "policyItems": [],
+    "denyPolicyItems": [
+      {
+        "groups": [
+          "pii-readers"
+        ],
+        "accesses": [
+          {
+            "type": "select",
+            "isAllowed": true
+          }
+        ]
+      }
+    ],
+    "denyExceptions": [],
+    "dataMaskPolicyItems": [
+      {
+        "accesses": [
+          {
+            "type": "select",
+            "isAllowed": true
+          }
+        ],
+        "dataMaskInfo": {
+          "dataMaskType": "CUSTOM",
+          "valueExpr": "***REDACTED***"
+        }
+      }
+    ],
+    "rowFilterPolicyItems": []
+  },
+  {
+    "name": "region_row_filter",
+    "service": "hive_dev",
+    "serviceType": "hive",
+    "description": "Restricts rows by analyst region — east/west analysts see only their region.",
+    "isEnabled": true,
+    "isAuditEnabled": true,
+    "policyType": 2,
+    "resources": {
+      "database": {
+        "values": [
+          "demos"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      },
+      "table": {
+        "values": [
+          "*"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      },
+      "column": {
+        "values": [
+          "*"
+        ],
+        "isExcludes": false,
+        "isRecursive": false
+      }
+    },
+    "policyItems": [],
+    "denyPolicyItems": [
+      {
+        "groups": [
+          "pii-readers"
+        ],
+        "accesses": [
+          {
+            "type": "select",
+            "isAllowed": true
+          }
+        ]
+      }
+    ],
+    "denyExceptions": [],
+    "dataMaskPolicyItems": [],
+    "rowFilterPolicyItems": [
+      {
+        "accesses": [
+          {
+            "type": "select",
+            "isAllowed": true
+          }
+        ],
+        "rowFilterInfo": {
+          "filterExpr": "region_filter_abac(input.row[region_col])"
+        }
+      }
+    ]
+  }
+]

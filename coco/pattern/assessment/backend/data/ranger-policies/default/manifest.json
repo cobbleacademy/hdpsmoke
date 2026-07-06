@@ -1,0 +1,18 @@
+{
+  "policies": [
+    {
+      "policyKey": "opa_ranger_001",
+      "name": "mask_all_pii_strings",
+      "serviceType": "hive",
+      "service": "hive_dev",
+      "lastGenerated": "2026-06-19T03:12:30.580Z"
+    },
+    {
+      "policyKey": "opa_ranger_002",
+      "name": "opa-ranger-002",
+      "serviceType": "hive",
+      "service": "hivedev",
+      "lastGenerated": "2026-06-19T03:17:03.858Z"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "policies": [
+    {
+      "policyKey": "my_customers_policy",
+      "name": "My Customers Policy",
+      "serviceType": "hive",
+      "service": "hivedev",
+      "lastGenerated": "2026-06-19T03:06:19.238Z"
+    },
+    {
+      "policyKey": "opa_ranger_001",
+      "name": "mask_all_pii_strings",
+      "serviceType": "hive",
+      "service": "hive_dev",
+      "lastGenerated": "2026-06-19T03:07:55.678Z"
+    },
+    {
+      "policyKey": "opa_ranger_002",
+      "name": "mask_all_pii_strings",
+      "serviceType": "hive",
+      "service": "hive_dev",
+      "lastGenerated": "2026-06-19T03:14:41.842Z"
+    },
+    {
+      "policyKey": "opa_ranger_003",
+      "name": "opa-ranger-003",
+      "serviceType": "tag",
+      "service": "tag_dev",
+      "lastGenerated": "2026-06-19T03:18:29.545Z"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "policyType": 0,
+    "resources": {
+      "database": {
+        "values": [
+          "demos"
+        ]
+      }
+    }
+  }
+]
