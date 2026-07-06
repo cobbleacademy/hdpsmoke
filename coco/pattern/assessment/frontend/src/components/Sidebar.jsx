@@ -69,6 +69,13 @@ const NAV_ITEMS = [
     description: 'Entra group footprint audit',
     alwaysOn: true,
   },
+  {
+    id: 'governanceLifecycle',
+    label: 'Governance Lifecycle',
+    icon: '⚖️',
+    description: 'ABAC/PlainID policy lifecycle',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
