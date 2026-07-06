@@ -158,16 +158,20 @@ services:
       PERMISSION_DEV_DB_SSL: ${PERMISSION_DEV_DB_SSL:-false}
       PERMISSION_NPE_DB_SSL: ${PERMISSION_NPE_DB_SSL:-false}
       PERMISSION_PROD_DB_SSL: ${PERMISSION_PROD_DB_SSL:-false}
+      PERMISSION_DEV_SCHEMA: ${PERMISSION_DEV_SCHEMA:-}
       PERMISSION_DEV_USERS_TABLE: users
       PERMISSION_DEV_USER_KEY_COLUMN: user_principal_name
+      PERMISSION_DEV_USER_SAM_COLUMN: sam_account
       PERMISSION_DEV_USER_LOCATION_COLUMN: location
       PERMISSION_DEV_GROUPS_TABLE: groups
       PERMISSION_DEV_GROUP_KEY_COLUMN: group_id
       PERMISSION_DEV_GROUP_LOCATION_COLUMN: restricted_location
       # NPE — different table/column names, same literal tier values.
       PERMISSION_NPE_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_npe
+      PERMISSION_NPE_SCHEMA: ${PERMISSION_NPE_SCHEMA:-}
       PERMISSION_NPE_USERS_TABLE: identity_users
       PERMISSION_NPE_USER_KEY_COLUMN: upn
+      PERMISSION_NPE_USER_SAM_COLUMN: sam_account
       PERMISSION_NPE_USER_LOCATION_COLUMN: region_tier
       PERMISSION_NPE_GROUPS_TABLE: resource_groups
       PERMISSION_NPE_GROUP_KEY_COLUMN: grp_id
@@ -176,8 +180,10 @@ services:
       # (ON/NS/OS instead of ONSHORE/NEARSHORE/OFFSHORE) — exercises
       # PERMISSION_PROD_LOCATION_VALUE_MAP.
       PERMISSION_PROD_DATABASE_URL: postgresql://permission_app:${POSTGRES_PASSWORD:-permission_dev_pw}@postgres:5432/permission_prod
+      PERMISSION_PROD_SCHEMA: ${PERMISSION_PROD_SCHEMA:-}
       PERMISSION_PROD_USERS_TABLE: app_users
       PERMISSION_PROD_USER_KEY_COLUMN: email
+      PERMISSION_PROD_USER_SAM_COLUMN: ${PERMISSION_PROD_USER_SAM_COLUMN:-}
       PERMISSION_PROD_USER_LOCATION_COLUMN: loc_tier
       PERMISSION_PROD_GROUPS_TABLE: app_groups
       PERMISSION_PROD_GROUP_KEY_COLUMN: code
@@ -206,6 +212,8 @@ services:
       IDENTITY_AUDIT_PROD_CLIENT_ID: ${IDENTITY_AUDIT_PROD_CLIENT_ID:-}
       IDENTITY_AUDIT_PROD_CLIENT_SECRET: ${IDENTITY_AUDIT_PROD_CLIENT_SECRET:-}
       IDENTITY_AUDIT_PROD_DEFAULT_FILTERS: ${IDENTITY_AUDIT_PROD_DEFAULT_FILTERS:-}
+      # ── Governance Lifecycle ──────────────────────────────────────────────────
+      GOVERNANCE_LIFECYCLE_STORAGE_PATH: /app/data/governance-lifecycle
     volumes:
       # Persistent storage for encrypted payloads and OPA policies
       - payload-storage:/app/data/payloads
@@ -213,6 +221,9 @@ services:
       # Bind mount — Ranger policy files written to ./backend/data/ranger-policies/ on host
       # so they are visible alongside OPA policies in the local data folder.
       - ./backend/data/ranger-policies:/app/data/ranger-policies
+      # Bind mount — Governance Lifecycle config.json written to
+      # ./backend/data/governance-lifecycle/ on host, same reasoning as Ranger above.
+      - ./backend/data/governance-lifecycle:/app/data/governance-lifecycle
       # Read-only bind mounts so the backend can serve plain YAML as a fallback
       # before encrypted files are created (migration path / first run).
       - ./frontend/public/payloads:/app/public/payloads:ro
