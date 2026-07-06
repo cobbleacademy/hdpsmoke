@@ -233,6 +233,10 @@ spec:
               value: {{ .Values.backend.env.RANGER_LLM_MODEL | default "gpt-4o" | quote }}
             - name: RANGER_POLICY_STORAGE_PATH
               value: {{ .Values.backend.env.RANGER_POLICY_STORAGE_PATH | default "/app/data/ranger-policies" | quote }}
+
+            # ── Governance Lifecycle ─────────────────────────────────────────────
+            - name: GOVERNANCE_LIFECYCLE_STORAGE_PATH
+              value: {{ .Values.backend.env.GOVERNANCE_LIFECYCLE_STORAGE_PATH | default "/app/data/governance-lifecycle" | quote }}
             {{- if .Values.backend.env.RANGER_GITHUB_OWNER }}
             - name: RANGER_GITHUB_OWNER
               value: {{ .Values.backend.env.RANGER_GITHUB_OWNER | quote }}
