@@ -156,6 +156,8 @@ backend:
     RANGER_ENVS: "DEV,NPE,PROD"           # tab strip; "" = single Default env
     RANGER_LLM_MODEL: "gpt-4o"            # falls back to OPA_LLM_MODEL → OPENAI_MODEL
     RANGER_POLICY_STORAGE_PATH: "/app/data/ranger-policies"
+    # ── Governance Lifecycle — runtime-editable swimlane/RACI/SOP content ────
+    GOVERNANCE_LIFECYCLE_STORAGE_PATH: "/app/data/governance-lifecycle"
     RANGER_GITHUB_OWNER: ""
     RANGER_GITHUB_REPO: ""
     RANGER_GITHUB_REGO_PATH: ""
