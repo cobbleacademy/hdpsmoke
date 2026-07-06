@@ -11,6 +11,7 @@ import RangerLibrary from './components/RangerLibrary';
 import HsmDemo from './pages/HsmDemo';
 import GroupPermissionChecker from './pages/GroupPermissionChecker';
 import IdentityAudit from './pages/IdentityAudit';
+import GovernanceLifecycle from './pages/GovernanceLifecycle';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -40,6 +41,7 @@ const VIEW_PATHS = {
   hsmDemo:        `${APP_BASE}/hsm-demo`,
   groupPermission: `${APP_BASE}/group-permission`,
   identityAudit:   `${APP_BASE}/identity-audit`,
+  governanceLifecycle: `${APP_BASE}/governance-lifecycle`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -347,6 +349,9 @@ export default function App() {
 
         {/* ── Identity Audit view ── */}
         {currentView === 'identityAudit' && <IdentityAudit />}
+
+        {/* ── Governance Lifecycle view ── */}
+        {currentView === 'governanceLifecycle' && <GovernanceLifecycle />}
       </main>
     </div>
   );

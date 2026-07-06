@@ -158,6 +158,18 @@ tr:hover td {
   background: var(--surface-hover);
 }
 
+/* RACI table row hover — a dedicated color, not var(--surface-hover), since
+   that token is already used for zebra-striped odd rows in this table; reusing
+   it for hover made hovered odd rows look unchanged and hovered even rows
+   look just like a normal odd row, hiding the hover signal entirely.
+   --accent-light alone was tried first but is too close in lightness to
+   --surface/--surface-hover in some themes to read as a distinct highlight —
+   color-mix blends in a visible slice of the current theme's --accent instead,
+   so the contrast holds across every theme/color-scheme combination. */
+[data-raci-row]:hover td {
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface)) !important;
+}
+
 /* Smooth scrolling for main content */
 main {
   scroll-behavior: smooth;
