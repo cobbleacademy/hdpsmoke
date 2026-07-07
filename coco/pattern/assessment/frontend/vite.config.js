@@ -1,5 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // base must match the Istio VirtualService prefix so Vite generates
@@ -8,6 +12,21 @@ export default defineConfig({
   // → nginx receives the full original path; assets must live under the same prefix.
   base: '/api/pattern/assessment/',
   plugins: [react()],
+  // Two build entries, one repo, one Vite config:
+  //   main   — the full 11-feature app-user experience (index.html)
+  //   access — the end-user "Access Control" bundle: just Permission Checker
+  //            + Identity Audit (access-control/index.html). A genuinely
+  //            separate JS/CSS output, not a runtime-filtered view of the
+  //            main bundle — the end-user audience never downloads code for
+  //            the quiz/Payload Library/OPA/Ranger/HSM/Governance features.
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        access: resolve(__dirname, 'access-control/index.html'),
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
@@ -104,6 +123,23 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/pattern/assessment/governance-lifecycle-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      // ── Access Control (end-user app) — same routers, second mount point ──────
+      '/api/access/control/permission-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/access/control/check-permission': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/access/control/identity-audit-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/access/control/identity-audit': {
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
