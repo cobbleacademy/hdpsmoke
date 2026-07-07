@@ -24,6 +24,12 @@ app.use('/api/pattern/assessment', rangerRoutes);
 app.use('/api/pattern/assessment', identityAuditRoutes);
 app.use('/api/pattern/assessment', governanceLifecycleRoutes);
 
+// Access Control (end-user app) — same identityAuditRoutes router mounted a
+// second time at a distinct root. Not a copy: Express dispatches the exact
+// same handler functions for either prefix, so there's nothing to keep in
+// sync. See docs/adr/0017-access-control-slim-app.md.
+app.use('/api/access/control', identityAuditRoutes);
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // Group Permission Evaluation routes are an ES module (see
@@ -32,6 +38,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 (async () => {
   const { default: permissionRoutes } = await import('./routes/permission.mjs');
   app.use('/api/pattern/assessment', permissionRoutes);
+  app.use('/api/access/control', permissionRoutes); // same router, second mount — see above
 
   app.listen(PORT, () => {
     console.log(`Backend running on http://localhost:${PORT}`);
