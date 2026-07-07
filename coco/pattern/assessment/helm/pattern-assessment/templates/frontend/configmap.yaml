@@ -137,6 +137,21 @@ data:
         client_max_body_size  5m;
       }
 
+      # ── Access Control (end-user app) API alias ───────────────────────────────
+      # Same backend routers as the Permission Checker / Identity Audit blocks
+      # above, mounted a second time at this root (see server.js). A single
+      # prefix match covers every path under it — nothing else lives here.
+      location ^~ /api/access/control/ {
+        proxy_pass         http://{{ include "pattern-assessment.backend.name" . }}:{{ .Values.backend.port }};
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    45s;
+      }
+
       {{- if .Values.hsmService.url }}
       # Sensec HSM Demo — non-Istio dev/test cluster convenience only.
       # In real Istio environments this block is omitted (hsmService.url empty);
@@ -187,6 +202,31 @@ data:
         add_header Cache-Control         "public, immutable";
         add_header X-Content-Type-Options nosniff;
         access_log off;
+      }
+
+      # ── Access Control (end-user app) — static entry + its own SPA fallback ───
+      # A genuinely separate Vite build entry (access-control/index.html), not
+      # a runtime-filtered view of the main bundle. Needs its own try_files/
+      # fallback pair: without this block, unknown paths under this prefix
+      # (e.g. a direct link or refresh on /access-control/identity-audit)
+      # would fall through to the generic block below and serve the MAIN
+      # app's index.html instead of this one's.
+      location ^~ /api/pattern/assessment/access-control/ {
+        alias /usr/share/nginx/html/access-control/;
+        index index.html;
+        try_files $uri $uri/ @spa-access;
+        add_header Cache-Control         "no-cache";
+        add_header X-Frame-Options       SAMEORIGIN;
+        add_header X-Content-Type-Options nosniff;
+        add_header Referrer-Policy       strict-origin-when-cross-origin;
+      }
+
+      location @spa-access {
+        try_files /access-control/index.html =404;
+        add_header Cache-Control         "no-cache";
+        add_header X-Frame-Options       SAMEORIGIN;
+        add_header X-Content-Type-Options nosniff;
+        add_header Referrer-Policy       strict-origin-when-cross-origin;
       }
 
       location ^~ /api/pattern/assessment/ {
