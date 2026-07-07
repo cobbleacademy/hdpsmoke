@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 
-const BASE = import.meta.env.BASE_URL;
-
 const EXAMPLE_PROMPTS = [
   "find user's permission on GroupID Alpha12 for test@company.com",
   "does user testuser have access to group Alpha12",
 ];
 
-export default function GroupPermissionChecker() {
+// apiBase: optional override for which API root this component calls.
+// Defaults to import.meta.env.BASE_URL (the main app's behavior, unchanged).
+// The end-user Access Control app (see AccessApp.jsx) passes its own root
+// so the same component/file — no duplication — talks to a distinct API
+// path there instead of the main app's.
+export default function GroupPermissionChecker({ apiBase } = {}) {
+  const BASE = apiBase ?? import.meta.env.BASE_URL;
   const [environments, setEnvironments] = useState([]);
   const [activeEnvIdx, setActiveEnvIdx] = useState(0);
   const [configError, setConfigError]   = useState(null);

@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 
-const BASE = import.meta.env.BASE_URL;
-
 const EXAMPLE_PROMPTS = [
   "Find groups for alex.smith@company.com containing Sec",
   "Find groups for user asmith01 starting with AWS",
   "Find groups for John Smith containing Finance",
 ];
 
-export default function IdentityAudit() {
+// apiBase: optional override for which API root this component calls.
+// Defaults to import.meta.env.BASE_URL (the main app's behavior, unchanged).
+// The end-user Access Control app (see AccessApp.jsx) passes its own root
+// so the same component/file — no duplication — talks to a distinct API
+// path there instead of the main app's.
+export default function IdentityAudit({ apiBase } = {}) {
+  const BASE = apiBase ?? import.meta.env.BASE_URL;
   const [environments, setEnvironments] = useState([]);
   const [activeEnvIdx, setActiveEnvIdx] = useState(0);
   const [configError, setConfigError]   = useState(null);
