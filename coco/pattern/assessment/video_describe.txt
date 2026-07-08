@@ -1,0 +1,41 @@
+Video Explainer: Access Control — Permission Checker & Identity Audit
+Target length: ~2 minutes
+Audience: End users (access reviewers, ops, compliance) — not engineers
+Tone: Plain-language, benefit-first, minimal jargon
+Format: Screen recording + voiceover + light on-screen captions
+
+Scene 1 — Cold open (0:00–0:10)
+Visual: Access Control app home screen (Permission Checker tab, empty prompt box)
+VO: "Two questions come up constantly in access reviews: 'Can this person get in?' and 'What do they already have?' This tool answers both — in plain English."
+On-screen text: Access Control — ask, don't dig
+
+Scene 2 — Permission Checker: the question (0:10–0:35)
+Visual: Type a real example into the prompt box — "does test@company.com have access to group Alpha12" — click Check Permission
+VO: "Type your question like you'd ask a coworker. No ticket, no query language."
+Visual beat: Result renders — big DENY badge, then the detail rows: user location: NEARSHORE, group location: ONSHORE
+VO: "And it doesn't just say yes or no — it shows you why. This user is Nearshore, the group requires Onshore, so access is denied. No guessing."
+On-screen text: PERMIT or DENY — with the reason
+
+Scene 3 — Permission Checker: SAM accounts too (0:35–0:45)
+Visual: Click the "Example (SAM)" button, submit
+VO: "Works with email addresses or short account IDs — whatever you have on hand."
+
+Scene 4 — Transition (0:45–0:50)
+Visual: Click "Identity Audit" in the sidebar
+VO: "Now flip the question around."
+
+Scene 5 — Identity Audit: the question (0:50–1:20)
+Visual: Type "Find groups for alex.smith@company.com containing Sec" — Run Audit
+VO: "Instead of checking one group, ask what someone actually belongs to — and narrow it down by name."
+Visual beat: Results table appears with group names + IDs; mock-mode banner visible if applicable
+VO: "This pulls live from your identity system — every group, from every level, not just the ones they joined directly."
+On-screen text: Full group footprint, one prompt
+
+Scene 6 — Name-based lookup (1:20–1:40)
+Visual: Type "Find groups for John Smith containing Finance" — account picker appears with 2 candidates
+VO: "Don't know their exact email? Just use their name — if there's more than one match, it'll ask you to pick the right person first."
+
+Scene 7 — Close (1:40–2:00)
+Visual: Split-screen or quick cut between both tools' result screens
+VO: "One question to check access. One question to audit it. No tickets, no waiting — just ask."
+On-screen text + CTA: Try it → [your internal URL here]
