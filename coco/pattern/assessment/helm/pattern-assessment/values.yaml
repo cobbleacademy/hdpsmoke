@@ -158,6 +158,13 @@ backend:
     RANGER_POLICY_STORAGE_PATH: "/app/data/ranger-policies"
     # ── Governance Lifecycle — runtime-editable swimlane/RACI/SOP content ────
     GOVERNANCE_LIFECYCLE_STORAGE_PATH: "/app/data/governance-lifecycle"
+    # ── Main app nav flags — bring Permission Checker / Identity Audit back
+    # into this app's sidebar without a rebuild (both default hidden now
+    # that Access Control is the dedicated surface for them) ────────────────
+    MAIN_APP_SHOW_PERMISSION_CHECKER: "false"
+    MAIN_APP_SHOW_IDENTITY_AUDIT: "false"
+    # ── Pattern Templates — runtime-editable Mermaid diagram library ─────────
+    PATTERN_TEMPLATES_STORAGE_PATH: "/app/data/pattern-templates"
     RANGER_GITHUB_OWNER: ""
     RANGER_GITHUB_REPO: ""
     RANGER_GITHUB_REGO_PATH: ""
@@ -234,15 +241,22 @@ backend:
     IDENTITY_AUDIT_PROD_CLIENT_SECRET: ""
     IDENTITY_AUDIT_PROD_DEFAULT_FILTERS: ""
 
-# ── Data storage (PVC) — Payload Library + OPA Policy Generator ──────────────
-# Single PVC mounted at /app/data/ covers both:
-#   - /app/data/payloads/ (Payload Library encrypted YAML)
-#   - /app/data/opa-policies/ (OPA Policy Generator manifests + Rego)
+# ── Data storage (PVC) — every runtime-editable library feature ─────────────
+# Single PVC mounted at /app/data/ covers all five:
+#   - /app/data/payloads/             (Payload Library, encrypted)
+#   - /app/data/opa-policies/         (OPA Policy Generator, encrypted)
+#   - /app/data/ranger-policies/      (Ranger Library, encrypted)
+#   - /app/data/governance-lifecycle/ (Governance Lifecycle, plain)
+#   - /app/data/pattern-templates/    (Pattern Templates — Mermaid text or raw SVG, plain)
+# PATTERN_TEMPLATES_STORAGE_PATH (backend.env, below) already defaults to
+# /app/data/pattern-templates — enabling dataStorage here is the only step
+# needed for Pattern Templates content to survive pod restarts/reschedules;
+# no separate PVC or mount is required for that feature.
 dataStorage:
   enabled: false          # set true in staging/prod values overlay
   storageClass: ""        # empty = use cluster default StorageClass
-  size: 5Gi               # increased from 1Gi to accommodate both payloads + policies
-  mountPath: /app/data    # both payloads and OPA policies stored here
+  size: 5Gi               # covers payloads + OPA/Ranger policies + governance config + pattern templates
+  mountPath: /app/data    # every feature above is a subdirectory of this one mount
 
 # ── Legacy: payloadStorage (deprecated, use dataStorage) ────────────────────────
 # Kept for backward compatibility; replaced by dataStorage above
