@@ -1,8 +1,12 @@
 {{- if or .Values.dataStorage.enabled .Values.payloadStorage.enabled }}
-# PersistentVolumeClaim for encrypted data storage.
-# Stores two types of files:
-#   1. /app/data/payloads/ — {envId}.enc files (Payload Library)
-#   2. /app/data/opa-policies/ — manifest.json + {policyKey}.enc (OPA Policy Generator)
+# PersistentVolumeClaim for runtime-editable content storage.
+# A single volume, mounted once at /app/data, backs every "runtime-editable
+# library" feature — each gets its own subdirectory (some encrypted, some not):
+#   1. /app/data/payloads/            — {envId}.enc files (Payload Library, encrypted)
+#   2. /app/data/opa-policies/        — manifest.json + {policyKey}.enc (OPA Policy Generator, encrypted)
+#   3. /app/data/ranger-policies/     — manifest.json + {policyKey}.enc (Ranger Library, encrypted)
+#   4. /app/data/governance-lifecycle/ — config.json (Governance Lifecycle, plain)
+#   5. /app/data/pattern-templates/   — manifest.json + {id}.mmd files, Mermaid text or raw SVG (Pattern Templates, plain)
 #
 # NOTE: ReadWriteOnce is sufficient for single-pod deployments.
 # If HPA scales the backend to multiple pods on different nodes,

@@ -237,6 +237,16 @@ spec:
             # ── Governance Lifecycle ─────────────────────────────────────────────
             - name: GOVERNANCE_LIFECYCLE_STORAGE_PATH
               value: {{ .Values.backend.env.GOVERNANCE_LIFECYCLE_STORAGE_PATH | default "/app/data/governance-lifecycle" | quote }}
+
+            # ── Main app nav flags ────────────────────────────────────────────────
+            - name: MAIN_APP_SHOW_PERMISSION_CHECKER
+              value: {{ .Values.backend.env.MAIN_APP_SHOW_PERMISSION_CHECKER | default "false" | quote }}
+            - name: MAIN_APP_SHOW_IDENTITY_AUDIT
+              value: {{ .Values.backend.env.MAIN_APP_SHOW_IDENTITY_AUDIT | default "false" | quote }}
+
+            # ── Pattern Templates ─────────────────────────────────────────────────
+            - name: PATTERN_TEMPLATES_STORAGE_PATH
+              value: {{ .Values.backend.env.PATTERN_TEMPLATES_STORAGE_PATH | default "/app/data/pattern-templates" | quote }}
             {{- if .Values.backend.env.RANGER_GITHUB_OWNER }}
             - name: RANGER_GITHUB_OWNER
               value: {{ .Values.backend.env.RANGER_GITHUB_OWNER | quote }}
