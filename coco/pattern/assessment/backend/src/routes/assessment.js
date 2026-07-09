@@ -10,6 +10,19 @@ router.get('/questions', (req, res) => {
   res.json(questions);
 });
 
+// ── App-wide config flags ─────────────────────────────────────────────────────
+// Generic, small config surface for cross-cutting UI toggles that don't
+// belong to any one feature. First use: hiding Permission Checker / Identity
+// Audit from the main app's sidebar now that they're also available as their
+// own dedicated Access Control app — a backend-driven flag so ops can bring
+// them back into the main menu without a frontend rebuild.
+router.get('/app-config', (req, res) => {
+  res.json({
+    showPermissionCheckerInMainApp: process.env.MAIN_APP_SHOW_PERMISSION_CHECKER === 'true',
+    showIdentityAuditInMainApp: process.env.MAIN_APP_SHOW_IDENTITY_AUDIT === 'true',
+  });
+});
+
 router.post('/submit', async (req, res) => {
   const { answers } = req.body;
 
