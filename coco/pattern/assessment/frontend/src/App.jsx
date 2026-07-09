@@ -12,6 +12,7 @@ import HsmDemo from './pages/HsmDemo';
 import GroupPermissionChecker from './pages/GroupPermissionChecker';
 import IdentityAudit from './pages/IdentityAudit';
 import GovernanceLifecycle from './pages/GovernanceLifecycle';
+import PatternTemplates from './pages/PatternTemplates';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -42,6 +43,7 @@ const VIEW_PATHS = {
   groupPermission: `${APP_BASE}/group-permission`,
   identityAudit:   `${APP_BASE}/identity-audit`,
   governanceLifecycle: `${APP_BASE}/governance-lifecycle`,
+  patternTemplates: `${APP_BASE}/pattern-templates`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -75,6 +77,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('pa-sidebar-collapsed', String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  // ── App-wide config flags ────────────────────────────────────────────────────
+  // Backend-driven so ops can show/hide Permission Checker / Identity Audit in
+  // this app's sidebar (now that they're also available via the dedicated
+  // Access Control app) without a frontend rebuild. Defaults closed (both
+  // false) until the backend responds or if the fetch fails.
+  const [navFlags, setNavFlags] = useState({
+    showPermissionCheckerInMainApp: false,
+    showIdentityAuditInMainApp: false,
+  });
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}app-config`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setNavFlags(data); })
+      .catch(() => {}); // fail closed — keep both hidden
+  }, []);
 
   // ── Theme state — persisted in localStorage, applied as data-* on <html> ──
   // Migrate anyone who had the old 'dark' mode saved → 'dim'
@@ -238,6 +256,7 @@ export default function App() {
         isMobile={isMobile}
         collapsed={!isMobile && sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+        navFlags={navFlags}
         theme={theme}
         color={color}
         onThemeChange={setTheme}
@@ -364,6 +383,9 @@ export default function App() {
 
         {/* ── Governance Lifecycle view ── */}
         {currentView === 'governanceLifecycle' && <GovernanceLifecycle />}
+
+        {/* ── Pattern Templates view ── */}
+        {currentView === 'patternTemplates' && <PatternTemplates />}
       </main>
     </div>
   );
