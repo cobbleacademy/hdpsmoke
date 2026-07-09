@@ -214,6 +214,11 @@ services:
       IDENTITY_AUDIT_PROD_DEFAULT_FILTERS: ${IDENTITY_AUDIT_PROD_DEFAULT_FILTERS:-}
       # ── Governance Lifecycle ──────────────────────────────────────────────────
       GOVERNANCE_LIFECYCLE_STORAGE_PATH: /app/data/governance-lifecycle
+      # ── Main app nav flags ────────────────────────────────────────────────────
+      MAIN_APP_SHOW_PERMISSION_CHECKER: ${MAIN_APP_SHOW_PERMISSION_CHECKER:-false}
+      MAIN_APP_SHOW_IDENTITY_AUDIT: ${MAIN_APP_SHOW_IDENTITY_AUDIT:-false}
+      # ── Pattern Templates ─────────────────────────────────────────────────────
+      PATTERN_TEMPLATES_STORAGE_PATH: /app/data/pattern-templates
     volumes:
       # Persistent storage for encrypted payloads and OPA policies
       - payload-storage:/app/data/payloads
@@ -224,6 +229,8 @@ services:
       # Bind mount — Governance Lifecycle config.json written to
       # ./backend/data/governance-lifecycle/ on host, same reasoning as Ranger above.
       - ./backend/data/governance-lifecycle:/app/data/governance-lifecycle
+      # Bind mount — Pattern Templates manifest.json + .mmd files, same reasoning.
+      - ./backend/data/pattern-templates:/app/data/pattern-templates
       # Read-only bind mounts so the backend can serve plain YAML as a fallback
       # before encrypted files are created (migration path / first run).
       - ./frontend/public/payloads:/app/public/payloads:ro
