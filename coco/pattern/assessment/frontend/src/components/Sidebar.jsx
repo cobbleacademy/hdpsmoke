@@ -60,20 +60,30 @@ const NAV_ITEMS = [
     label: 'Permission Checker',
     icon: '🧭',
     description: 'Group access tier evaluation',
-    alwaysOn: true,
+    // Hidden by default now that this is also available via the dedicated
+    // Access Control app — configKey names the /app-config flag that
+    // restores it here. See docs/adr/0018-pattern-templates-and-nav-flags.md.
+    configKey: 'showPermissionCheckerInMainApp',
   },
   {
     id: 'identityAudit',
     label: 'Identity Audit',
     icon: '🔎',
     description: 'Entra group footprint audit',
-    alwaysOn: true,
+    configKey: 'showIdentityAuditInMainApp',
   },
   {
     id: 'governanceLifecycle',
     label: 'Governance Lifecycle',
     icon: '⚖️',
     description: 'ABAC/PlainID policy lifecycle',
+    alwaysOn: true,
+  },
+  {
+    id: 'patternTemplates',
+    label: 'Pattern Templates',
+    icon: '📐',
+    description: 'Mermaid diagram library',
     alwaysOn: true,
   },
 ];
@@ -92,8 +102,14 @@ const COLORS = [
 ];
 
 export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, onToggle, isMobile,
-                                   collapsed, onToggleCollapse,
+                                   collapsed, onToggleCollapse, navFlags,
                                    theme, color, onThemeChange, onColorChange }) {
+  // Items with a configKey are hidden unless the matching /app-config flag
+  // is true — see App.jsx's navFlags fetch. Everything else uses the
+  // existing alwaysOn/needsResult gating, unchanged.
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !item.configKey || navFlags?.[item.configKey]
+  );
   return (
     <>
       {/* Mobile backdrop overlay */}
@@ -135,8 +151,8 @@ export default function Sidebar({ currentView, onNavigate, hasResult, isOpen, on
         <nav style={styles.nav}>
           {!collapsed && <p style={styles.sectionLabel}>NAVIGATION</p>}
 
-          {NAV_ITEMS.map((item) => {
-            const enabled = item.alwaysOn || (item.needsResult && hasResult);
+          {visibleNavItems.map((item) => {
+            const enabled = item.alwaysOn || item.configKey || (item.needsResult && hasResult);
             const active = currentView === item.id;
 
             return (
