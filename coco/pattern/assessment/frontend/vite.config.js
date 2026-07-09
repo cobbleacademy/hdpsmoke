@@ -126,6 +126,16 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/app-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      // Prefix match (not exact) — covers /pattern-templates and
+      // /pattern-templates/:id alike, same treatment as payload-content/:envId.
+      '/api/pattern/assessment/pattern-templates': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
       // ── Access Control (end-user app) — same routers, second mount point ──────
       '/api/access/control/permission-config': {
         target: 'http://localhost:3001',
