@@ -1,0 +1,16 @@
+[
+  {
+    "id": "diagram-000",
+    "name": diagram-000",
+    "description": "diagram-000",
+    "type": "mermaid",
+    "updatedAt": null
+  },
+  {
+    "id": "diagram-001",
+    "name": "diagram-001",
+    "description": "diagram-001",
+    "type": "svg",
+    "updatedAt": null
+  }
+]
