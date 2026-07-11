@@ -29,6 +29,39 @@ backend:
     # Setting this (with or without OPENAI_API_KEY) takes the app out of mock mode
     # for both the assessment explanation and OPA Rego generation.
     OPENAI_BASE_URL: ""
+
+    # ── LLM gateway — per-environment overrides ──────────────────────────────
+    # Shared across every LLM-consuming feature (OPA Generator, Ranger Library,
+    # Identity Audit, Permission Checker) keyed by env label — DEV/NPE/PROD
+    # here, matching ABAC_ENVS/RANGER_ENVS/PERMISSION_ENVS/IDENTITY_AUDIT_ENVS,
+    # which all default to the same three labels. Each var falls back
+    # independently to its global OPENAI_* counterpart above when unset for
+    # that environment (same per-var fallback shape as PROVIDER_{ENV}_API_KEY
+    # falling back to PROVIDER_API_KEY).
+    #
+    # LLM_{ENV}_OPENAI_BASE_URL may contain a literal "{model}" placeholder for
+    # gateways that require the model in the URL path rather than the request
+    # body (e.g. https://<gateway>/chat/{model}) — substituted with the
+    # resolved model (RANGER_LLM_MODEL / OPA_LLM_MODEL / etc.) before the
+    # client is constructed. Omit the placeholder for gateways that take the
+    # model in the request body instead (Ollama, plain OpenAI).
+    #
+    # LLM_{ENV}_OPENAI_EXTRA_HEADERS: JSON object of static headers the
+    # gateway requires on every request (e.g. tenant/auth headers), applied
+    # via the OpenAI SDK's defaultHeaders — no per-call-site header code needed.
+    LLM_DEV_OPENAI_BASE_URL: ""
+    LLM_DEV_OPENAI_API_KEY: ""
+    LLM_DEV_OPENAI_MODEL: ""
+    LLM_DEV_OPENAI_EXTRA_HEADERS: ""
+    LLM_NPE_OPENAI_BASE_URL: ""
+    LLM_NPE_OPENAI_API_KEY: ""
+    LLM_NPE_OPENAI_MODEL: ""
+    LLM_NPE_OPENAI_EXTRA_HEADERS: ""
+    LLM_PROD_OPENAI_BASE_URL: ""
+    LLM_PROD_OPENAI_API_KEY: ""
+    LLM_PROD_OPENAI_MODEL: ""
+    LLM_PROD_OPENAI_EXTRA_HEADERS: ""
+
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
     # NODE_EXTRA_CA_CERTS: path to a PEM bundle of additional trusted CA certs,
