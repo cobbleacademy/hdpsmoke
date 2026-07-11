@@ -46,6 +46,30 @@ spec:
             - name: OPENAI_BASE_URL
               value: {{ .Values.backend.env.OPENAI_BASE_URL | quote }}
             {{- end }}
+
+            # ── LLM gateway — per-environment overrides (DEV/NPE/PROD) ───────
+            # Shared across OPA Generator, Ranger Library, Identity Audit, and
+            # Permission Checker — each falls back to the global OPENAI_* vars
+            # above when unset for that environment.
+            {{- range $env := list "DEV" "NPE" "PROD" }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_BASE_URL" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_BASE_URL
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_BASE_URL" $env) | quote }}
+            {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_API_KEY" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_API_KEY
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_API_KEY" $env) | quote }}
+            {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_MODEL" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_MODEL
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_MODEL" $env) | quote }}
+            {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_EXTRA_HEADERS" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_EXTRA_HEADERS
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_EXTRA_HEADERS" $env) | quote }}
+            {{- end }}
+            {{- end }}
+
             {{- if .Values.backend.env.NODE_EXTRA_CA_CERTS }}
             - name: NODE_EXTRA_CA_CERTS
               value: {{ .Values.backend.env.NODE_EXTRA_CA_CERTS | quote }}
