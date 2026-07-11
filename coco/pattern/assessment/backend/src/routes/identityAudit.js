@@ -39,7 +39,7 @@ router.post('/identity-audit', async (req, res) => {
     }
 
     try {
-      ({ upn, personName, filters, mode } = await parsePrompt(prompt));
+      ({ upn, personName, filters, mode } = await parsePrompt(prompt, { envId }));
     } catch (err) {
       console.error('[identityAudit] Parsing failed:', err.message);
       return res.status(502).json({ error: 'Failed to parse the prompt', code: 'PARSE_ERROR' });

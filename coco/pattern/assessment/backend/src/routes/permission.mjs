@@ -33,7 +33,7 @@ router.post('/check-permission', async (req, res) => {
   let groupId;
   let mode;
   try {
-    ({ userPrincipalName, groupId, mode } = await parsePrompt(prompt));
+    ({ userPrincipalName, groupId, mode } = await parsePrompt(prompt, { envId }));
   } catch (err) {
     console.error('[permission] Parsing failed:', err.message);
     return res.status(502).json({ error: 'Failed to parse the prompt', code: 'PARSE_ERROR' });

@@ -88,7 +88,7 @@ router.post('/ranger-generate', async (req, res) => {
   }
 
   try {
-    const result = await generateRangerPolicy(normalised, { customPrompt });
+    const result = await generateRangerPolicy(normalised, { customPrompt, envId });
     res.json({
       rangerPolicies: result.rangerPolicies,
       builtPrompt:    result.builtPrompt,

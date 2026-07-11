@@ -176,7 +176,7 @@ router.post('/opa-manifest/:envId/node/regenerate', checkWriteAuth, async (req, 
   // 2. Re-generate Rego
   let result;
   try {
-    result = await generateOpaPolicy(fetched.content, { schemaVariant });
+    result = await generateOpaPolicy(fetched.content, { schemaVariant, envId });
   } catch (err) {
     return res.status(500).json({ error: `Rego generation failed: ${err.message}` });
   }
@@ -396,7 +396,7 @@ router.post('/opa-generate', async (req, res) => {
   if (!abacContent) return res.status(400).json({ error: 'No ABAC SQL content resolved.' });
 
   try {
-    const result = await generateOpaPolicy(abacContent, { schemaVariant, customPrompt });
+    const result = await generateOpaPolicy(abacContent, { schemaVariant, customPrompt, envId });
     const ruleCount = countRules(result.regoPolicy);
 
     // Auto-save + manifest update when envId+policyKey provided
