@@ -266,10 +266,10 @@ function stripJsonFences(text) {
  * Ranger policy JSON, along with the prompt used and token usage.
  *
  * @param {string} regoCode    Normalised Rego content
- * @param {{ model?, customPrompt? }} opts
+ * @param {{ model?, customPrompt?, envId? }} opts
  * @returns {{ rangerPolicy: object, builtPrompt: string, tokenUsage: object, mock: boolean }}
  */
-async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
+async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {}) {
   const resolvedModel =
     model ||
     process.env.RANGER_LLM_MODEL ||
@@ -280,7 +280,7 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
   const normalised = normaliseRego(regoCode);
   const prompt = customPrompt || buildRangerPrompt(normalised);
 
-  if (!isLlmConfigured()) {
+  if (!isLlmConfigured({ envId })) {
     return {
       rangerPolicies: buildMockRangerPolicy(normalised),
       builtPrompt:    prompt,
@@ -289,7 +289,7 @@ async function generateRangerPolicy(regoCode, { model, customPrompt } = {}) {
     };
   }
 
-  const response = await getClient().chat.completions.create({
+  const response = await getClient({ envId, model: resolvedModel }).chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 3000,

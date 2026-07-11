@@ -198,10 +198,10 @@ function buildOpaPrompt(abacContent, schemaVariant = 'default', extraHint = '') 
  * OPENAI_BASE_URL) and return the generated Rego policy.
  *
  * @param {string} abacContent     SQL content to convert
- * @param {{ schemaVariant?, model?, customPrompt? }} opts
+ * @param {{ schemaVariant?, model?, customPrompt?, envId? }} opts
  * @returns {{ regoPolicy, builtPrompt, tokenUsage, mock }}
  */
-async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model, customPrompt } = {}) {
+async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model, customPrompt, envId } = {}) {
   const resolvedModel =
     model ||
     process.env.OPA_LLM_MODEL ||
@@ -210,7 +210,7 @@ async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model
 
   const prompt = customPrompt || buildOpaPrompt(abacContent, schemaVariant);
 
-  if (!isLlmConfigured()) {
+  if (!isLlmConfigured({ envId })) {
     return {
       regoPolicy: MOCK_REGO,
       builtPrompt: prompt,
@@ -219,7 +219,7 @@ async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model
     };
   }
 
-  const response = await getClient().chat.completions.create({
+  const response = await getClient({ envId, model: resolvedModel }).chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
     max_tokens: 1500,

@@ -61,10 +61,10 @@ const EXTRACTION_SCHEMA = {
   additionalProperties: false,
 };
 
-async function parseWithLlm(prompt) {
+async function parseWithLlm(prompt, { envId } = {}) {
   const model = process.env.PERMISSION_LLM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-  const response = await getClient().chat.completions.create({
+  const response = await getClient({ envId, model }).chat.completions.create({
     model,
     messages: [
       {
@@ -94,12 +94,12 @@ async function parseWithLlm(prompt) {
  * (regex is also the automatic fallback if USE_LLM=true but the LLM call fails
  * or isn't configured).
  */
-export async function parsePrompt(prompt) {
+export async function parsePrompt(prompt, { envId } = {}) {
   const useLlm = process.env.USE_LLM === 'true';
 
-  if (useLlm && isLlmConfigured()) {
+  if (useLlm && isLlmConfigured({ envId })) {
     try {
-      const parsed = await parseWithLlm(prompt);
+      const parsed = await parseWithLlm(prompt, { envId });
       if (parsed?.userPrincipalName && parsed?.groupId) {
         return { ...parsed, mode: 'llm' };
       }

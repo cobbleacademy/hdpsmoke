@@ -97,8 +97,8 @@ const EXTRACTION_SCHEMA = {
   additionalProperties: false,
 };
 
-async function parseWithLlm(prompt) {
-  const response = await getClient().chat.completions.create({
+async function parseWithLlm(prompt, { envId } = {}) {
+  const response = await getClient({ envId, model: getLlmModel() }).chat.completions.create({
     model: getLlmModel(),
     messages: [
       {
@@ -133,10 +133,10 @@ async function parseWithLlm(prompt) {
  * Exactly one of upn/personName is set when either is extractable; both may
  * be null if the prompt names no user at all.
  */
-async function parsePrompt(prompt) {
-  if (isLlmEnabled() && isLlmConfigured()) {
+async function parsePrompt(prompt, { envId } = {}) {
+  if (isLlmEnabled() && isLlmConfigured({ envId })) {
     try {
-      const parsed = await parseWithLlm(prompt);
+      const parsed = await parseWithLlm(prompt, { envId });
       if (parsed?.upn || parsed?.personName) {
         return { upn: parsed.upn || null, personName: parsed.personName || null, filters: parsed.filters || [], mode: 'llm' };
       }
