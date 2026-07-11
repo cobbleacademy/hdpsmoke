@@ -27,6 +27,19 @@ services:
       NODE_ENV: production
       FRONTEND_URL: "http://localhost:3000"
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # ── LLM gateway — per-environment overrides (DEV/NPE/PROD) ────────────
+      # Shared across OPA Generator, Ranger Library, Identity Audit, and
+      # Permission Checker; each falls back to the global OPENAI_* vars above
+      # when unset for that environment. Only *_MODEL is listed here for
+      # shell-override convenience (same treatment as RANGER_LLM_MODEL below) —
+      # *_BASE_URL / *_API_KEY / *_EXTRA_HEADERS are intentionally left out of
+      # this block and must be set directly in backend/.env (env_file above),
+      # same reason OPENAI_API_KEY/OPENAI_BASE_URL aren't declared here either:
+      # a `${VAR:-}` entry silently blanks a real .env value whenever the host
+      # shell doesn't export that variable.
+      LLM_DEV_OPENAI_MODEL: ${LLM_DEV_OPENAI_MODEL:-}
+      LLM_NPE_OPENAI_MODEL: ${LLM_NPE_OPENAI_MODEL:-}
+      LLM_PROD_OPENAI_MODEL: ${LLM_PROD_OPENAI_MODEL:-}
       # Custom CA bundle for provider endpoints signed by an internal CA
       # (fixes "unable to get local issuer certificate"). See backend/certs/README.md.
       NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
