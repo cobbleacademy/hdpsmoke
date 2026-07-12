@@ -31,6 +31,7 @@ async def decrypt_endpoint(
         request=body,
         app_id=caller.app_id,
         caller_sub=caller.sub,
+        caller_scopes=caller.scopes,
         kek_client=kek_client,
         session=session,
         app_registry=app_registry,
