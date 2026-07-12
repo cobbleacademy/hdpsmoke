@@ -106,11 +106,11 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 900 680" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Encryption Service Architecture — 2-SPN Split</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID, and performs its own independent JWT/end-user authorization.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID. All JWTs (both to PlainID and to the Service) are app-level only — issued to the calling App-ID, not to individual end-users, since minting per-user tokens isn't viable at end-user scale. Each end-user operation carries an explicit end_user_id field in the request itself, used by both PlainID's decision and the Service's own authorization/audit — never derived from the JWT.</desc>
 
-        <rect width="900" height="680" fill="#0f1117" />
+        <rect width="900" height="700" fill="#0f1117" />
 
         <rect x="20" y="20" width="160" height="220" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="100" y="40" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS (N CLIENTS)</text>
@@ -120,8 +120,8 @@ function ArchitectureDiagram() {
         <text x="100" y="116" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App B</text>
         <rect x="35" y="138" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
         <text x="100" y="160" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C …</text>
-        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT (AD group +</text>
-        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">end-user claims)</text>
+        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT (App-ID) +</text>
+        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">end_user_id (request field)</text>
         <text x="100" y="227" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">+ App-ID header</text>
 
         {/* ── PlainID (client-side only) — the client consults this BEFORE
@@ -132,7 +132,7 @@ function ArchitectureDiagram() {
         <text x="310" y="38" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID (CLIENT-SIDE)</text>
         <text x="310" y="50" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">policy decision only</text>
         <rect x="245" y="58" width="130" height="20" rx="4" fill="#22263a" />
-        <text x="310" y="71" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Evaluate AD group + scope</text>
+        <text x="310" y="71" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Evaluate App-ID + end_user_id</text>
         <rect x="245" y="82" width="130" height="20" rx="4" fill="#78350f" />
         <text x="310" y="95" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">Permit / Deny → Client</text>
 
@@ -141,14 +141,14 @@ function ArchitectureDiagram() {
 
         {/* Single continuous call, Client straight to Service — no PlainID hop */}
         <line x1="180" y1="130" x2="440" y2="130" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
-        <text x="310" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS — JWT (end-user) + App-ID, direct</text>
+        <text x="310" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS — JWT (App-ID) + end_user_id, direct</text>
 
         <rect x="440" y="20" width="200" height="325" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
         <text x="540" y="42" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
         <text x="540" y="56" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
 
         <rect x="455" y="63" width="170" height="22" rx="4" fill="#22263a" stroke="#fbbf24" strokeWidth="1" />
-        <text x="540" y="77" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">JWT Validation + End-User AuthZ</text>
+        <text x="540" y="77" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">JWT (App-ID) + end_user_id Check</text>
 
         <rect x="455" y="91" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
         <text x="540" y="109" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
@@ -171,7 +171,7 @@ function ArchitectureDiagram() {
         <text x="540" y="312" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
 
         <rect x="455" y="321" width="170" height="18" rx="4" fill="#78350f" />
-        <text x="540" y="333" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit: EndUser (I/O) / Operator (admin)</text>
+        <text x="540" y="333" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit tags: end_user_id / operator_id</text>
 
         <line x1="640" y1="130" x2="690" y2="130" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
         <text x="665" y="120" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
@@ -251,23 +251,33 @@ function ArchitectureDiagram() {
         <path d="M 200,358 L 420,358 L 420,425 L 440,425" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
         <text x="290" y="372" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
 
-        <rect x="20" y="460" width="400" height="200" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
+        <rect x="20" y="460" width="400" height="224" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="220" y="480" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT PAYLOAD FLOW</text>
 
         <text x="36" y="500" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
         <rect x="36" y="508" width="365" height="60" rx="4" fill="#22263a" />
-        <text x="50" y="522" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, encoding, data_classification, context {'}'}</text>
+        <text x="50" y="522" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, encoding, ..., end_user_id {'}'}</text>
         <text x="50" y="536" fill="#555b7a" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
         <text x="50" y="550" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="562" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
 
         <text x="36" y="582" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} edek_id, owner_app_id, algorithm, iv, ciphertext, tag {'}'}</text>
 
-        <text x="36" y="600" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
-        <rect x="36" y="608" width="365" height="44" rx="4" fill="#22263a" />
-        <text x="50" y="622" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} edek_id, iv, ciphertext, tag {'}'}</text>
-        <text x="50" y="636" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
-        <text x="50" y="648" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed immediately</text>
+        {/* end_user_id is an explicit request field, not derived from the JWT
+            (the JWT is app-level only — minting per-user tokens isn't viable
+            at end-user scale). It's also deliberately NOT in the AAD: grants
+            are app_id-level, not user-level, so binding end_user_id into the
+            AAD would silently break legitimate same-app/cross-grant
+            decryption by any user other than the original encrypter — a
+            stricter, ungoverned access-control axis the grant model has no
+            way to express or unlock. */}
+        <text x="36" y="596" fill="#fbbf24" fontSize="8" fontFamily="monospace">end_user_id: explicit request field (not JWT, not AAD)</text>
+
+        <text x="36" y="614" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
+        <rect x="36" y="622" width="365" height="44" rx="4" fill="#22263a" />
+        <text x="50" y="636" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} edek_id, iv, ciphertext, tag, end_user_id {'}'}</text>
+        <text x="50" y="650" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
+        <text x="50" y="662" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed immediately</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
@@ -298,31 +308,39 @@ function ArchitectureDiagram() {
 // Plain text/numbered lists by design (not diagram SVGs) — meant to be
 // copy-pasted directly into a design doc or handed to any team.
 //
+// JWTs are APP-LEVEL ONLY, everywhere — issued to the calling App-ID, never
+// to individual end-users (minting per-user tokens isn't viable at
+// end-user scale — thousands of end-users, one app credential). Every
+// end-user operation instead carries an explicit end_user_id field in the
+// request itself. Both PlainID's PBAC decision and the Encryption Service's
+// own authorization/audit consume that same field — never derived from the
+// JWT, which only ever proves the App-ID.
+//
 // PlainID/PBAC (Policy Check) is CLIENT-SIDE ONLY — the client consults it
 // directly and independently, before ever calling the Encryption Service. It
 // is not middleware in front of the service; the service has no visibility
 // into or dependency on it. The Service performs its OWN, separate
-// authorization (JWT validation + end-user identity extraction) once the
-// client calls it — this is the actual security boundary, since the call
-// arrives under the Client SPN and would otherwise be indistinguishable
-// per-end-user without the Service reading the JWT itself.
+// authorization (validate the app JWT + check the end_user_id request
+// field) once the client calls it — this is the actual security boundary,
+// since the call arrives under the Client SPN and would otherwise be
+// indistinguishable per-end-user without that explicit field.
 const FLOWS = [
   {
     title: '1. Policy Check',
     color: '#f59e0b',
     steps: [
-      'Client app authenticates via its own identity flow and obtains a JWT carrying an AD group claim identifying its entitlement group.',
-      'Client sends a decision request to PlainID (AD group claim + App-ID). This exchange is entirely client-side — the Encryption Service is not involved and has no visibility into it.',
-      'PlainID evaluates its PBAC policy against the AD group + App-ID for the requested action/resource class.',
+      'Client app authenticates as itself and obtains an app-level JWT (App-ID) — not a per-end-user token; the same app JWT is reused across all of that app\'s calls, for every end-user.',
+      'Client sends a decision request to PlainID: its app JWT (App-ID) plus an explicit end_user_id field identifying which end-user the action is for. This exchange is entirely client-side — the Encryption Service is not involved and has no visibility into it.',
+      'PlainID evaluates its PBAC policy against the App-ID and end_user_id for the requested action/resource class.',
       'If denied: PlainID returns Deny to the Client, which aborts — no call is ever made to the Encryption Service.',
-      'If permitted: PlainID returns Permit, and the Client independently calls the Encryption Service directly (Encrypt or Decrypt below), presenting its own JWT for the Service\'s own, separate authorization.',
+      'If permitted: PlainID returns Permit, and the Client independently calls the Encryption Service directly (Encrypt or Decrypt below), presenting its own app JWT + the same end_user_id field for the Service\'s own, separate authorization.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'plainid', label: 'PlainID' },
     ],
     messages: [
-      { from: 'client', to: 'plainid', label: 'AD group claim + App-ID → decision request', stepNum: '1–2' },
+      { from: 'client', to: 'plainid', label: 'App JWT (App-ID) + end_user_id → decision request', stepNum: '1–2' },
       { from: 'plainid', to: 'plainid', self: true, label: 'Evaluate PBAC policy', stepNum: 3 },
       { from: 'plainid', to: 'client', dashed: true, label: 'Deny → Client aborts, no call made', stepNum: 4 },
       { from: 'plainid', to: 'client', label: 'Permit → Client proceeds independently', stepNum: 5 },
@@ -332,13 +350,13 @@ const FLOWS = [
     title: '2. Encrypt',
     color: '#10b981',
     steps: [
-      'Client calls POST /encrypt directly (having independently obtained Permit from PlainID above), presenting its own Bearer JWT (carrying end-user identity) + App-ID header.',
-      'Encryption Service validates the JWT itself and extracts the App-ID and end-user identity from it — independent of PlainID, since the Service has no visibility into that exchange. This is the Service\'s own, separate authorization layer.',
+      'Client calls POST /encrypt directly (having independently obtained Permit from PlainID above), presenting its own app-level Bearer JWT (App-ID) + an explicit end_user_id field in the request body + App-ID header.',
+      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request — independent of PlainID, since the Service has no visibility into that exchange. This is the Service\'s own, separate authorization layer; end_user_id is never derived from the JWT.',
       'Encryption Service generates a new Data Encryption Key (DEK) and a random IV.',
       'Encryption Service encrypts the plaintext locally using AES-256-GCM with the DEK.',
       'Encryption Service calls Azure Key Vault — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
       'Encryption Service persists the EDEK plus metadata (owner app_id, algorithm, key version) to the EDEK Store (PostgreSQL).',
-      'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log — tagged with both the Client (App-ID) and the end-user identity extracted above, since the call itself arrives under the Client SPN and wouldn\'t otherwise be attributable to a specific end-user.',
+      'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request, since the call itself arrives under the Client SPN and wouldn\'t otherwise be attributable to a specific end-user.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -347,8 +365,8 @@ const FLOWS = [
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /encrypt — JWT (end-user) + App-ID (direct)', stepNum: 6 },
-      { from: 'service', to: 'service', self: true, label: 'Validate JWT + extract end-user identity', stepNum: 7 },
+      { from: 'client', to: 'service', label: 'POST /encrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 6 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 7 },
       { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV, AES-256-GCM encrypt', stepNum: '8–9' },
       { from: 'service', to: 'keyvault', label: 'wrap(DEK) — Service SPN', stepNum: 10 },
       { from: 'keyvault', to: 'service', label: 'EDEK', stepNum: 10 },
@@ -360,13 +378,13 @@ const FLOWS = [
     title: '3. Decrypt',
     color: '#f87171',
     steps: [
-      'Client calls POST /decrypt directly (having independently obtained Permit from PlainID above), presenting ciphertext + edek_id + its own Bearer JWT (carrying end-user identity) + App-ID header.',
-      'Encryption Service validates the JWT itself and extracts the App-ID and end-user identity — its own authorization layer, independent of PlainID.',
+      'Client calls POST /decrypt directly (having independently obtained Permit from PlainID above), presenting ciphertext + edek_id + its own app-level Bearer JWT (App-ID) + an explicit end_user_id field + App-ID header.',
+      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request — its own authorization layer, independent of PlainID.',
       'Encryption Service looks up the EDEK record by edek_id in the EDEK Store, and verifies the requesting app_id matches the owner (or holds an active grant).',
-      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end-user).',
+      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end_user_id).',
       'Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
       'Encryption Service decrypts the ciphertext locally using the unwrapped DEK and the stored IV (AES-256-GCM).',
-      'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log — tagged with both the Client (App-ID) and the end-user identity.',
+      'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -375,8 +393,8 @@ const FLOWS = [
       { id: 'keyvault', label: 'Key Vault' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (end-user) + App-ID (direct)', stepNum: 13 },
-      { from: 'service', to: 'service', self: true, label: 'Validate JWT + extract end-user identity', stepNum: 14 },
+      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 13 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 14 },
       { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 15 },
       { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 15 },
       { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 16 },
@@ -498,9 +516,9 @@ function OverviewSequenceDiagram() {
   // The Client independently calls the Service afterward as a separate,
   // unrelated arrow (row 3), not a continuation/forward from PlainID.
   const mainRows = [
-    { from: 'client', to: 'plainid', label: '1. Policy Check — AD group claim + App-ID', color: '#f59e0b' },
+    { from: 'client', to: 'plainid', label: '1. Policy Check — App JWT (App-ID) + end_user_id', color: '#f59e0b' },
     { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#f59e0b' },
-    { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — JWT (end-user) + App-ID (direct)', color: '#a78bfa' },
+    { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — JWT (App-ID) + end_user_id (direct)', color: '#a78bfa' },
     { from: 'service', to: 'keyvault', label: '4. wrap/unwrap — Service SPN', color: '#a78bfa' },
     { from: 'service', to: 'edek', label: '5. persist / lookup EDEK', color: '#38bdf8' },
     { from: 'service', to: 'client', label: '6. Result: ciphertext / plaintext', color: '#a78bfa' },
