@@ -19,6 +19,7 @@ async def decrypt(
     request: DecryptRequest,
     app_id: str,
     caller_sub: str,
+    caller_scopes: list[str],
     kek_client: KEKClient,
     session: AsyncSession,
     app_registry: AppRegistry,
@@ -31,11 +32,14 @@ async def decrypt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "EDEK not found")
 
     owner_app_id = record.app_id
-    if not await app_registry.is_granted(grantee_app_id=app_id, owner_app_id=owner_app_id):
-        # Do not reveal whether the EDEK exists for a different app
-        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
-                     "no_grant_for_owner", owner_app_id=owner_app_id)
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+    # Governance SPN bypasses the per-record grant check — it may decrypt any record
+    # for audit purposes. All other callers must have an explicit grant.
+    if "governance" not in caller_scopes:
+        if not await app_registry.is_granted(grantee_app_id=app_id, owner_app_id=owner_app_id):
+            # Do not reveal whether the EDEK exists for a different app
+            _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
+                         "no_grant_for_owner", owner_app_id=owner_app_id)
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
     edek_bytes = base64.b64decode(record.edek_blob)
     dek = bytearray(await kek_client.unwrap_dek(edek_bytes, record.kek_version))
