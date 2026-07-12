@@ -49,18 +49,31 @@ backend:
     # LLM_{ENV}_OPENAI_EXTRA_HEADERS: JSON object of static headers the
     # gateway requires on every request (e.g. tenant/auth headers), applied
     # via the OpenAI SDK's defaultHeaders — no per-call-site header code needed.
+    #
+    # LLM_{ENV}_OPENAI_OMIT_TEMPERATURE / LLM_{ENV}_OPENAI_MAX_TOKENS_PARAM:
+    # OPA Generator and Ranger Library send temperature + a token-limit param
+    # on every call. Reasoning-class models (o1/o3/gpt-5-style) reject
+    # temperature outright and require max_completion_tokens instead of
+    # max_tokens — set these per env if that env's gateway/model is
+    # reasoning-class; leave blank for classic chat-completions models.
     LLM_DEV_OPENAI_BASE_URL: ""
     LLM_DEV_OPENAI_API_KEY: ""
     LLM_DEV_OPENAI_MODEL: ""
     LLM_DEV_OPENAI_EXTRA_HEADERS: ""
+    LLM_DEV_OPENAI_OMIT_TEMPERATURE: ""
+    LLM_DEV_OPENAI_MAX_TOKENS_PARAM: ""
     LLM_NPE_OPENAI_BASE_URL: ""
     LLM_NPE_OPENAI_API_KEY: ""
     LLM_NPE_OPENAI_MODEL: ""
     LLM_NPE_OPENAI_EXTRA_HEADERS: ""
+    LLM_NPE_OPENAI_OMIT_TEMPERATURE: ""
+    LLM_NPE_OPENAI_MAX_TOKENS_PARAM: ""
     LLM_PROD_OPENAI_BASE_URL: ""
     LLM_PROD_OPENAI_API_KEY: ""
     LLM_PROD_OPENAI_MODEL: ""
     LLM_PROD_OPENAI_EXTRA_HEADERS: ""
+    LLM_PROD_OPENAI_OMIT_TEMPERATURE: ""
+    LLM_PROD_OPENAI_MAX_TOKENS_PARAM: ""
 
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
