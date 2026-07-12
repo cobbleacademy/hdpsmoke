@@ -222,7 +222,7 @@
           <line x1="183" y1="83" x2="200" y2="83" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
           <!-- PBAC decision returns to client; client then calls the service directly with its own Bearer JWT -->
           <path d="M 99 162 L 99 215 L 230 215" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-blue)"/>
-          <text x="160" y="209" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">Bearer JWT  ·  client calls after PBAC ALLOW</text>
+          <text x="160" y="209" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">Bearer JWT + end_user_id  ·  client calls after PBAC ALLOW</text>
           <!-- Arrow: PlainID DENY → BLOCKED dead-end -->
           <line x1="368" y1="89" x2="438" y2="89" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-red)"/>
           <rect x="440" y="78" width="68" height="22" rx="4" fill="#3a1a1a" stroke="#ef4444" stroke-width="1"/>
@@ -306,14 +306,14 @@
           <text x="220" y="640" text-anchor="middle" fill="#8b92b8" font-size="10" letter-spacing="1" font-family="monospace">ENCRYPT PAYLOAD FLOW</text>
           <text x="36" y="660" fill="#10b981" font-size="10" font-family="monospace">Encrypt:</text>
           <rect x="36" y="668" width="365" height="60" rx="4" fill="#22263a"/>
-          <text x="50" y="682" fill="#555b7a" font-size="9" font-family="monospace">Request:  { plaintext, encoding, data_classification, context }</text>
+          <text x="50" y="682" fill="#555b7a" font-size="9" font-family="monospace">Request:  { plaintext, encoding, data_classification, end_user_id, context }</text>
           <text x="50" y="696" fill="#555b7a" font-size="9" font-family="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
           <text x="50" y="710" fill="#555b7a" font-size="9" font-family="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
           <text x="50" y="722" fill="#555b7a" font-size="9" font-family="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
           <text x="36" y="742" fill="#cdd2f0" font-size="9" font-family="monospace">Response: { edek_id, owner_app_id, algorithm, iv, ciphertext, tag }</text>
           <text x="36" y="760" fill="#f87171" font-size="10" font-family="monospace">Decrypt:</text>
           <rect x="36" y="768" width="365" height="54" rx="4" fill="#22263a"/>
-          <text x="50" y="782" fill="#555b7a" font-size="9" font-family="monospace">Request:   { edek_id, iv, ciphertext, tag }</text>
+          <text x="50" y="782" fill="#555b7a" font-size="9" font-family="monospace">Request:   { edek_id, iv, ciphertext, tag, end_user_id }</text>
           <text x="50" y="796" fill="#555b7a" font-size="9" font-family="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
           <text x="50" y="808" fill="#555b7a" font-size="9" font-family="monospace">Response:  { plaintext, owner_app_id }  DEK zeroed immediately</text>
           <!-- ── AUDITOR SPN ─────────────────────────────────────────────────── -->
@@ -448,7 +448,7 @@
           <rect x="10" y="108" width="830" height="216" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
           <text x="18" y="121" fill="#10b981" font-size="9" font-family="monospace" letter-spacing="1">ENCRYPT FLOW</text>
           <line x1="75" y1="135" x2="396" y2="135" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
-          <text x="235" y="130" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">3. POST /encrypt  { plaintext, encoding, data_classification }</text>
+          <text x="235" y="130" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">3. POST /encrypt  { plaintext, encoding, data_classification, end_user_id }</text>
           <path d="M 400 149 L 428 149 L 428 167 L 404 167" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
           <text x="432" y="161" fill="#a78bfa" font-size="8" font-family="monospace">4. validate JWT · app_id · scope=encrypt</text>
           <line x1="400" y1="182" x2="561" y2="182" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
@@ -462,7 +462,7 @@
           <line x1="720" y1="260" x2="404" y2="260" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
           <text x="558" y="255" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">9. edek_id  (UUID)</text>
           <path d="M 400 274 L 428 274 L 428 292 L 404 292" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="432" y="286" fill="#a78bfa" font-size="8" font-family="monospace">10. audit_log → Splunk / SIEM</text>
+          <text x="432" y="286" fill="#a78bfa" font-size="8" font-family="monospace">10. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
           <line x1="400" y1="308" x2="79" y2="308" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
           <text x="235" y="303" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">11. { edek_id, owner_app_id, iv, ciphertext, tag }</text>
 
@@ -470,7 +470,7 @@
           <rect x="10" y="330" width="830" height="250" rx="5" fill="#140505" stroke="#f87171" stroke-width="0.6"/>
           <text x="18" y="343" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">DECRYPT FLOW</text>
           <line x1="75" y1="357" x2="396" y2="357" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
-          <text x="235" y="352" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { edek_id, iv, ciphertext, tag }</text>
+          <text x="235" y="352" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { edek_id, iv, ciphertext, tag, end_user_id }</text>
           <line x1="400" y1="373" x2="716" y2="373" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
           <text x="558" y="368" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">13. SELECT edek_record WHERE id = edek_id</text>
           <line x1="720" y1="389" x2="404" y2="389" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
@@ -484,7 +484,7 @@
           <path d="M 400 466 L 428 466 L 428 484 L 404 484" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
           <text x="432" y="478" fill="#a78bfa" font-size="8" font-family="monospace">18. AES-256-GCM decrypt · zero DEK immediately</text>
           <path d="M 400 498 L 428 498 L 428 516 L 404 516" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="432" y="510" fill="#a78bfa" font-size="8" font-family="monospace">19. audit_log → Splunk / SIEM</text>
+          <text x="432" y="510" fill="#a78bfa" font-size="8" font-family="monospace">19. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
           <line x1="400" y1="532" x2="79" y2="532" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
           <text x="235" y="527" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">20. { plaintext, owner_app_id }  — DEK zeroed in memory</text>
 
