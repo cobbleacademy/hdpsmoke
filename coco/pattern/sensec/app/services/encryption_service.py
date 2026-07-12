@@ -44,6 +44,7 @@ async def encrypt(
         "encrypt",
         app_id=app_id,
         sub=caller_sub,
+        end_user_id=request.end_user_id,
         edek_id=str(record.edek_id),
         kek_version=kek_version,
         data_classification=request.data_classification,

@@ -28,7 +28,8 @@ async def decrypt(
     record: EDEKRecord | None = await session.get(EDEKRecord, request.edek_id)
 
     if record is None:
-        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "edek_not_found")
+        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "edek_not_found",
+                    end_user_id=request.end_user_id)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "EDEK not found")
 
     owner_app_id = record.app_id
@@ -38,7 +39,7 @@ async def decrypt(
         if not await app_registry.is_granted(grantee_app_id=app_id, owner_app_id=owner_app_id):
             # Do not reveal whether the EDEK exists for a different app
             _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
-                         "no_grant_for_owner", owner_app_id=owner_app_id)
+                         "no_grant_for_owner", owner_app_id=owner_app_id, end_user_id=request.end_user_id)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
     edek_bytes = base64.b64decode(record.edek_blob)
@@ -53,7 +54,8 @@ async def decrypt(
             app_id=owner_app_id,   # AAD must match what the owner used at encrypt time
         )
     except InvalidTag:
-        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "tag_verification_failed")
+        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "tag_verification_failed",
+                    end_user_id=request.end_user_id)
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ciphertext authentication failed")
     finally:
         dek_manager.zero_dek(dek)
@@ -63,6 +65,7 @@ async def decrypt(
         app_id=app_id,
         owner_app_id=owner_app_id,
         sub=caller_sub,
+        end_user_id=request.end_user_id,
         edek_id=str(request.edek_id),
         kek_version=record.kek_version,
         caller_ip=caller_ip,
