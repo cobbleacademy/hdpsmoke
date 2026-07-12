@@ -107,33 +107,35 @@ function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 900 680" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
-        <title>HSM Encryption Service Architecture</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern</desc>
+        <title>HSM Encryption Service Architecture — 2-SPN Split</title>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service and its PlainID/PBAC gate entirely, audited via KV Diagnostic Logs).</desc>
 
         <rect width="900" height="680" fill="#0f1117" />
 
         <rect x="20" y="20" width="160" height="220" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
-        <text x="100" y="40" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS</text>
+        <text x="100" y="40" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS (N CLIENTS)</text>
         <rect x="35" y="50" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
         <text x="100" y="72" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App A</text>
         <rect x="35" y="94" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
         <text x="100" y="116" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App B</text>
         <rect x="35" y="138" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
-        <text x="100" y="160" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C</text>
-        <text x="100" y="205" textAnchor="middle" fill="#555b7a" fontSize="10" fontFamily="monospace">Bearer JWT</text>
-        <text x="100" y="218" textAnchor="middle" fill="#555b7a" fontSize="10" fontFamily="monospace">+ App-ID header</text>
+        <text x="100" y="160" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C …</text>
+        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT +</text>
+        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AD group claim</text>
+        <text x="100" y="227" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">+ App-ID header</text>
 
         <line x1="180" y1="130" x2="230" y2="130" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
         <text x="205" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS</text>
 
         <rect x="230" y="60" width="160" height="140" rx="8" fill="#1a1d27" stroke="#f59e0b" strokeWidth="1.5" />
-        <text x="310" y="80" textAnchor="middle" fill="#f59e0b" fontSize="10" letterSpacing="1" fontFamily="monospace">AUTH MIDDLEWARE</text>
-        <rect x="245" y="90" width="130" height="24" rx="4" fill="#22263a" />
-        <text x="310" y="106" textAnchor="middle" fill="#cdd2f0" fontSize="10" fontFamily="monospace">JWT Validation</text>
-        <rect x="245" y="120" width="130" height="24" rx="4" fill="#22263a" />
-        <text x="310" y="136" textAnchor="middle" fill="#cdd2f0" fontSize="10" fontFamily="monospace">App-ID + Grant Check</text>
-        <rect x="245" y="150" width="130" height="24" rx="4" fill="#22263a" />
-        <text x="310" y="166" textAnchor="middle" fill="#cdd2f0" fontSize="10" fontFamily="monospace">Scope Enforcement</text>
+        <text x="310" y="78" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID / PBAC GATE</text>
+        <text x="310" y="89" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">evaluated on every call</text>
+        <rect x="245" y="94" width="130" height="22" rx="4" fill="#22263a" />
+        <text x="310" y="108" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">JWT + AD Group Check</text>
+        <rect x="245" y="122" width="130" height="22" rx="4" fill="#22263a" />
+        <text x="310" y="136" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">App-ID + Grant Check</text>
+        <rect x="245" y="150" width="130" height="22" rx="4" fill="#22263a" />
+        <text x="310" y="164" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Scope Enforcement</text>
         <rect x="245" y="178" width="130" height="16" rx="4" fill="#78350f" />
         <text x="310" y="190" textAnchor="middle" fill="#fbbf24" fontSize="9" fontFamily="monospace">Audit Log → SIEM</text>
 
@@ -165,6 +167,8 @@ function ArchitectureDiagram() {
 
         <line x1="640" y1="130" x2="690" y2="130" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
         <text x="665" y="120" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
+        <rect x="633" y="135" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
+        <text x="665" y="146" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">SVC SPN</text>
 
         <rect x="690" y="60" width="190" height="200" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
         <text x="785" y="82" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
@@ -213,6 +217,32 @@ function ArchitectureDiagram() {
         <line x1="785" y1="310" x2="785" y2="260" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
         <line x1="690" y1="365" x2="640" y2="410" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
 
+        {/* ── Auditor SPN — second SPN, read-only, bypasses the service entirely ── */}
+        <rect x="20" y="260" width="180" height="180" rx="8" fill="#1a1d27" stroke="#f43f5e" strokeWidth="1.5" />
+        <text x="110" y="280" textAnchor="middle" fill="#f43f5e" fontSize="10" letterSpacing="1" fontFamily="monospace">AUDITOR SPN</text>
+        <text x="110" y="292" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">read-only · bypasses service</text>
+
+        <rect x="35" y="302" width="150" height="22" rx="4" fill="#22263a" />
+        <text x="110" y="316" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">KV Metadata (read-only)</text>
+
+        <rect x="35" y="330" width="150" height="22" rx="4" fill="#22263a" />
+        <text x="110" y="344" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">EDEK Store (read-only)</text>
+
+        <rect x="35" y="358" width="150" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
+        <text x="110" y="371" textAnchor="middle" fill="#fca5a5" fontSize="8" fontFamily="monospace">→ KV Diagnostic Logs</text>
+
+        <rect x="35" y="382" width="150" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
+        <text x="110" y="395" textAnchor="middle" fill="#fca5a5" fontSize="7" fontFamily="monospace">Governance Scope: BYPASS</text>
+
+        {/* Dashed bypass paths — route through the empty corridor between the
+            Encryption Service (bottom edge y=300) and EDEK Store (top edge
+            y=340), never touching the service or the PlainID/PBAC gate. */}
+        <path d="M 200,300 L 660,300 L 660,160 L 690,160" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="430" y="294" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — KV metadata read</text>
+
+        <path d="M 200,320 L 420,320 L 420,400 L 440,400" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="290" y="334" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
+
         <rect x="20" y="460" width="400" height="200" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="220" y="480" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT PAYLOAD FLOW</text>
 
@@ -247,19 +277,342 @@ function ArchitectureDiagram() {
           <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#fb923c" />
           </marker>
+          <marker id="arr-red" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#f43f5e" />
+          </marker>
         </defs>
       </svg>
     </div>
   );
 }
 
+// ── Flows tab — 24-step numbered sequence across the 4 request flows ──────────
+// Plain text/numbered lists by design (not diagram SVGs) — meant to be
+// copy-pasted directly into a design doc or handed to any team, per the
+// 2-SPN split: steps 1-18 go through the Service SPN + PlainID/PBAC gate;
+// steps 19-24 are the Auditor SPN's independent, gate-bypassing path.
+const FLOWS = [
+  {
+    title: '1. Policy Check',
+    color: '#f59e0b',
+    steps: [
+      'Client app authenticates via its own identity flow and obtains a JWT; the JWT carries an AD group claim identifying the caller\'s entitlement group.',
+      'Client sends the request to the Encryption Service with a Bearer JWT + App-ID header.',
+      'PlainID/PBAC gate validates the JWT signature and expiry.',
+      'Gate extracts the App-ID and AD group claim, and evaluates the PlainID/PBAC policy — is this app/group entitled to this action on this resource class?',
+      'If denied: request is rejected (403) and the attempt is recorded in the Encryption Service\'s own audit_log → SIEM.',
+      'If permitted: the request proceeds to the target operation (Encrypt or Decrypt) carrying the validated identity/scope context. This gate runs before every call — there is no path to Encrypt/Decrypt that skips it.',
+    ],
+    actors: [
+      { id: 'client', label: 'Client' },
+      { id: 'gate', label: 'PBAC Gate' },
+      { id: 'target', label: 'Encrypt/Decrypt' },
+    ],
+    messages: [
+      { from: 'client', to: 'gate', label: 'JWT (AD group claim) + App-ID', stepNum: '1–2' },
+      { from: 'gate', to: 'gate', self: true, label: 'Validate JWT sig/expiry', stepNum: 3 },
+      { from: 'gate', to: 'gate', self: true, label: 'Evaluate PBAC: App-ID + AD group', stepNum: 4 },
+      { from: 'gate', to: 'client', dashed: true, label: '403 Deny → audit_log', stepNum: 5 },
+      { from: 'gate', to: 'target', label: 'Forward w/ validated scope', stepNum: 6 },
+    ],
+  },
+  {
+    title: '2. Encrypt',
+    color: '#10b981',
+    steps: [
+      'Client calls POST /encrypt with the plaintext payload, having already passed the Policy Check above.',
+      'Encryption Service generates a new Data Encryption Key (DEK) and a random IV.',
+      'Encryption Service encrypts the plaintext locally using AES-256-GCM with the DEK.',
+      'Encryption Service calls Azure Key Vault — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
+      'Encryption Service persists the EDEK plus metadata (owner app_id, algorithm, key version) to the EDEK Store (PostgreSQL).',
+      'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log.',
+    ],
+    actors: [
+      { id: 'client', label: 'Client' },
+      { id: 'service', label: 'Encryption Svc' },
+      { id: 'keyvault', label: 'Key Vault' },
+      { id: 'edek', label: 'EDEK Store' },
+    ],
+    messages: [
+      { from: 'client', to: 'service', label: 'POST /encrypt (plaintext)', stepNum: 7 },
+      { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV', stepNum: 8 },
+      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM encrypt', stepNum: 9 },
+      { from: 'service', to: 'keyvault', label: 'wrap(DEK) — Service SPN', stepNum: 10 },
+      { from: 'keyvault', to: 'service', label: 'EDEK', stepNum: 10 },
+      { from: 'service', to: 'edek', label: 'persist EDEK + metadata', stepNum: 11 },
+      { from: 'service', to: 'client', label: 'ciphertext + edek_id', stepNum: 12 },
+    ],
+  },
+  {
+    title: '3. Decrypt',
+    color: '#f87171',
+    steps: [
+      'Client calls POST /decrypt with the ciphertext + edek_id, having already passed the Policy Check above.',
+      'Encryption Service looks up the EDEK record by edek_id in the EDEK Store, and verifies the requesting app_id matches the owner (or holds an active grant).',
+      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log.',
+      'Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
+      'Encryption Service decrypts the ciphertext locally using the unwrapped DEK and the stored IV (AES-256-GCM).',
+      'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log.',
+    ],
+    actors: [
+      { id: 'client', label: 'Client' },
+      { id: 'service', label: 'Encryption Svc' },
+      { id: 'edek', label: 'EDEK Store' },
+      { id: 'keyvault', label: 'Key Vault' },
+    ],
+    messages: [
+      { from: 'client', to: 'service', label: 'POST /decrypt (edek_id, ciphertext)', stepNum: 13 },
+      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 14 },
+      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 14 },
+      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership', stepNum: 15 },
+      { from: 'service', to: 'keyvault', label: 'unwrap(EDEK) — Service SPN', stepNum: 16 },
+      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 16 },
+      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 17 },
+      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed)', stepNum: 18 },
+    ],
+  },
+  {
+    title: '4. Audit / Scan',
+    color: '#f43f5e',
+    steps: [
+      'Auditor — a separate identity/tool, not an app client — authenticates directly to Azure AD using the Auditor SPN, a distinct service principal from the Service SPN, scoped to read-only permissions only.',
+      'Auditor calls Azure Key Vault directly — bypassing the Encryption Service entirely — to read KEK metadata: version history, rotation timestamps, and access policies, via read-only Key Vault RBAC scoped to the Auditor SPN.',
+      'Every Auditor SPN call against Key Vault is captured automatically by Key Vault\'s own Diagnostic Logs (Azure Monitor/Log Analytics) — not the Encryption Service\'s audit_log, since the Auditor SPN never touches the service.',
+      'Auditor separately connects directly to the EDEK Store (PostgreSQL) using a read-only database role — again bypassing the Encryption Service — to scan EDEK records (owner app_id, algorithm, key version, timestamps) for compliance reporting.',
+      'Auditor cross-references KV Diagnostic Logs with the EDEK Store scan results to reconcile key usage and rotation compliance (e.g. flagging EDEKs still wrapped under a retired KEK version).',
+      'Findings are compiled into a compliance/audit report — entirely outside the Encryption Service\'s own audit_log and PlainID/PBAC governance scope, by design, so oversight isn\'t mediated (or potentially blocked) by the same service being audited.',
+    ],
+    actors: [
+      { id: 'auditor', label: 'Auditor SPN' },
+      { id: 'keyvault', label: 'Key Vault' },
+      { id: 'edek', label: 'EDEK Store' },
+    ],
+    messages: [
+      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 19 },
+      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 20 },
+      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 21 },
+      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 22 },
+      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 22 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 23 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 24 },
+    ],
+  },
+];
+
+// Generic sequence-diagram renderer — actors as lifelines, messages drawn
+// top-to-bottom in order. Self-messages (self:true) render as a small loop
+// back onto the same lifeline (internal processing, no other actor involved).
+// Dashed messages (dashed:true) use the shared red marker regardless of the
+// flow's own color, to visually flag deny/bypass paths consistently.
+function SequenceDiagram({ actors, messages, color, markerId }) {
+  const width = 860;
+  const laneGap = width / (actors.length + 1);
+  const xFor = (i) => laneGap * (i + 1);
+  const topY = 34;
+  const rowH = 38;
+  const bottomY = topY + messages.length * rowH + 16;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${bottomY + 12}`} style={s.seqSvg} role="img">
+      <title>Sequence diagram</title>
+      <rect width={width} height={bottomY + 12} fill="#0f1117" rx="8" />
+
+      {actors.map((a, i) => (
+        <g key={a.id}>
+          <rect x={xFor(i) - 58} y={6} width={116} height={24} rx={5} fill="#22263a" stroke={color} strokeWidth="1" />
+          <text x={xFor(i)} y={22} textAnchor="middle" fill={color} fontSize="9" fontFamily="monospace">{a.label}</text>
+          <line x1={xFor(i)} y1={30} x2={xFor(i)} y2={bottomY} stroke="#2d3148" strokeWidth="1" strokeDasharray="3,3" />
+        </g>
+      ))}
+
+      {messages.map((m, idx) => {
+        const y = topY + 26 + idx * rowH;
+        const stroke = m.dashed ? '#f43f5e' : color;
+        const marker = m.dashed ? `url(#${markerId}-deny)` : `url(#${markerId})`;
+        if (m.self) {
+          const x = xFor(actors.findIndex((a) => a.id === m.from));
+          return (
+            <g key={idx}>
+              <path d={`M ${x},${y} q 42,0 42,13 q 0,13 -42,13`} fill="none" stroke={stroke} strokeWidth="1.2" strokeDasharray={m.dashed ? '4,3' : undefined} markerEnd={marker} />
+              <text x={x + 10} y={y - 5} fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum}. {m.label}</text>
+            </g>
+          );
+        }
+        const x1 = xFor(actors.findIndex((a) => a.id === m.from));
+        const x2 = xFor(actors.findIndex((a) => a.id === m.to));
+        return (
+          <g key={idx}>
+            <line x1={x1} y1={y} x2={x2} y2={y} stroke={stroke} strokeWidth="1.2" strokeDasharray={m.dashed ? '4,3' : undefined} markerEnd={marker} />
+            <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum}. {m.label}</text>
+          </g>
+        );
+      })}
+
+      <defs>
+        <marker id={markerId} markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto">
+          <polygon points="0 0, 7 3, 0 6" fill={color} />
+        </marker>
+        <marker id={`${markerId}-deny`} markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto">
+          <polygon points="0 0, 7 3, 0 6" fill="#f43f5e" />
+        </marker>
+      </defs>
+    </svg>
+  );
+}
+
+// ── End-to-end overview — condensed macro-view, not a 24-step merge ──────────
+// Deliberately NOT all 24 individual messages: past ~8-10 arrows across 6
+// lifelines a sequence diagram stops being readable. This shows the 4 flows
+// as macro-phases instead, with Audit/Scan visually separated by a divider
+// to make clear it's an independent, out-of-band process — not step 6 of
+// the same request lifecycle as Policy Check → Encrypt/Decrypt.
+function OverviewSequenceDiagram() {
+  const width = 1000;
+  const actors = [
+    { id: 'client', label: 'Client' },
+    { id: 'gate', label: 'PBAC Gate' },
+    { id: 'service', label: 'Encryption Svc' },
+    { id: 'keyvault', label: 'Key Vault' },
+    { id: 'edek', label: 'EDEK Store' },
+    { id: 'auditor', label: 'Auditor SPN' },
+  ];
+  const laneGap = width / (actors.length + 1);
+  const xFor = (i) => laneGap * (i + 1);
+
+  const mainRows = [
+    { from: 'client', to: 'gate', label: '1. Policy Check — JWT (AD group claim) + App-ID', color: '#f59e0b' },
+    { from: 'gate', to: 'service', label: '2. Permit → forward (Encrypt or Decrypt)', color: '#f59e0b' },
+    { from: 'service', to: 'keyvault', label: '3. wrap/unwrap — Service SPN', color: '#a78bfa' },
+    { from: 'service', to: 'edek', label: '4. persist / lookup EDEK', color: '#38bdf8' },
+    { from: 'service', to: 'client', label: '5. Result: ciphertext / plaintext', color: '#a78bfa' },
+  ];
+  const auditRows = [
+    { from: 'auditor', to: 'keyvault', label: '6. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'edek', label: '7. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
+  ];
+
+  const topY = 34;
+  const rowH = 42;
+  const dividerH = 32;
+  const mainBottom = topY + 26 + mainRows.length * rowH;
+  const dividerY = mainBottom + dividerH / 2;
+  const auditTop = mainBottom + dividerH;
+  const bottomY = auditTop + auditRows.length * rowH + 16;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${bottomY + 12}`} style={s.seqSvg} role="img">
+      <title>End-to-end overview across all four flows</title>
+      <rect width={width} height={bottomY + 12} fill="#0f1117" rx="8" />
+
+      {actors.map((a, i) => (
+        <g key={a.id}>
+          <rect x={xFor(i) - 60} y={6} width={120} height={24} rx={5} fill="#22263a" stroke="#8b92b8" strokeWidth="1" />
+          <text x={xFor(i)} y={22} textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">{a.label}</text>
+          <line x1={xFor(i)} y1={30} x2={xFor(i)} y2={bottomY} stroke="#2d3148" strokeWidth="1" strokeDasharray="3,3" />
+        </g>
+      ))}
+
+      {mainRows.map((m, idx) => {
+        const y = topY + 26 + idx * rowH;
+        const x1 = xFor(actors.findIndex((a) => a.id === m.from));
+        const x2 = xFor(actors.findIndex((a) => a.id === m.to));
+        return (
+          <g key={`main-${idx}`}>
+            <line x1={x1} y1={y} x2={x2} y2={y} stroke={m.color} strokeWidth="1.4" markerEnd={`url(#ov-arrow-main-${idx})`} />
+            <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">{m.label}</text>
+          </g>
+        );
+      })}
+
+      <line x1="20" y1={dividerY} x2={width - 20} y2={dividerY} stroke="#555b7a" strokeWidth="1" strokeDasharray="6,4" />
+      <rect x={width / 2 - 210} y={dividerY - 11} width="420" height="20" rx="4" fill="#0f1117" />
+      <text x={width / 2} y={dividerY + 4} textAnchor="middle" fill="#78716c" fontSize="8" fontFamily="monospace">— independent / out-of-band — no path through Encryption Svc —</text>
+
+      {auditRows.map((m, idx) => {
+        const y = auditTop + 20 + idx * rowH;
+        const x1 = xFor(actors.findIndex((a) => a.id === m.from));
+        const x2 = xFor(actors.findIndex((a) => a.id === m.to));
+        return (
+          <g key={`audit-${idx}`}>
+            <line x1={x1} y1={y} x2={x2} y2={y} stroke={m.color} strokeWidth="1.4" strokeDasharray="4,3" markerEnd={`url(#ov-arrow-audit-${idx})`} />
+            <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">{m.label}</text>
+          </g>
+        );
+      })}
+
+      <defs>
+        {mainRows.map((m, idx) => (
+          <marker key={`main-${idx}`} id={`ov-arrow-main-${idx}`} markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 7 3, 0 6" fill={m.color} />
+          </marker>
+        ))}
+        {auditRows.map((m, idx) => (
+          <marker key={`audit-${idx}`} id={`ov-arrow-audit-${idx}`} markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 7 3, 0 6" fill={m.color} />
+          </marker>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+
+function FlowsSequence() {
+  let stepNumber = 0;
+  return (
+    <>
+      <section style={s.panel}>
+        <div style={s.panelHead}>
+          <h3 style={{ ...s.panelTitle, color: '#8b92b8' }}>0. End-to-End Overview</h3>
+          <p style={s.panelSub}>Macro view across all four flows — not a merge of all 24 steps (past ~8 arrows on 6 lifelines a sequence diagram stops being readable). See each flow below for the full detail.</p>
+        </div>
+        <div style={s.seqWrap}>
+          <OverviewSequenceDiagram />
+        </div>
+      </section>
+
+      {FLOWS.map((flow, flowIdx) => (
+        <section key={flow.title} style={s.panel}>
+          <div style={s.panelHead}>
+            <h3 style={{ ...s.panelTitle, color: flow.color }}>{flow.title}</h3>
+          </div>
+
+          <div style={s.seqWrap}>
+            <SequenceDiagram
+              actors={flow.actors}
+              messages={flow.messages}
+              color={flow.color}
+              markerId={`seq-arrow-${flowIdx}`}
+            />
+          </div>
+
+          <ol style={s.flowStepList}>
+            {flow.steps.map((step) => {
+              stepNumber += 1;
+              return (
+                <li key={stepNumber} style={s.flowStep}>
+                  <span style={{ ...s.flowStepNum, color: flow.color }}>{stepNumber}</span>
+                  <span>{step}</span>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      ))}
+    </>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function HsmDemo() {
   // ── Tab state, deep-linkable via #diagram ──────────────────────────────────
-  const [activeTab, setActiveTab] = useState(() => (window.location.hash === '#diagram' ? 'diagram' : 'demo'));
+  function tabFromHash() {
+    const h = window.location.hash.slice(1);
+    return h === 'diagram' || h === 'flows' ? h : 'demo';
+  }
+  const [activeTab, setActiveTab] = useState(tabFromHash);
 
   useEffect(() => {
-    function onHash() { setActiveTab(window.location.hash === '#diagram' ? 'diagram' : 'demo'); }
+    function onHash() { setActiveTab(tabFromHash()); }
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -267,7 +620,7 @@ export default function HsmDemo() {
   function selectTab(tab) {
     setActiveTab(tab);
     const base = window.location.pathname + window.location.search;
-    window.history.replaceState(null, '', tab === 'diagram' ? `${base}#diagram` : base);
+    window.history.replaceState(null, '', tab === 'demo' ? base : `${base}#${tab}`);
   }
 
   // ── Demo apps ────────────────────────────────────────────────────────────────
@@ -553,6 +906,14 @@ export default function HsmDemo() {
           onClick={() => selectTab('diagram')}
         >
           Architecture Diagram
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === 'flows'}
+          style={{ ...s.tab, ...(activeTab === 'flows' ? s.tabActive : {}) }}
+          onClick={() => selectTab('flows')}
+        >
+          Flows
         </button>
       </div>
 
@@ -853,10 +1214,28 @@ export default function HsmDemo() {
           </Panel>
         </div>}
 
-        {/* ── Tab 2: Architecture Diagram ── */}
+        {/* ── Tab 2: Architecture Diagram ──
+            Sticky-header scroll pattern: flex-shrink:0 header + flex:1;
+            overflow-y:auto body. The header is plain HTML, not SVG — the
+            common pitfall is trying position:sticky *inside* an SVG's
+            coordinate system, which doesn't behave reliably. Keeping the
+            header outside the <svg> entirely sidesteps that. ── */}
         {activeTab === 'diagram' && (
+          <div role="tabpanel" style={s.diagramTabWrap}>
+            <div style={s.diagramHeader}>
+              <h3 style={s.diagramHeaderTitle}>HSM Encryption Service — Architecture</h3>
+              <p style={s.diagramHeaderSub}>2-SPN split (Service SPN vs. Auditor SPN) · multi-client PlainID/PBAC gate · DEK/KEK envelope encryption</p>
+            </div>
+            <div style={s.diagramScrollBody}>
+              <ArchitectureDiagram />
+            </div>
+          </div>
+        )}
+
+        {/* ── Tab 3: Flows — 24-step numbered sequence, plain text/cards ── */}
+        {activeTab === 'flows' && (
           <div role="tabpanel" style={s.demoScroll}>
-            <ArchitectureDiagram />
+            <FlowsSequence />
           </div>
         )}
       </div>
@@ -972,4 +1351,24 @@ const s = {
 
   diagramWrap: { display: 'flex', justifyContent: 'center', padding: '0.5rem' },
   diagramSvg: { width: '100%', maxWidth: 900, borderRadius: 12, border: '1px solid var(--border)' },
+
+  // ── Sticky-header scroll pattern for the Architecture Diagram tab ──────────
+  // flex-shrink:0 header + flex:1;overflow-y:auto body — the header stays
+  // outside the <svg> entirely (plain HTML), so position:sticky is never
+  // attempted inside SVG's own coordinate system.
+  diagramTabWrap: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  diagramHeader: {
+    flexShrink: 0, padding: '0.85rem 1.25rem', borderBottom: '1px solid var(--border)',
+    background: 'var(--surface)',
+  },
+  diagramHeaderTitle: { margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' },
+  diagramHeaderSub: { margin: '4px 0 0', fontSize: '0.78rem', color: 'var(--text-secondary)' },
+  diagramScrollBody: { flex: 1, overflowY: 'auto', padding: '1rem' },
+
+  // ── Flows tab — sequence diagram + plain numbered list per flow ────────────
+  seqWrap: { margin: '0.85rem 0 0', display: 'flex', justifyContent: 'center' },
+  seqSvg: { width: '100%', maxWidth: 860, borderRadius: 10, border: '1px solid var(--border)' },
+  flowStepList: { listStyle: 'none', margin: '0.75rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem' },
+  flowStep: { display: 'flex', gap: '0.65rem', fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.5 },
+  flowStepNum: { flexShrink: 0, fontWeight: 700, fontFamily: 'ui-monospace, SFMono-Regular, monospace', minWidth: 22 },
 };
