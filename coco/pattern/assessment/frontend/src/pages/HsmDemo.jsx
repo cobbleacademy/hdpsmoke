@@ -108,7 +108,7 @@ function ArchitectureDiagram() {
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 900 680" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Encryption Service Architecture — 2-SPN Split</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service and its PlainID/PBAC gate entirely, audited via KV Diagnostic Logs).</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID, and performs its own independent JWT/end-user authorization.</desc>
 
         <rect width="900" height="680" fill="#0f1117" />
 
@@ -120,50 +120,58 @@ function ArchitectureDiagram() {
         <text x="100" y="116" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App B</text>
         <rect x="35" y="138" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
         <text x="100" y="160" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C …</text>
-        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT +</text>
-        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AD group claim</text>
+        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT (AD group +</text>
+        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">end-user claims)</text>
         <text x="100" y="227" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">+ App-ID header</text>
 
-        <line x1="180" y1="130" x2="230" y2="130" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
-        <text x="205" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS</text>
+        {/* ── PlainID (client-side only) — the client consults this BEFORE
+            calling the service; it is not in the service's request path and
+            the service has no visibility into it. Two short arrows to/from
+            Callers only — nothing connects PlainID to Encryption Service. ── */}
+        <rect x="230" y="20" width="160" height="90" rx="8" fill="#1a1d27" stroke="#f59e0b" strokeWidth="1.5" />
+        <text x="310" y="38" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID (CLIENT-SIDE)</text>
+        <text x="310" y="50" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">policy decision only</text>
+        <rect x="245" y="58" width="130" height="20" rx="4" fill="#22263a" />
+        <text x="310" y="71" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Evaluate AD group + scope</text>
+        <rect x="245" y="82" width="130" height="20" rx="4" fill="#78350f" />
+        <text x="310" y="95" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">Permit / Deny → Client</text>
 
-        <rect x="230" y="60" width="160" height="140" rx="8" fill="#1a1d27" stroke="#f59e0b" strokeWidth="1.5" />
-        <text x="310" y="78" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID / PBAC GATE</text>
-        <text x="310" y="89" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">evaluated on every call</text>
-        <rect x="245" y="94" width="130" height="22" rx="4" fill="#22263a" />
-        <text x="310" y="108" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">JWT + AD Group Check</text>
-        <rect x="245" y="122" width="130" height="22" rx="4" fill="#22263a" />
-        <text x="310" y="136" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">App-ID + Grant Check</text>
-        <rect x="245" y="150" width="130" height="22" rx="4" fill="#22263a" />
-        <text x="310" y="164" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Scope Enforcement</text>
-        <rect x="245" y="178" width="130" height="16" rx="4" fill="#78350f" />
-        <text x="310" y="190" textAnchor="middle" fill="#fbbf24" fontSize="9" fontFamily="monospace">Audit Log → SIEM</text>
+        <line x1="180" y1="45" x2="230" y2="55" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
+        <line x1="230" y1="80" x2="180" y2="90" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
 
-        <line x1="390" y1="130" x2="440" y2="130" stroke="#f59e0b" strokeWidth="1.5" markerEnd="url(#arr-amber)" />
+        {/* Single continuous call, Client straight to Service — no PlainID hop */}
+        <line x1="180" y1="130" x2="440" y2="130" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
+        <text x="310" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS — JWT (end-user) + App-ID, direct</text>
 
-        <rect x="440" y="20" width="200" height="280" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <rect x="440" y="20" width="200" height="325" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
         <text x="540" y="42" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
         <text x="540" y="56" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
 
-        <rect x="455" y="65" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
-        <text x="540" y="83" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
-        <text x="540" y="98" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
-        <text x="540" y="110" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
+        <rect x="455" y="63" width="170" height="22" rx="4" fill="#22263a" stroke="#fbbf24" strokeWidth="1" />
+        <text x="540" y="77" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">JWT Validation + End-User AuthZ</text>
 
-        <rect x="455" y="125" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
-        <text x="540" y="143" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
-        <text x="540" y="158" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Grant check → unwrap</text>
-        <text x="540" y="170" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
+        <rect x="455" y="91" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
+        <text x="540" y="109" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
+        <text x="540" y="124" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
+        <text x="540" y="136" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
 
-        <rect x="455" y="185" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
-        <text x="540" y="203" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
-        <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · manage grants</text>
+        <rect x="455" y="151" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
+        <text x="540" y="169" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
+        <text x="540" y="184" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Grant check → unwrap</text>
+        <text x="540" y="196" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
 
-        <rect x="455" y="233" width="170" height="30" rx="5" fill="#22263a" stroke="#64748b" strokeWidth="1" />
-        <text x="540" y="252" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">GET /health · /apps/status</text>
+        <rect x="455" y="211" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
+        <text x="540" y="229" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
+        <text x="540" y="242" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · manage grants</text>
 
-        <rect x="455" y="272" width="170" height="22" rx="4" fill="#1e3a2f" stroke="#10b981" strokeWidth="1" />
-        <text x="540" y="287" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
+        <rect x="455" y="259" width="170" height="30" rx="5" fill="#22263a" stroke="#64748b" strokeWidth="1" />
+        <text x="540" y="278" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">GET /health · /apps/status</text>
+
+        <rect x="455" y="297" width="170" height="22" rx="4" fill="#1e3a2f" stroke="#10b981" strokeWidth="1" />
+        <text x="540" y="312" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
+
+        <rect x="455" y="321" width="170" height="18" rx="4" fill="#78350f" />
+        <text x="540" y="333" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit: EndUser (I/O) / Operator (admin)</text>
 
         <line x1="640" y1="130" x2="690" y2="130" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
         <text x="665" y="120" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
@@ -190,32 +198,32 @@ function ArchitectureDiagram() {
         <rect x="705" y="241" width="160" height="14" rx="3" fill="#22263a" />
         <text x="785" y="252" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Managed Identity (no secrets)</text>
 
-        <rect x="440" y="340" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
-        <text x="540" y="362" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
-        <text x="540" y="376" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">PostgreSQL</text>
+        <rect x="440" y="365" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
+        <text x="540" y="387" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
+        <text x="540" y="401" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">PostgreSQL</text>
 
-        <rect x="455" y="384" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="399" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
+        <rect x="455" y="409" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="540" y="424" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
 
-        <rect x="455" y="412" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="427" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
+        <rect x="455" y="437" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="540" y="452" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
 
-        <rect x="455" y="440" width="170" height="14" rx="3" fill="#22263a" />
-        <text x="540" y="451" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
+        <rect x="455" y="465" width="170" height="14" rx="3" fill="#22263a" />
+        <text x="540" y="476" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
 
-        <line x1="540" y1="300" x2="540" y2="340" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
+        <line x1="540" y1="345" x2="540" y2="365" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
 
-        <rect x="690" y="310" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
-        <text x="785" y="330" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
-        <rect x="705" y="338" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="353" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
-        <rect x="705" y="366" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="381" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
-        <rect x="705" y="394" width="160" height="20" rx="4" fill="#22263a" />
-        <text x="785" y="408" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
+        <rect x="690" y="330" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
+        <text x="785" y="350" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
+        <rect x="705" y="358" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="373" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
+        <rect x="705" y="386" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="401" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
+        <rect x="705" y="414" width="160" height="20" rx="4" fill="#22263a" />
+        <text x="785" y="428" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
 
-        <line x1="785" y1="310" x2="785" y2="260" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
-        <line x1="690" y1="365" x2="640" y2="410" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+        <line x1="785" y1="330" x2="785" y2="260" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
+        <line x1="690" y1="385" x2="640" y2="425" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
 
         {/* ── Auditor SPN — second SPN, read-only, bypasses the service entirely ── */}
         <rect x="20" y="260" width="180" height="180" rx="8" fill="#1a1d27" stroke="#f43f5e" strokeWidth="1.5" />
@@ -234,14 +242,14 @@ function ArchitectureDiagram() {
         <rect x="35" y="382" width="150" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
         <text x="110" y="395" textAnchor="middle" fill="#fca5a5" fontSize="7" fontFamily="monospace">Governance Scope: BYPASS</text>
 
-        {/* Dashed bypass paths — route through the empty corridor between the
-            Encryption Service (bottom edge y=300) and EDEK Store (top edge
-            y=340), never touching the service or the PlainID/PBAC gate. */}
-        <path d="M 200,300 L 660,300 L 660,160 L 690,160" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
-        <text x="430" y="294" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — KV metadata read</text>
+        {/* Dashed bypass paths — route through the corridor between the
+            Encryption Service (bottom edge y=345) and EDEK Store (top edge
+            y=365), never touching the service. */}
+        <path d="M 200,350 L 660,350 L 660,160 L 690,160" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="430" y="344" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — KV metadata read</text>
 
-        <path d="M 200,320 L 420,320 L 420,400 L 440,400" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
-        <text x="290" y="334" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
+        <path d="M 200,358 L 420,358 L 420,425 L 440,425" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="290" y="372" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
 
         <rect x="20" y="460" width="400" height="200" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="220" y="480" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT PAYLOAD FLOW</text>
@@ -286,46 +294,51 @@ function ArchitectureDiagram() {
   );
 }
 
-// ── Flows tab — 24-step numbered sequence across the 4 request flows ──────────
+// ── Flows tab — numbered sequence across the 4 request flows ──────────────────
 // Plain text/numbered lists by design (not diagram SVGs) — meant to be
-// copy-pasted directly into a design doc or handed to any team, per the
-// 2-SPN split: steps 1-18 go through the Service SPN + PlainID/PBAC gate;
-// steps 19-24 are the Auditor SPN's independent, gate-bypassing path.
+// copy-pasted directly into a design doc or handed to any team.
+//
+// PlainID/PBAC (Policy Check) is CLIENT-SIDE ONLY — the client consults it
+// directly and independently, before ever calling the Encryption Service. It
+// is not middleware in front of the service; the service has no visibility
+// into or dependency on it. The Service performs its OWN, separate
+// authorization (JWT validation + end-user identity extraction) once the
+// client calls it — this is the actual security boundary, since the call
+// arrives under the Client SPN and would otherwise be indistinguishable
+// per-end-user without the Service reading the JWT itself.
 const FLOWS = [
   {
     title: '1. Policy Check',
     color: '#f59e0b',
     steps: [
-      'Client app authenticates via its own identity flow and obtains a JWT; the JWT carries an AD group claim identifying the caller\'s entitlement group.',
-      'Client sends the request to the Encryption Service with a Bearer JWT + App-ID header.',
-      'PlainID/PBAC gate validates the JWT signature and expiry.',
-      'Gate extracts the App-ID and AD group claim, and evaluates the PlainID/PBAC policy — is this app/group entitled to this action on this resource class?',
-      'If denied: request is rejected (403) and the attempt is recorded in the Encryption Service\'s own audit_log → SIEM.',
-      'If permitted: the request proceeds to the target operation (Encrypt or Decrypt) carrying the validated identity/scope context. This gate runs before every call — there is no path to Encrypt/Decrypt that skips it.',
+      'Client app authenticates via its own identity flow and obtains a JWT carrying an AD group claim identifying its entitlement group.',
+      'Client sends a decision request to PlainID (AD group claim + App-ID). This exchange is entirely client-side — the Encryption Service is not involved and has no visibility into it.',
+      'PlainID evaluates its PBAC policy against the AD group + App-ID for the requested action/resource class.',
+      'If denied: PlainID returns Deny to the Client, which aborts — no call is ever made to the Encryption Service.',
+      'If permitted: PlainID returns Permit, and the Client independently calls the Encryption Service directly (Encrypt or Decrypt below), presenting its own JWT for the Service\'s own, separate authorization.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
-      { id: 'gate', label: 'PBAC Gate' },
-      { id: 'target', label: 'Encrypt/Decrypt' },
+      { id: 'plainid', label: 'PlainID' },
     ],
     messages: [
-      { from: 'client', to: 'gate', label: 'JWT (AD group claim) + App-ID', stepNum: '1–2' },
-      { from: 'gate', to: 'gate', self: true, label: 'Validate JWT sig/expiry', stepNum: 3 },
-      { from: 'gate', to: 'gate', self: true, label: 'Evaluate PBAC: App-ID + AD group', stepNum: 4 },
-      { from: 'gate', to: 'client', dashed: true, label: '403 Deny → audit_log', stepNum: 5 },
-      { from: 'gate', to: 'target', label: 'Forward w/ validated scope', stepNum: 6 },
+      { from: 'client', to: 'plainid', label: 'AD group claim + App-ID → decision request', stepNum: '1–2' },
+      { from: 'plainid', to: 'plainid', self: true, label: 'Evaluate PBAC policy', stepNum: 3 },
+      { from: 'plainid', to: 'client', dashed: true, label: 'Deny → Client aborts, no call made', stepNum: 4 },
+      { from: 'plainid', to: 'client', label: 'Permit → Client proceeds independently', stepNum: 5 },
     ],
   },
   {
     title: '2. Encrypt',
     color: '#10b981',
     steps: [
-      'Client calls POST /encrypt with the plaintext payload, having already passed the Policy Check above.',
+      'Client calls POST /encrypt directly (having independently obtained Permit from PlainID above), presenting its own Bearer JWT (carrying end-user identity) + App-ID header.',
+      'Encryption Service validates the JWT itself and extracts the App-ID and end-user identity from it — independent of PlainID, since the Service has no visibility into that exchange. This is the Service\'s own, separate authorization layer.',
       'Encryption Service generates a new Data Encryption Key (DEK) and a random IV.',
       'Encryption Service encrypts the plaintext locally using AES-256-GCM with the DEK.',
       'Encryption Service calls Azure Key Vault — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
       'Encryption Service persists the EDEK plus metadata (owner app_id, algorithm, key version) to the EDEK Store (PostgreSQL).',
-      'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log.',
+      'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log — tagged with both the Client (App-ID) and the end-user identity extracted above, since the call itself arrives under the Client SPN and wouldn\'t otherwise be attributable to a specific end-user.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -334,25 +347,26 @@ const FLOWS = [
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /encrypt (plaintext)', stepNum: 7 },
-      { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV', stepNum: 8 },
-      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM encrypt', stepNum: 9 },
+      { from: 'client', to: 'service', label: 'POST /encrypt — JWT (end-user) + App-ID (direct)', stepNum: 6 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT + extract end-user identity', stepNum: 7 },
+      { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV, AES-256-GCM encrypt', stepNum: '8–9' },
       { from: 'service', to: 'keyvault', label: 'wrap(DEK) — Service SPN', stepNum: 10 },
       { from: 'keyvault', to: 'service', label: 'EDEK', stepNum: 10 },
       { from: 'service', to: 'edek', label: 'persist EDEK + metadata', stepNum: 11 },
-      { from: 'service', to: 'client', label: 'ciphertext + edek_id', stepNum: 12 },
+      { from: 'service', to: 'client', label: 'ciphertext + edek_id → audit_log (Client + User)', stepNum: 12 },
     ],
   },
   {
     title: '3. Decrypt',
     color: '#f87171',
     steps: [
-      'Client calls POST /decrypt with the ciphertext + edek_id, having already passed the Policy Check above.',
+      'Client calls POST /decrypt directly (having independently obtained Permit from PlainID above), presenting ciphertext + edek_id + its own Bearer JWT (carrying end-user identity) + App-ID header.',
+      'Encryption Service validates the JWT itself and extracts the App-ID and end-user identity — its own authorization layer, independent of PlainID.',
       'Encryption Service looks up the EDEK record by edek_id in the EDEK Store, and verifies the requesting app_id matches the owner (or holds an active grant).',
-      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log.',
+      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end-user).',
       'Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
       'Encryption Service decrypts the ciphertext locally using the unwrapped DEK and the stored IV (AES-256-GCM).',
-      'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log.',
+      'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log — tagged with both the Client (App-ID) and the end-user identity.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -361,14 +375,15 @@ const FLOWS = [
       { id: 'keyvault', label: 'Key Vault' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt (edek_id, ciphertext)', stepNum: 13 },
-      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 14 },
-      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 14 },
-      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership', stepNum: 15 },
-      { from: 'service', to: 'keyvault', label: 'unwrap(EDEK) — Service SPN', stepNum: 16 },
-      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 16 },
-      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 17 },
-      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed)', stepNum: 18 },
+      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (end-user) + App-ID (direct)', stepNum: 13 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT + extract end-user identity', stepNum: 14 },
+      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 15 },
+      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 15 },
+      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 16 },
+      { from: 'service', to: 'keyvault', label: 'unwrap(EDEK) — Service SPN', stepNum: 17 },
+      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 17 },
+      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 18 },
+      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed) → audit_log (Client + User)', stepNum: 19 },
     ],
   },
   {
@@ -388,13 +403,13 @@ const FLOWS = [
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
-      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 19 },
-      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 20 },
-      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 21 },
-      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 22 },
-      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 22 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 23 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 24 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 20 },
+      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 21 },
+      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 22 },
+      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 23 },
+      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 23 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 24 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 25 },
     ],
   },
 ];
@@ -470,7 +485,7 @@ function OverviewSequenceDiagram() {
   const width = 1000;
   const actors = [
     { id: 'client', label: 'Client' },
-    { id: 'gate', label: 'PBAC Gate' },
+    { id: 'plainid', label: 'PlainID' },
     { id: 'service', label: 'Encryption Svc' },
     { id: 'keyvault', label: 'Key Vault' },
     { id: 'edek', label: 'EDEK Store' },
@@ -479,16 +494,20 @@ function OverviewSequenceDiagram() {
   const laneGap = width / (actors.length + 1);
   const xFor = (i) => laneGap * (i + 1);
 
+  // PlainID is consulted by the Client only — it never reaches the Service.
+  // The Client independently calls the Service afterward as a separate,
+  // unrelated arrow (row 3), not a continuation/forward from PlainID.
   const mainRows = [
-    { from: 'client', to: 'gate', label: '1. Policy Check — JWT (AD group claim) + App-ID', color: '#f59e0b' },
-    { from: 'gate', to: 'service', label: '2. Permit → forward (Encrypt or Decrypt)', color: '#f59e0b' },
-    { from: 'service', to: 'keyvault', label: '3. wrap/unwrap — Service SPN', color: '#a78bfa' },
-    { from: 'service', to: 'edek', label: '4. persist / lookup EDEK', color: '#38bdf8' },
-    { from: 'service', to: 'client', label: '5. Result: ciphertext / plaintext', color: '#a78bfa' },
+    { from: 'client', to: 'plainid', label: '1. Policy Check — AD group claim + App-ID', color: '#f59e0b' },
+    { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#f59e0b' },
+    { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — JWT (end-user) + App-ID (direct)', color: '#a78bfa' },
+    { from: 'service', to: 'keyvault', label: '4. wrap/unwrap — Service SPN', color: '#a78bfa' },
+    { from: 'service', to: 'edek', label: '5. persist / lookup EDEK', color: '#38bdf8' },
+    { from: 'service', to: 'client', label: '6. Result: ciphertext / plaintext', color: '#a78bfa' },
   ];
   const auditRows = [
-    { from: 'auditor', to: 'keyvault', label: '6. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
-    { from: 'auditor', to: 'edek', label: '7. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'keyvault', label: '7. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'edek', label: '8. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
   ];
 
   const topY = 34;
