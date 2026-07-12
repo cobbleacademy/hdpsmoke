@@ -11,6 +11,7 @@ class EncryptRequest(BaseModel):
     plaintext: Annotated[str, Field(min_length=1, max_length=1_048_576)]  # 1 MiB max
     encoding: Literal["utf8", "base64"] = "utf8"   # how to interpret plaintext on decrypt's way back out
     data_classification: str | None = None         # e.g. "pii", "pci" — drives audit/retention queries, never enforced here
+    end_user_id: str | None = None                 # logged-in user who triggered the call; passed by client for SIEM audit trail
     context: dict[str, str] = Field(default_factory=dict)                 # caller metadata, stored in audit log only
 
 
@@ -30,6 +31,7 @@ class DecryptRequest(BaseModel):
     iv_b64: str
     ciphertext_b64: str
     tag_b64: str
+    end_user_id: str | None = None                 # logged-in user who triggered the call; passed by client for SIEM audit trail
 
     @field_validator("iv_b64", "ciphertext_b64", "tag_b64", mode="before")
     @classmethod
