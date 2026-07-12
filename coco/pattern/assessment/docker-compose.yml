@@ -40,6 +40,16 @@ services:
       LLM_DEV_OPENAI_MODEL: ${LLM_DEV_OPENAI_MODEL:-}
       LLM_NPE_OPENAI_MODEL: ${LLM_NPE_OPENAI_MODEL:-}
       LLM_PROD_OPENAI_MODEL: ${LLM_PROD_OPENAI_MODEL:-}
+      # OPA Generator/Ranger Library completion-param overrides — set when an
+      # env's gateway is a reasoning-class model (o1/o3/gpt-5-style) that
+      # rejects `temperature` and/or requires `max_completion_tokens` instead
+      # of `max_tokens`. Non-secret, safe to declare here for shell override.
+      LLM_DEV_OPENAI_OMIT_TEMPERATURE: ${LLM_DEV_OPENAI_OMIT_TEMPERATURE:-}
+      LLM_DEV_OPENAI_MAX_TOKENS_PARAM: ${LLM_DEV_OPENAI_MAX_TOKENS_PARAM:-}
+      LLM_NPE_OPENAI_OMIT_TEMPERATURE: ${LLM_NPE_OPENAI_OMIT_TEMPERATURE:-}
+      LLM_NPE_OPENAI_MAX_TOKENS_PARAM: ${LLM_NPE_OPENAI_MAX_TOKENS_PARAM:-}
+      LLM_PROD_OPENAI_OMIT_TEMPERATURE: ${LLM_PROD_OPENAI_OMIT_TEMPERATURE:-}
+      LLM_PROD_OPENAI_MAX_TOKENS_PARAM: ${LLM_PROD_OPENAI_MAX_TOKENS_PARAM:-}
       # Custom CA bundle for provider endpoints signed by an internal CA
       # (fixes "unable to get local issuer certificate"). See backend/certs/README.md.
       NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
