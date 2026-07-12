@@ -100,4 +100,37 @@ function getClient({ envId, model } = {}) {
   return _clients.get(cacheKey);
 }
 
-module.exports = { getClient, isLlmConfigured };
+/**
+ * Resolves the completion-tuning params (temperature + token limit) for one
+ * environment, so callers can spread the result into chat.completions.create()
+ * instead of hardcoding `temperature`/`max_tokens` directly.
+ *
+ * Reasoning-class models (o1/o3/gpt-5-style) commonly reject `temperature`
+ * outright (400 "Unsupported parameter: 'temperature'") and have deprecated
+ * `max_tokens` in favor of `max_completion_tokens` ("'max_tokens' is not
+ * supported with this model") — but plain OpenAI models, Ollama, etc. still
+ * expect the classic shape, so neither behavior can be hardcoded for every
+ * gateway this app might point at. Two independent per-env toggles, each
+ * falling back to a global default:
+ *
+ *   LLM_{ENV}_OPENAI_OMIT_TEMPERATURE=true   — drop `temperature` entirely
+ *   LLM_{ENV}_OPENAI_MAX_TOKENS_PARAM=max_completion_tokens  — rename the
+ *     token-limit key (default "max_tokens")
+ */
+function resolveCompletionParams({ envId, maxTokens, temperature } = {}) {
+  const prefix = envPrefix(envId);
+
+  const omitTemperature =
+    ((prefix && process.env[`${prefix}OPENAI_OMIT_TEMPERATURE`]) || process.env.OPENAI_OMIT_TEMPERATURE) === 'true';
+
+  const tokenParamName =
+    (prefix && process.env[`${prefix}OPENAI_MAX_TOKENS_PARAM`]) ||
+    process.env.OPENAI_MAX_TOKENS_PARAM ||
+    'max_tokens';
+
+  const extras = { [tokenParamName]: maxTokens };
+  if (!omitTemperature) extras.temperature = temperature;
+  return extras;
+}
+
+module.exports = { getClient, isLlmConfigured, resolveCompletionParams };

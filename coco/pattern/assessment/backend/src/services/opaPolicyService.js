@@ -1,6 +1,6 @@
 'use strict';
 
-const { getClient, isLlmConfigured } = require('./llmClient');
+const { getClient, isLlmConfigured, resolveCompletionParams } = require('./llmClient');
 
 // ── Prompt templates ──────────────────────────────────────────────────────────
 
@@ -222,8 +222,7 @@ async function generateOpaPolicy(abacContent, { schemaVariant = 'default', model
   const response = await getClient({ envId, model: resolvedModel }).chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 1500,
-    temperature: 0.1,
+    ...resolveCompletionParams({ envId, maxTokens: 1500, temperature: 0.1 }),
   });
 
   const raw = response.choices[0].message.content.trim();

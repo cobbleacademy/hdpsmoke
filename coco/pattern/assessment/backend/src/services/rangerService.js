@@ -1,6 +1,6 @@
 'use strict';
 
-const { getClient, isLlmConfigured } = require('./llmClient');
+const { getClient, isLlmConfigured, resolveCompletionParams } = require('./llmClient');
 
 // ── Rego input normaliser ─────────────────────────────────────────────────────
 
@@ -292,8 +292,7 @@ async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {
   const response = await getClient({ envId, model: resolvedModel }).chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 3000,
-    temperature: 0.1,
+    ...resolveCompletionParams({ envId, maxTokens: 3000, temperature: 0.1 }),
   });
 
   const raw = response.choices[0].message.content.trim();
