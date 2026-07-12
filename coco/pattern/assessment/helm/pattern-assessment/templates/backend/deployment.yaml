@@ -68,6 +68,14 @@ spec:
             - name: LLM_{{ $env }}_OPENAI_EXTRA_HEADERS
               value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_EXTRA_HEADERS" $env) | quote }}
             {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_OMIT_TEMPERATURE" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_OMIT_TEMPERATURE
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_OMIT_TEMPERATURE" $env) | quote }}
+            {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_MAX_TOKENS_PARAM" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_MAX_TOKENS_PARAM
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_MAX_TOKENS_PARAM" $env) | quote }}
+            {{- end }}
             {{- end }}
 
             {{- if .Values.backend.env.NODE_EXTRA_CA_CERTS }}
