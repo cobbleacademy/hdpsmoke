@@ -331,8 +331,8 @@ async function refreshAuditLog() {
 }
 
 function showTab(name) {
-  const views = { demo: $("demoView"), diagram: $("diagramView") };
-  const tabs = { demo: $("tabDemo"), diagram: $("tabDiagram") };
+  const views = { demo: $("demoView"), diagram: $("diagramView"), sequence: $("sequenceView") };
+  const tabs  = { demo: $("tabDemo"),  diagram: $("tabDiagram"),  sequence: $("tabSequence")  };
   for (const key of Object.keys(views)) {
     const isActive = key === name;
     views[key].hidden = !isActive;
@@ -342,9 +342,11 @@ function showTab(name) {
   if (location.hash !== `#${name}`) history.replaceState(null, "", `#${name}`);
 }
 
-$("tabDemo").addEventListener("click", () => showTab("demo"));
-$("tabDiagram").addEventListener("click", () => showTab("diagram"));
-showTab(location.hash === "#diagram" ? "diagram" : "demo");
+$("tabDemo").addEventListener("click",     () => showTab("demo"));
+$("tabDiagram").addEventListener("click",  () => showTab("diagram"));
+$("tabSequence").addEventListener("click", () => showTab("sequence"));
+const _hash = location.hash.replace("#", "");
+showTab(["demo","diagram","sequence"].includes(_hash) ? _hash : "demo");
 
 $("encryptBtn").addEventListener("click", encrypt);
 $("decryptBtn").addEventListener("click", decrypt);

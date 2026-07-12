@@ -17,6 +17,7 @@
   <nav class="tabbar" role="tablist">
     <button class="tab active" role="tab" aria-selected="true" aria-controls="demoView" id="tabDemo">Live Demo</button>
     <button class="tab" role="tab" aria-selected="false" aria-controls="diagramView" id="tabDiagram">Architecture Diagram</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="sequenceView" id="tabSequence">Sequence Diagram</button>
   </nav>
 
   <main>
@@ -343,6 +344,163 @@
         payload includes <code>encoding</code> and <code>data_classification</code>,
         added after the original review.
       </p>
+    </section>
+  </div>
+
+  <div id="sequenceView" role="tabpanel" aria-labelledby="tabSequence" hidden class="diagram-wrap">
+    <section class="panel">
+      <h2>Request Sequence Diagram</h2>
+      <p class="hint">
+        Step-by-step call flow from multiple client apps through the PlainID/PBAC policy gate,
+        into the HSM service for encrypt and decrypt, and the separate direct path used by the
+        Auditor SPN for scanning. Solid arrows are requests; dashed arrows are responses.
+      </p>
+      <!-- flex column: header is fixed, body scrolls inside the bounded height -->
+      <div style="display:flex;flex-direction:column;height:78vh;border-radius:6px;overflow:hidden;">
+
+        <!-- ── PARTICIPANT HEADER (never scrolls) ───────────────────────── -->
+        <div style="flex-shrink:0;border-bottom:1px solid #2d3148;">
+        <svg viewBox="0 0 980 70" xmlns="http://www.w3.org/2000/svg"
+             style="width:100%;display:block;height:auto;"
+             preserveAspectRatio="xMidYMin meet">
+          <rect width="980" height="70" fill="#0f1117"/>
+          <!-- bottom border line -->
+          <line x1="0" y1="69" x2="980" y2="69" stroke="#2d3148" stroke-width="1"/>
+
+          <!-- participant boxes -->
+          <rect x="15"  y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="75"  y="26" text-anchor="middle" fill="#3b82f6" font-size="10" font-family="monospace">CLIENTS</text>
+          <text x="75"  y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Multiple · SPN</text>
+
+          <rect x="155" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#eab308" stroke-width="1.5"/>
+          <text x="215" y="26" text-anchor="middle" fill="#eab308" font-size="10" font-family="monospace">PlainID/PBAC</text>
+          <text x="215" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Policy Gate</text>
+
+          <rect x="340" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#a78bfa" stroke-width="1.5"/>
+          <text x="400" y="26" text-anchor="middle" fill="#a78bfa" font-size="10" font-family="monospace">HSM Service</text>
+          <text x="400" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">FastAPI</text>
+
+          <rect x="505" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#e879f9" stroke-width="1.5"/>
+          <text x="565" y="26" text-anchor="middle" fill="#e879f9" font-size="10" font-family="monospace">Azure Key Vault</text>
+          <text x="565" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Managed HSM</text>
+
+          <rect x="660" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="720" y="26" text-anchor="middle" fill="#38bdf8" font-size="10" font-family="monospace">EDEK Store</text>
+          <text x="720" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">PostgreSQL</text>
+
+          <rect x="820" y="8" width="140" height="44" rx="6" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="890" y="26" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace">Auditor SPN</text>
+          <text x="890" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Scan / Audit</text>
+
+          <!-- lifeline stubs connecting boxes to scrollable body below -->
+          <line x1="75"  y1="52" x2="75"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="215" y1="52" x2="215" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="400" y1="52" x2="400" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="565" y1="52" x2="565" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="720" y1="52" x2="720" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="890" y1="52" x2="890" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+        </svg>
+        </div><!-- /header -->
+
+        <!-- ── SCROLLABLE SEQUENCE BODY ──────────────────────────────────── -->
+        <div style="flex:1;overflow-y:auto;">
+        <svg viewBox="0 0 980 728" xmlns="http://www.w3.org/2000/svg"
+             role="img" style="width:100%;display:block;height:auto;"
+             preserveAspectRatio="xMidYMin meet">
+          <title>HSM Encryption Service – Sequence Diagram</title>
+          <rect width="980" height="728" fill="#0f1117"/>
+
+          <!-- lifelines -->
+          <line x1="75"  y1="0" x2="75"  y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="215" y1="0" x2="215" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="400" y1="0" x2="400" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="565" y1="0" x2="565" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="720" y1="0" x2="720" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="890" y1="0" x2="890" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+
+          <!-- SECTION 1 — POLICY CHECK (y offset -54 from original) -->
+          <rect x="10" y="6" width="830" height="96" rx="5" fill="#1a1a05" stroke="#eab308" stroke-width="0.6"/>
+          <text x="18" y="19" fill="#eab308" font-size="9" font-family="monospace" letter-spacing="1">POLICY CHECK  (every client request must clear this gate first)</text>
+          <line x1="75" y1="33" x2="211" y2="33" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
+          <text x="143" y="28" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">1. policy check  (JWT + logged-in user identity)</text>
+          <line x1="215" y1="52" x2="79" y2="52" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
+          <text x="143" y="47" text-anchor="middle" fill="#ef4444" font-size="8" font-family="monospace">2a. [DENY] — call blocked, never reaches HSM service</text>
+          <line x1="215" y1="72" x2="79" y2="72" stroke="#10b981" stroke-width="1.5" marker-end="url(#sq-green)"/>
+          <text x="143" y="67" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">2b. [ALLOW] — JWT enriched with AD group claim passes through</text>
+          <text x="18" y="94" fill="#555b7a" font-size="8" font-family="monospace">↳ all steps below assume ALLOW path</text>
+
+          <!-- SECTION 2 — ENCRYPT FLOW -->
+          <rect x="10" y="108" width="830" height="216" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
+          <text x="18" y="121" fill="#10b981" font-size="9" font-family="monospace" letter-spacing="1">ENCRYPT FLOW</text>
+          <line x1="75" y1="135" x2="396" y2="135" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
+          <text x="235" y="130" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">3. POST /encrypt  { plaintext, encoding, data_classification }</text>
+          <path d="M 400 149 L 428 149 L 428 167 L 404 167" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="161" fill="#a78bfa" font-size="8" font-family="monospace">4. validate JWT · AD group claim · scope=encrypt</text>
+          <line x1="400" y1="182" x2="561" y2="182" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
+          <text x="482" y="177" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">5. wrap DEK  [Service SPN · RSA-OAEP-256]</text>
+          <line x1="565" y1="198" x2="404" y2="198" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
+          <text x="482" y="193" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">6. EDEK  (wrapped DEK)</text>
+          <path d="M 400 212 L 428 212 L 428 230 L 404 230" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="224" fill="#a78bfa" font-size="8" font-family="monospace">7. gen DEK + IV · AES-256-GCM encrypt plaintext</text>
+          <line x1="400" y1="244" x2="716" y2="244" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
+          <text x="558" y="239" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">8. INSERT edek_record  (edek_id, blob, owner_app_id, algorithm…)</text>
+          <line x1="720" y1="260" x2="404" y2="260" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
+          <text x="558" y="255" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">9. edek_id  (UUID)</text>
+          <path d="M 400 274 L 428 274 L 428 292 L 404 292" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="286" fill="#a78bfa" font-size="8" font-family="monospace">10. audit_log → Splunk / SIEM</text>
+          <line x1="400" y1="308" x2="79" y2="308" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
+          <text x="235" y="303" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">11. { edek_id, owner_app_id, iv, ciphertext, tag }</text>
+
+          <!-- SECTION 3 — DECRYPT FLOW -->
+          <rect x="10" y="330" width="830" height="250" rx="5" fill="#140505" stroke="#f87171" stroke-width="0.6"/>
+          <text x="18" y="343" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">DECRYPT FLOW</text>
+          <line x1="75" y1="357" x2="396" y2="357" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
+          <text x="235" y="352" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { edek_id, iv, ciphertext, tag }</text>
+          <line x1="400" y1="373" x2="716" y2="373" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
+          <text x="558" y="368" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">13. SELECT edek_record WHERE id = edek_id</text>
+          <line x1="720" y1="389" x2="404" y2="389" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
+          <text x="558" y="384" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">14. { edek_blob, kek_version, owner_app_id, data_class }</text>
+          <path d="M 400 403 L 428 403 L 428 421 L 404 421" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="415" fill="#a78bfa" font-size="8" font-family="monospace">15. grant check: caller → owner?</text>
+          <line x1="400" y1="436" x2="561" y2="436" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
+          <text x="482" y="431" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">16. unwrap DEK  [Service SPN]</text>
+          <line x1="565" y1="452" x2="404" y2="452" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
+          <text x="482" y="447" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">17. raw DEK bytes</text>
+          <path d="M 400 466 L 428 466 L 428 484 L 404 484" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="478" fill="#a78bfa" font-size="8" font-family="monospace">18. AES-256-GCM decrypt · zero DEK immediately</text>
+          <path d="M 400 498 L 428 498 L 428 516 L 404 516" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="510" fill="#a78bfa" font-size="8" font-family="monospace">19. audit_log → Splunk / SIEM</text>
+          <line x1="400" y1="532" x2="79" y2="532" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
+          <text x="235" y="527" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">20. { plaintext, owner_app_id }  — DEK zeroed in memory</text>
+
+          <!-- SECTION 4 — AUDIT / SCAN FLOW -->
+          <rect x="10" y="587" width="962" height="135" rx="5" fill="#100404" stroke="#f87171" stroke-width="0.6"/>
+          <text x="18" y="600" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">AUDIT / SCAN FLOW  (Auditor SPN — direct path, bypasses HSM service entirely)</text>
+          <line x1="890" y1="613" x2="569" y2="613" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
+          <text x="729" y="608" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">21. list / get keys  [read-only · no wrap · no unwrap]</text>
+          <line x1="565" y1="629" x2="886" y2="629" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
+          <text x="729" y="624" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">22. key metadata  (version, status, attributes)</text>
+          <line x1="890" y1="645" x2="724" y2="645" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
+          <text x="807" y="640" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">23. SELECT * FROM edek_records  [read-only DB role]</text>
+          <line x1="720" y1="661" x2="886" y2="661" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
+          <text x="807" y="656" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">24. edek records  (wrapped blobs only)</text>
+          <rect x="18" y="673" width="946" height="22" rx="3" fill="#22263a"/>
+          <text x="491" y="687" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Audit trail: Azure KV Diagnostic Logs  +  Splunk  (separate pipeline — not via this service's audit_log)</text>
+          <rect x="18" y="700" width="946" height="22" rx="3" fill="#1a1d27"/>
+          <text x="491" y="714" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Auditor SPN: no wrap/unwrap RBAC on Azure KV · no write access to any DB table</text>
+
+          <defs>
+            <marker id="sq-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3b82f6"/></marker>
+            <marker id="sq-purple" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#a78bfa"/></marker>
+            <marker id="sq-pink"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#e879f9"/></marker>
+            <marker id="sq-cyan"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#38bdf8"/></marker>
+            <marker id="sq-green"  markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#10b981"/></marker>
+            <marker id="sq-red"    markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f87171"/></marker>
+          </defs>
+        </svg>
+        </div><!-- /body scroll -->
+
+      </div><!-- /flex container -->
     </section>
   </div>
   </main>
