@@ -1,0 +1,318 @@
+<title>A3B Pattern — PBAC Decision Flow</title>
+<style>
+  :root {
+    --bg: #f5f7fb;
+    --surface: #ffffff;
+    --surface-alt: #eef1f7;
+    --border: #d7dce6;
+    --text: #1b2333;
+    --text-muted: #5b6478;
+    --accent: #3454d1;
+    --accent-soft: #e4e9fb;
+    --permit: #1f9d55;
+    --permit-soft: #e3f6ea;
+    --deny: #c9403f;
+    --deny-soft: #fbe6e6;
+    --full: #2b6cb0;
+    --full-soft: #e2edf9;
+    --partial: #a86a1c;
+    --partial-soft: #f7ecd9;
+    --shadow: 0 1px 2px rgba(20,30,60,0.06), 0 6px 16px rgba(20,30,60,0.07);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1420;
+      --surface: #161d2c;
+      --surface-alt: #1d2536;
+      --border: #2c3650;
+      --text: #e6e9f2;
+      --text-muted: #9aa4bd;
+      --accent: #8aa0ff;
+      --accent-soft: #232c47;
+      --permit: #3ecf7e;
+      --permit-soft: #123424;
+      --deny: #ff7a7a;
+      --deny-soft: #3a1a1a;
+      --full: #6fb0f0;
+      --full-soft: #152a3d;
+      --partial: #e8b563;
+      --partial-soft: #3a2c14;
+      --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1420; --surface: #161d2c; --surface-alt: #1d2536; --border: #2c3650;
+    --text: #e6e9f2; --text-muted: #9aa4bd; --accent: #8aa0ff; --accent-soft: #232c47;
+    --permit: #3ecf7e; --permit-soft: #123424; --deny: #ff7a7a; --deny-soft: #3a1a1a;
+    --full: #6fb0f0; --full-soft: #152a3d; --partial: #e8b563; --partial-soft: #3a2c14;
+    --shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f7fb; --surface: #ffffff; --surface-alt: #eef1f7; --border: #d7dce6;
+    --text: #1b2333; --text-muted: #5b6478; --accent: #3454d1; --accent-soft: #e4e9fb;
+    --permit: #1f9d55; --permit-soft: #e3f6ea; --deny: #c9403f; --deny-soft: #fbe6e6;
+    --full: #2b6cb0; --full-soft: #e2edf9; --partial: #a86a1c; --partial-soft: #f7ecd9;
+    --shadow: 0 1px 2px rgba(20,30,60,0.06), 0 6px 16px rgba(20,30,60,0.07);
+  }
+
+  * { box-sizing: border-box; }
+
+  body, .go-pattern-page {
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .go-pattern-page {
+    font-family: -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .go-eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    margin: 4px 0 0;
+    font-size: 30px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .go-subtitle {
+    margin: 6px 0 0;
+    max-width: 62ch;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .diagram-frame {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 8px;
+    overflow-x: auto;
+  }
+
+  .diagram-frame svg {
+    display: block;
+    min-width: 900px;
+    width: 100%;
+    height: auto;
+  }
+
+  .go-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  .spec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  .spec-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+
+  .spec-card h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .spec-card p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+
+  .behavior-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+
+  .behavior-list li {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .behavior-list strong {
+    color: var(--accent);
+  }
+</style>
+
+<div class="go-pattern-page">
+  <div>
+    <div class="go-eyebrow">PBAC Building Blocks</div>
+    <h1>A3B Pattern</h1>
+    <p class="go-subtitle">
+      Screen-and-action authorization for all users. Identity is not evaluated &#8212; the engine
+      only checks whether the requested Action + Screen combination exists in policy; a match
+      returns PERMIT, and everything else defaults to DENY.
+    </p>
+  </div>
+
+  <div class="diagram-frame">
+    <svg viewBox="0 0 1200 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A3B Pattern decision flow diagram">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--text-muted)"></path>
+        </marker>
+      </defs>
+
+      <style>
+        .card-rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+        .card-title { fill: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .card-body { fill: var(--text); font-size: 15px; font-weight: 600; }
+        .card-sub { fill: var(--text-muted); font-size: 13px; }
+        .count-badge { fill: var(--accent-soft); }
+        .count-text { fill: var(--accent); font-size: 14px; font-weight: 700; }
+        .tag-pill { fill: var(--accent-soft); }
+        .tag-text { fill: var(--accent); font-size: 12px; font-weight: 700; }
+        .flow-line { stroke: var(--text-muted); stroke-width: 1.6; fill: none; }
+        .flow-arrow { stroke: var(--text-muted); stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+        .diamond { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+        .diamond-text { fill: var(--accent); font-size: 15px; font-weight: 700; }
+        .branch-label { fill: var(--text-muted); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+        .output-label { fill: var(--text-muted); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .badge-permit-rect { fill: var(--permit-soft); stroke: var(--permit); stroke-width: 1.5; }
+        .badge-permit-text { fill: var(--permit); font-size: 16px; font-weight: 700; }
+        .badge-deny-rect { fill: var(--deny-soft); stroke: var(--deny); stroke-width: 1.5; }
+        .badge-deny-text { fill: var(--deny); font-size: 16px; font-weight: 700; }
+        .legend-text { fill: var(--text-muted); font-size: 13px; }
+      </style>
+
+      <!-- Input cards -->
+      <g>
+        <rect class="card-rect" x="60" y="40" width="340" height="150" rx="12" stroke-dasharray="6 5"></rect>
+        <text class="card-title" x="80" y="68">IDENTITY</text>
+        <rect x="320" y="52" width="70" height="24" rx="12" fill="var(--surface-alt)" stroke="var(--border)"></rect>
+        <text x="355" y="69" text-anchor="middle" style="fill:var(--text-muted);font-size:12px;font-weight:700">N/A</text>
+        <text class="card-body" x="80" y="102" style="fill:var(--text-muted)">Any / Neutral Identity</text>
+        <text class="card-sub" x="80" y="126">identity not evaluated &#8212;</text>
+        <text class="card-sub" x="80" y="146">policy applies to all users</text>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="430" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="450" y="68">ASSET</text>
+        <rect class="count-badge" x="700" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="720" y="69" text-anchor="middle">3</text>
+        <text class="card-body" x="450" y="102">Screen + Action pair</text>
+        <text class="card-sub" x="450" y="126">requested screen name plus</text>
+        <text class="card-sub" x="450" y="146">one action</text>
+        <g>
+          <rect class="tag-pill" x="450" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="490" y="173" text-anchor="middle">Update</text>
+          <rect class="tag-pill" x="538" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="578" y="173" text-anchor="middle">View</text>
+          <rect class="tag-pill" x="626" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="666" y="173" text-anchor="middle">Modify</text>
+        </g>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="800" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="820" y="68">ACTION</text>
+        <rect class="count-badge" x="1070" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="1090" y="69" text-anchor="middle">2</text>
+        <text class="card-body" x="820" y="102">Decision</text>
+        <text class="card-sub" x="820" y="126">PERMIT if combination is</text>
+        <text class="card-sub" x="820" y="146">in Policy, else DENY</text>
+        <g>
+          <rect class="badge-permit-rect" x="820" y="158" width="110" height="24" rx="12"></rect>
+          <text class="badge-permit-text go-mono" x="875" y="175" text-anchor="middle" style="font-size:13px">PERMIT</text>
+          <rect class="badge-deny-rect" x="940" y="158" width="90" height="24" rx="12"></rect>
+          <text class="badge-deny-text go-mono" x="985" y="175" text-anchor="middle" style="font-size:13px">DENY</text>
+        </g>
+      </g>
+
+      <!-- Fan-in arrows to Policy diamond -->
+      <path class="flow-line" d="M230,190 L230,205 L600,205" stroke-dasharray="4 4"></path>
+      <path class="flow-line" d="M970,190 L970,205 L600,205"></path>
+      <path class="flow-arrow" d="M600,190 L600,240"></path>
+
+      <!-- Decision diamond -->
+      <polygon class="diamond" points="600,240 730,300 600,360 470,300"></polygon>
+      <text class="diamond-text" x="600" y="296" text-anchor="middle">Combination</text>
+      <text class="diamond-text" x="600" y="314" text-anchor="middle">in Policy?</text>
+
+      <!-- Branches -->
+      <path class="flow-arrow" d="M470,300 L470,330 L340,330 L340,420"></path>
+      <text class="branch-label" x="295" y="322">YES</text>
+
+      <path class="flow-arrow" d="M730,300 L730,330 L860,330 L860,420"></path>
+      <text class="branch-label" x="775" y="322">NO</text>
+
+      <!-- PERMIT output -->
+      <rect class="card-rect" x="220" y="420" width="240" height="110" rx="12"></rect>
+      <text class="output-label" x="340" y="448" text-anchor="middle">MATCH FOUND</text>
+      <rect class="badge-permit-rect" x="270" y="460" width="140" height="44" rx="10"></rect>
+      <text class="badge-permit-text go-mono" x="340" y="488" text-anchor="middle">PERMIT</text>
+
+      <!-- DENY output -->
+      <rect class="card-rect" x="740" y="420" width="240" height="110" rx="12"></rect>
+      <text class="output-label" x="860" y="448" text-anchor="middle">NO MATCH (DEFAULT)</text>
+      <rect class="badge-deny-rect" x="790" y="460" width="140" height="44" rx="10"></rect>
+      <text class="badge-deny-text go-mono" x="860" y="488" text-anchor="middle">DENY</text>
+
+      <!-- Legend -->
+      <g>
+        <rect x="380" y="560" width="14" height="14" rx="3" fill="var(--permit-soft)" stroke="var(--permit)"></rect>
+        <text class="legend-text" x="402" y="571">PERMIT &#8212; in policy</text>
+        <rect x="580" y="560" width="14" height="14" rx="3" fill="var(--deny-soft)" stroke="var(--deny)"></rect>
+        <text class="legend-text" x="602" y="571">DENY &#8212; default (no match)</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="spec-grid">
+    <div class="spec-card">
+      <h3>Identity</h3>
+      <p>Any identity &#8212; a dummy, neutral, or irrelevant user. Identity is not evaluated; the policy applies uniformly to all users.</p>
+    </div>
+    <div class="spec-card">
+      <h3>Asset</h3>
+      <p>A requested Action (Update, View, or Modify) paired with a screen name.</p>
+    </div>
+    <div class="spec-card">
+      <h3>Action</h3>
+      <p>PERMIT if the Asset (screen + action) combination is defined in policy; DENY by default otherwise.</p>
+    </div>
+    <div class="spec-card">
+      <h3>Condition</h3>
+      <p>Policy membership &#8212; whether this exact Screen + Action combination has been configured as an allowed pair, independent of who is asking.</p>
+    </div>
+  </div>
+
+  <ul class="behavior-list">
+    <li><strong>Combination matched</strong> &#8212; the requested screen and action together match a configured policy entry (Identity is not a factor), so the engine returns <strong>PERMIT</strong>.</li>
+    <li><strong>No match</strong> &#8212; any screen + action combination not explicitly defined in policy defaults to <strong>DENY</strong>.</li>
+  </ul>
+</div>

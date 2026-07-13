@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1200 620" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A3B Pattern decision flow diagram">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b6478"></path>
+        </marker>
+      </defs>
+
+      <style>
+        .card-rect { fill: #ffffff; stroke: #d7dce6; stroke-width: 1.5; }
+        .card-title { fill: #3454d1; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .card-body { fill: #1b2333; font-size: 15px; font-weight: 600; }
+        .card-sub { fill: #5b6478; font-size: 13px; }
+        .count-badge { fill: #e4e9fb; }
+        .count-text { fill: #3454d1; font-size: 14px; font-weight: 700; }
+        .tag-pill { fill: #e4e9fb; }
+        .tag-text { fill: #3454d1; font-size: 12px; font-weight: 700; }
+        .flow-line { stroke: #5b6478; stroke-width: 1.6; fill: none; }
+        .flow-arrow { stroke: #5b6478; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+        .diamond { fill: #e4e9fb; stroke: #3454d1; stroke-width: 2; }
+        .diamond-text { fill: #3454d1; font-size: 15px; font-weight: 700; }
+        .branch-label { fill: #5b6478; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+        .output-label { fill: #5b6478; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .badge-permit-rect { fill: #e3f6ea; stroke: #1f9d55; stroke-width: 1.5; }
+        .badge-permit-text { fill: #1f9d55; font-size: 16px; font-weight: 700; }
+        .badge-deny-rect { fill: #fbe6e6; stroke: #c9403f; stroke-width: 1.5; }
+        .badge-deny-text { fill: #c9403f; font-size: 16px; font-weight: 700; }
+        .legend-text { fill: #5b6478; font-size: 13px; }
+      </style>
+
+      <!-- Input cards -->
+      <g>
+        <rect class="card-rect" x="60" y="40" width="340" height="150" rx="12" stroke-dasharray="6 5"></rect>
+        <text class="card-title" x="80" y="68">IDENTITY</text>
+        <rect x="320" y="52" width="70" height="24" rx="12" fill="#eef1f7" stroke="#d7dce6"></rect>
+        <text x="355" y="69" text-anchor="middle" style="fill:#5b6478;font-size:12px;font-weight:700">N/A</text>
+        <text class="card-body" x="80" y="102" style="fill:#5b6478">Any / Neutral Identity</text>
+        <text class="card-sub" x="80" y="126">identity not evaluated &#8212;</text>
+        <text class="card-sub" x="80" y="146">policy applies to all users</text>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="430" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="450" y="68">ASSET</text>
+        <rect class="count-badge" x="700" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="720" y="69" text-anchor="middle">3</text>
+        <text class="card-body" x="450" y="102">Screen + Action pair</text>
+        <text class="card-sub" x="450" y="126">requested screen name plus</text>
+        <text class="card-sub" x="450" y="146">one action</text>
+        <g>
+          <rect class="tag-pill" x="450" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="490" y="173" text-anchor="middle">Update</text>
+          <rect class="tag-pill" x="538" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="578" y="173" text-anchor="middle">View</text>
+          <rect class="tag-pill" x="626" y="158" width="80" height="22" rx="11"></rect>
+          <text class="tag-text" x="666" y="173" text-anchor="middle">Modify</text>
+        </g>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="800" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="820" y="68">ACTION</text>
+        <rect class="count-badge" x="1070" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="1090" y="69" text-anchor="middle">2</text>
+        <text class="card-body" x="820" y="102">Decision</text>
+        <text class="card-sub" x="820" y="126">PERMIT if combination is</text>
+        <text class="card-sub" x="820" y="146">in Policy, else DENY</text>
+        <g>
+          <rect class="badge-permit-rect" x="820" y="158" width="110" height="24" rx="12"></rect>
+          <text class="badge-permit-text go-mono" x="875" y="175" text-anchor="middle" style="font-size:13px">PERMIT</text>
+          <rect class="badge-deny-rect" x="940" y="158" width="90" height="24" rx="12"></rect>
+          <text class="badge-deny-text go-mono" x="985" y="175" text-anchor="middle" style="font-size:13px">DENY</text>
+        </g>
+      </g>
+
+      <!-- Fan-in arrows to Policy diamond -->
+      <path class="flow-line" d="M230,190 L230,205 L600,205" stroke-dasharray="4 4"></path>
+      <path class="flow-line" d="M970,190 L970,205 L600,205"></path>
+      <path class="flow-arrow" d="M600,190 L600,240"></path>
+
+      <!-- Decision diamond -->
+      <polygon class="diamond" points="600,240 730,300 600,360 470,300"></polygon>
+      <text class="diamond-text" x="600" y="296" text-anchor="middle">Combination</text>
+      <text class="diamond-text" x="600" y="314" text-anchor="middle">in Policy?</text>
+
+      <!-- Branches -->
+      <path class="flow-arrow" d="M470,300 L470,330 L340,330 L340,420"></path>
+      <text class="branch-label" x="295" y="322">YES</text>
+
+      <path class="flow-arrow" d="M730,300 L730,330 L860,330 L860,420"></path>
+      <text class="branch-label" x="775" y="322">NO</text>
+
+      <!-- PERMIT output -->
+      <rect class="card-rect" x="220" y="420" width="240" height="110" rx="12"></rect>
+      <text class="output-label" x="340" y="448" text-anchor="middle">MATCH FOUND</text>
+      <rect class="badge-permit-rect" x="270" y="460" width="140" height="44" rx="10"></rect>
+      <text class="badge-permit-text go-mono" x="340" y="488" text-anchor="middle">PERMIT</text>
+
+      <!-- DENY output -->
+      <rect class="card-rect" x="740" y="420" width="240" height="110" rx="12"></rect>
+      <text class="output-label" x="860" y="448" text-anchor="middle">NO MATCH (DEFAULT)</text>
+      <rect class="badge-deny-rect" x="790" y="460" width="140" height="44" rx="10"></rect>
+      <text class="badge-deny-text go-mono" x="860" y="488" text-anchor="middle">DENY</text>
+
+      <!-- Legend -->
+      <g>
+        <rect x="380" y="560" width="14" height="14" rx="3" fill="#e3f6ea" stroke="#1f9d55"></rect>
+        <text class="legend-text" x="402" y="571">PERMIT &#8212; in policy</text>
+        <rect x="580" y="560" width="14" height="14" rx="3" fill="#fbe6e6" stroke="#c9403f"></rect>
+        <text class="legend-text" x="602" y="571">DENY &#8212; default (no match)</text>
+      </g>
+    </svg>

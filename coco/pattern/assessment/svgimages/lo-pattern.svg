@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1200 940" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="LO Pattern decision flow diagram">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#5b6478"></path>
+        </marker>
+      </defs>
+
+      <style>
+        .card-rect { fill: #ffffff; stroke: #d7dce6; stroke-width: 1.5; }
+        .card-title { fill: #3454d1; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .card-body { fill: #1b2333; font-size: 15px; font-weight: 600; }
+        .card-sub { fill: #5b6478; font-size: 13px; }
+        .count-badge { fill: #e4e9fb; }
+        .count-text { fill: #3454d1; font-size: 14px; font-weight: 700; }
+        .tag-pill { fill: #e4e9fb; }
+        .tag-text { fill: #3454d1; font-size: 12px; font-weight: 700; }
+        .enum-full-pill { fill: #e2edf9; stroke: #2b6cb0; stroke-width: 1; }
+        .enum-full-text { fill: #2b6cb0; font-size: 13px; font-weight: 700; }
+        .enum-partial-pill { fill: #f7ecd9; stroke: #a86a1c; stroke-width: 1; }
+        .enum-partial-text { fill: #a86a1c; font-size: 13px; font-weight: 700; }
+        .flow-line { stroke: #5b6478; stroke-width: 1.6; fill: none; }
+        .flow-arrow { stroke: #5b6478; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+        .diamond { fill: #e4e9fb; stroke: #3454d1; stroke-width: 2; }
+        .diamond-text { fill: #3454d1; font-size: 15px; font-weight: 700; }
+        .branch-label { fill: #5b6478; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+        .process-rect { fill: #eef1f7; stroke: #d7dce6; stroke-width: 1.5; }
+        .process-text { fill: #1b2333; font-size: 14.5px; font-weight: 600; }
+        .output-dashed { fill: none; stroke: #d7dce6; stroke-width: 1.5; stroke-dasharray: 6 5; }
+        .output-solid { fill: #ffffff; stroke: #d7dce6; stroke-width: 1.5; }
+        .output-label { fill: #5b6478; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; }
+        .badge-permit-rect { fill: #e3f6ea; stroke: #1f9d55; stroke-width: 1.5; }
+        .badge-permit-text { fill: #1f9d55; font-size: 16px; font-weight: 700; }
+        .badge-deny-rect { fill: #fbe6e6; stroke: #c9403f; stroke-width: 1.5; }
+        .badge-deny-text { fill: #c9403f; font-size: 16px; font-weight: 700; }
+        .or-text { fill: #5b6478; font-size: 13px; }
+        .table-header { fill: #5b6478; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+        .table-divider { stroke: #d7dce6; stroke-width: 1; }
+        .field-name { fill: #1b2333; font-size: 13.5px; }
+        .table-footer { fill: #5b6478; font-size: 12.5px; font-style: italic; }
+        .legend-text { fill: #5b6478; font-size: 13px; }
+      </style>
+
+      <!-- Input cards -->
+      <g>
+        <rect class="card-rect" x="60" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="80" y="68">IDENTITY</text>
+        <rect class="count-badge" x="350" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="370" y="69" text-anchor="middle">50</text>
+        <text class="card-body" x="80" y="102">User</text>
+        <text class="card-sub" x="80" y="126">member of &#8804; 50 unique</text>
+        <text class="card-sub" x="80" y="146">localized groups</text>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="430" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="450" y="68">ASSET</text>
+        <rect class="count-badge" x="720" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="740" y="69" text-anchor="middle">40</text>
+        <text class="card-body" x="450" y="102">Field requested</text>
+        <text class="card-sub" x="450" y="126">1 of 40 predefined sensitive</text>
+        <text class="card-sub" x="450" y="146">fields</text>
+        <g>
+          <rect class="tag-pill" x="450" y="158" width="62" height="22" rx="11"></rect>
+          <text class="tag-text" x="481" y="173" text-anchor="middle">PII</text>
+          <rect class="tag-pill" x="520" y="158" width="62" height="22" rx="11"></rect>
+          <text class="tag-text" x="551" y="173" text-anchor="middle">PHI</text>
+          <rect class="tag-pill" x="590" y="158" width="62" height="22" rx="11"></rect>
+          <text class="tag-text" x="621" y="173" text-anchor="middle">PCI</text>
+          <rect class="tag-pill" x="660" y="158" width="62" height="22" rx="11"></rect>
+          <text class="tag-text" x="691" y="173" text-anchor="middle">PFI</text>
+        </g>
+      </g>
+
+      <g>
+        <rect class="card-rect" x="800" y="40" width="340" height="150" rx="12"></rect>
+        <text class="card-title" x="820" y="68">ACTION</text>
+        <rect class="count-badge" x="1090" y="52" width="40" height="24" rx="12"></rect>
+        <text class="count-text" x="1110" y="69" text-anchor="middle">2</text>
+        <text class="card-body" x="820" y="102">Allowed action enum</text>
+        <text class="card-sub" x="820" y="126">per field, resolved by</text>
+        <text class="card-sub" x="820" y="146">Identity + Condition</text>
+        <g>
+          <rect class="enum-full-pill" x="820" y="158" width="90" height="24" rx="12"></rect>
+          <text class="enum-full-text go-mono" x="865" y="175" text-anchor="middle">FULL</text>
+          <rect class="enum-partial-pill" x="920" y="158" width="110" height="24" rx="12"></rect>
+          <text class="enum-partial-text go-mono" x="975" y="175" text-anchor="middle">PARTIAL</text>
+        </g>
+      </g>
+
+      <!-- Fan-in arrows to Condition card -->
+      <path class="flow-line" d="M230,190 L230,205 L560,205"></path>
+      <path class="flow-arrow" d="M560,205 L560,210"></path>
+      <path class="flow-arrow" d="M600,190 L600,210"></path>
+      <path class="flow-line" d="M970,190 L970,205 L640,205"></path>
+      <path class="flow-arrow" d="M640,205 L640,210"></path>
+
+      <!-- Condition card -->
+      <rect class="card-rect" x="430" y="210" width="340" height="90" rx="12"></rect>
+      <text class="card-title" x="450" y="236">CONDITION &#183; OPTIONAL INPUT</text>
+      <text class="card-body go-mono" x="450" y="268" style="fill:#3454d1">GroupID</text>
+      <text class="card-sub" x="450" y="288">location vs. Identity's location</text>
+
+      <!-- Arrow to diamond -->
+      <path class="flow-arrow" d="M600,300 L600,328"></path>
+
+      <!-- Decision diamond -->
+      <polygon class="diamond" points="600,330 730,385 600,440 470,385"></polygon>
+      <text class="diamond-text" x="600" y="380" text-anchor="middle">GroupID</text>
+      <text class="diamond-text" x="600" y="398" text-anchor="middle">provided?</text>
+
+      <!-- Branches -->
+      <path class="flow-arrow" d="M470,385 L470,410 L310,410 L310,538"></path>
+      <text class="branch-label" x="345" y="402">YES</text>
+
+      <path class="flow-arrow" d="M730,385 L730,410 L890,410 L890,538"></path>
+      <text class="branch-label" x="800" y="402">NO</text>
+
+      <!-- Yes process box -->
+      <rect class="process-rect" x="80" y="540" width="460" height="100" rx="12"></rect>
+      <text class="process-text" x="310" y="580" text-anchor="middle">Compare GroupID location</text>
+      <text class="process-text" x="310" y="602" text-anchor="middle">against Identity's location</text>
+
+      <!-- No process box -->
+      <rect class="process-rect" x="660" y="540" width="460" height="100" rx="12"></rect>
+      <text class="process-text" x="890" y="573" text-anchor="middle">Evaluate Identity's location</text>
+      <text class="process-text" x="890" y="595" text-anchor="middle">across all 40 fields for the</text>
+      <text class="process-text" x="890" y="617" text-anchor="middle">requested Asset</text>
+
+      <!-- Arrows to outputs -->
+      <path class="flow-arrow" d="M310,640 L310,668"></path>
+      <path class="flow-arrow" d="M890,640 L890,668"></path>
+
+      <!-- Yes output -->
+      <rect class="output-dashed" x="80" y="670" width="460" height="190" rx="12"></rect>
+      <text class="output-label" x="310" y="698" text-anchor="middle">RESULT &#8212; SINGLE DECISION</text>
+      <rect class="badge-permit-rect" x="150" y="712" width="140" height="54" rx="12"></rect>
+      <text class="badge-permit-text go-mono" x="220" y="746" text-anchor="middle">PERMIT</text>
+      <text class="or-text" x="310" y="746" text-anchor="middle">or</text>
+      <rect class="badge-deny-rect" x="330" y="712" width="140" height="54" rx="12"></rect>
+      <text class="badge-deny-text go-mono" x="400" y="746" text-anchor="middle">DENY</text>
+      <text class="card-sub" x="310" y="800" text-anchor="middle">Locations match &#8594; PERMIT</text>
+      <text class="card-sub" x="310" y="818" text-anchor="middle">Locations differ &#8594; DENY</text>
+
+      <!-- No output: field/action table -->
+      <rect class="output-solid" x="660" y="670" width="460" height="190" rx="12"></rect>
+      <text class="table-header" x="680" y="698">FIELD &#8594; ALLOWED ACTION</text>
+      <line class="table-divider" x1="680" y1="708" x2="1100" y2="708"></line>
+
+      <text class="field-name go-mono" x="680" y="730">ssn</text>
+      <rect class="enum-partial-pill" x="980" y="716" width="100" height="22" rx="11"></rect>
+      <text class="enum-partial-text go-mono" x="1030" y="731" text-anchor="middle">PARTIAL</text>
+
+      <text class="field-name go-mono" x="680" y="756">diagnosis_code</text>
+      <rect class="enum-full-pill" x="980" y="742" width="100" height="22" rx="11"></rect>
+      <text class="enum-full-text go-mono" x="1030" y="757" text-anchor="middle">FULL</text>
+
+      <text class="field-name go-mono" x="680" y="782">card_number</text>
+      <rect class="enum-partial-pill" x="980" y="768" width="100" height="22" rx="11"></rect>
+      <text class="enum-partial-text go-mono" x="1030" y="783" text-anchor="middle">PARTIAL</text>
+
+      <text class="field-name go-mono" x="680" y="808">routing_number</text>
+      <rect class="enum-full-pill" x="980" y="794" width="100" height="22" rx="11"></rect>
+      <text class="enum-full-text go-mono" x="1030" y="809" text-anchor="middle">FULL</text>
+
+      <text class="table-footer" x="680" y="836">&#8230; 40 fields total, scoped to Identity's location</text>
+
+      <!-- Legend -->
+      <g>
+        <rect x="290" y="890" width="14" height="14" rx="3" fill="#e3f6ea" stroke="#1f9d55"></rect>
+        <text class="legend-text" x="312" y="901">PERMIT</text>
+        <rect x="450" y="890" width="14" height="14" rx="3" fill="#fbe6e6" stroke="#c9403f"></rect>
+        <text class="legend-text" x="472" y="901">DENY</text>
+        <rect x="600" y="890" width="14" height="14" rx="3" fill="#e2edf9" stroke="#2b6cb0"></rect>
+        <text class="legend-text" x="622" y="901">FULL</text>
+        <rect x="750" y="890" width="14" height="14" rx="3" fill="#f7ecd9" stroke="#a86a1c"></rect>
+        <text class="legend-text" x="772" y="901">PARTIAL</text>
+      </g>
+    </svg>
