@@ -190,15 +190,18 @@ async def reveal_consumer_account(
 
     # decryption_service.decrypt raises HTTPException itself on a missing
     # grant (403) or tag-verification failure (422) — no extra handling here.
+    reveal_scopes = await app_registry.get_scopes(body.reveal_as)
     dec = await decryption_service.decrypt(
         request=DecryptRequest(
             edek_id=record.edek_id,
             iv_b64=record.iv_b64,
             ciphertext_b64=record.ciphertext_b64,
             tag_b64=record.tag_b64,
+            end_user_id=body.end_user_id,
         ),
         app_id=body.reveal_as,
         caller_sub="demo-consumer-ui",
+        caller_scopes=reveal_scopes,
         kek_client=kek_client,
         session=session,
         app_registry=app_registry,

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.logger import audit_log
-from app.dependencies import AuthenticatedCaller, get_app_registry, get_caller, get_db_session, get_kek_client
+from app.dependencies import AuthenticatedCaller, get_app_registry, get_caller, get_db_session, get_dek_cache, get_kek_client
 from app.models.schemas import DecryptRequest, DecryptResponse
 from app.services import decryption_service
 
@@ -19,6 +19,7 @@ async def decrypt_endpoint(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     kek_client=Depends(get_kek_client),
     app_registry=Depends(get_app_registry),
+    dek_cache=Depends(get_dek_cache),
 ):
     if "decrypt" not in caller.scopes:
         audit_log("decrypt", app_id=caller.app_id, sub=caller.sub,
@@ -36,4 +37,5 @@ async def decrypt_endpoint(
         session=session,
         app_registry=app_registry,
         caller_ip=request.client.host if request.client else "",
+        dek_cache=dek_cache,
     )
