@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import uuid
 
 from cryptography.exceptions import InvalidTag
 from fastapi import HTTPException, status
@@ -10,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit.logger import audit_log
 from app.auth.app_registry import AppRegistry
 from app.crypto import dek_manager
+from app.crypto.dek_cache import DEKCache, NullDEKCache
 from app.crypto.kek_client import KEKClient
 from app.models.edek_record import EDEKRecord
 from app.models.schemas import DecryptRequest, DecryptResponse
@@ -24,6 +24,7 @@ async def decrypt(
     session: AsyncSession,
     app_registry: AppRegistry,
     caller_ip: str = "",
+    dek_cache: DEKCache | NullDEKCache | None = None,
 ) -> DecryptResponse:
     record: EDEKRecord | None = await session.get(EDEKRecord, request.edek_id)
 
@@ -42,8 +43,17 @@ async def decrypt(
                          "no_grant_for_owner", owner_app_id=owner_app_id, end_user_id=request.end_user_id)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
+    edek_id_str = str(request.edek_id)
     edek_bytes = base64.b64decode(record.edek_blob)
-    dek = bytearray(await kek_client.unwrap_dek(edek_bytes, record.kek_version))
+
+    cached_dek = await dek_cache.get(edek_id_str) if dek_cache else None
+    if cached_dek is not None:
+        dek = bytearray(cached_dek)
+    else:
+        raw = await kek_client.unwrap_dek(edek_bytes, record.kek_version)
+        dek = bytearray(raw)
+        if dek_cache:
+            await dek_cache.set(edek_id_str, bytes(raw), record.data_classification)
 
     try:
         plaintext = dek_manager.decrypt(
