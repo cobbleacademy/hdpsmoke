@@ -13,6 +13,10 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 
+# Fixed demo key — never changes across restarts so the SQLite DB remains valid.
+# This is intentional: demo mode has no security guarantees whatsoever.
+_DEMO_V1_KEY = bytes.fromhex("d8a954a65371f88768f06712205a323bcbe8d30b103d742809d8f9e88dfcb841")
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
@@ -21,7 +25,7 @@ class MockKEKClient:
         self._versions: dict[str, bytes] = {}
         self._created_at: dict[str, str] = {}
         self._current_version = "demo-v1"
-        self._versions[self._current_version] = secrets.token_bytes(32)
+        self._versions[self._current_version] = _DEMO_V1_KEY
         self._created_at[self._current_version] = datetime.now(timezone.utc).isoformat()
 
     async def wrap_dek(self, dek: bytes) -> tuple[bytes, str]:
