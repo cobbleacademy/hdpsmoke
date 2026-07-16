@@ -106,11 +106,11 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 900 700" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 900 730" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Encryption Service Architecture — 2-SPN Split</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID. All JWTs (both to PlainID and to the Service) are app-level only — issued to the calling App-ID, not to individual end-users, since minting per-user tokens isn't viable at end-user scale. Each end-user operation carries an explicit end_user_id field in the request itself, used by both PlainID's decision and the Service's own authorization/audit — never derived from the JWT.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID. All JWTs (both to PlainID and to the Service) are app-level only — issued to the calling App-ID, not to individual end-users, since minting per-user tokens isn't viable at end-user scale. Each end-user operation carries an explicit end_user_id field in the request itself, used by both PlainID's decision and the Service's own authorization/audit — never derived from the JWT. Post-unwrap DEKs are cached in Redis, encrypted with a separate Cache Encryption Key (CEK) held in the same Azure Key Vault — every pod independently reads the CEK via its own Workload Identity, so no key-distribution problem exists across replicas.</desc>
 
-        <rect width="900" height="700" fill="#0f1117" />
+        <rect width="900" height="730" fill="#0f1117" />
 
         <rect x="20" y="20" width="160" height="220" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="100" y="40" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS (N CLIENTS)</text>
@@ -173,30 +173,50 @@ function ArchitectureDiagram() {
         <rect x="455" y="321" width="170" height="18" rx="4" fill="#78350f" />
         <text x="540" y="333" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit tags: end_user_id / operator_id</text>
 
-        <line x1="640" y1="130" x2="690" y2="130" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
-        <text x="665" y="120" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
-        <rect x="633" y="135" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
-        <text x="665" y="146" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">SVC SPN</text>
+        {/* ── Redis Cache — sits above the Key Vault box (per requirement).
+            Post-unwrap DEKs land here, encrypted with the CEK, so a repeat
+            decrypt of the same edek_id skips the HSM round-trip entirely. ── */}
+        <rect x="690" y="60" width="190" height="90" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="2" />
+        <text x="785" y="80" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS CACHE</text>
+        <text x="785" y="92" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">post-unwrap DEK cache</text>
+        <rect x="705" y="100" width="160" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="785" y="114" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">AES-256-GCM(CEK, DEK) · edek_id</text>
+        <rect x="705" y="124" width="160" height="20" rx="4" fill="#22263a" />
+        <text x="785" y="138" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">cek_version tag · TTL expiry</text>
 
-        <rect x="690" y="60" width="190" height="200" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
-        <text x="785" y="82" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
-        <text x="785" y="96" textAnchor="middle" fill="#e879f9" fontSize="9" fontFamily="monospace">Managed HSM · FIPS 140-2 L3</text>
+        <line x1="640" y1="105" x2="690" y2="105" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arr-teal)" />
+        <text x="665" y="97" textAnchor="middle" fill="#22d3ee" fontSize="8" fontFamily="monospace">cache check / write</text>
 
-        <rect x="705" y="106" width="160" height="30" rx="4" fill="#2d1b47" stroke="#e879f9" strokeWidth="1" />
-        <text x="785" y="121" textAnchor="middle" fill="#e879f9" fontSize="10" fontFamily="monospace">KEK (RSA-HSM 4096)</text>
-        <text x="785" y="133" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">never leaves HSM boundary</text>
+        <line x1="640" y1="145" x2="690" y2="230" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
+        <text x="680" y="180" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
+        <rect x="648" y="185" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
+        <text x="680" y="196" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">SVC SPN</text>
 
-        <rect x="705" y="145" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="161" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Key Versioning</text>
+        <line x1="640" y1="260" x2="690" y2="280" stroke="#e879f9" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-purple)" />
+        <text x="670" y="253" textAnchor="middle" fill="#e879f9" fontSize="7" fontFamily="monospace">CEK fetch — startup, per-pod</text>
 
-        <rect x="705" y="177" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="193" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Auto-rotation Policy</text>
+        <rect x="690" y="160" width="190" height="224" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
+        <text x="785" y="182" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
+        <text x="785" y="196" textAnchor="middle" fill="#e879f9" fontSize="9" fontFamily="monospace">Managed HSM · FIPS 140-2 L3</text>
 
-        <rect x="705" y="209" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="225" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Role-based Access (RBAC)</text>
+        <rect x="705" y="206" width="160" height="30" rx="4" fill="#2d1b47" stroke="#e879f9" strokeWidth="1" />
+        <text x="785" y="221" textAnchor="middle" fill="#e879f9" fontSize="10" fontFamily="monospace">KEK (RSA-HSM 4096)</text>
+        <text x="785" y="233" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">never leaves HSM boundary</text>
 
-        <rect x="705" y="241" width="160" height="14" rx="3" fill="#22263a" />
-        <text x="785" y="252" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Managed Identity (no secrets)</text>
+        <rect x="705" y="244" width="160" height="22" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="785" y="259" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK (AES-256) — cache-only, SPN-read</text>
+
+        <rect x="705" y="274" width="160" height="24" rx="4" fill="#22263a" />
+        <text x="785" y="290" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Key Versioning</text>
+
+        <rect x="705" y="306" width="160" height="24" rx="4" fill="#22263a" />
+        <text x="785" y="322" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Auto-rotation Policy</text>
+
+        <rect x="705" y="338" width="160" height="24" rx="4" fill="#22263a" />
+        <text x="785" y="354" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Role-based Access (RBAC)</text>
+
+        <rect x="705" y="366" width="160" height="14" rx="3" fill="#22263a" />
+        <text x="785" y="377" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Managed Identity (no secrets)</text>
 
         <rect x="440" y="365" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
         <text x="540" y="387" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
@@ -213,17 +233,17 @@ function ArchitectureDiagram() {
 
         <line x1="540" y1="345" x2="540" y2="365" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
 
-        <rect x="690" y="330" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
-        <text x="785" y="350" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
-        <rect x="705" y="358" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="373" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
-        <rect x="705" y="386" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="401" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
-        <rect x="705" y="414" width="160" height="20" rx="4" fill="#22263a" />
-        <text x="785" y="428" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
+        <rect x="690" y="400" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
+        <text x="785" y="420" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
+        <rect x="705" y="428" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="443" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
+        <rect x="705" y="456" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="471" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
+        <rect x="705" y="484" width="160" height="20" rx="4" fill="#22263a" />
+        <text x="785" y="498" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
 
-        <line x1="785" y1="330" x2="785" y2="260" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
-        <line x1="690" y1="385" x2="640" y2="425" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+        <line x1="785" y1="400" x2="785" y2="384" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
+        <line x1="690" y1="455" x2="640" y2="425" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
 
         {/* ── Auditor SPN — second SPN, read-only, bypasses the service entirely ── */}
         <rect x="20" y="260" width="180" height="180" rx="8" fill="#1a1d27" stroke="#f43f5e" strokeWidth="1.5" />
@@ -245,13 +265,13 @@ function ArchitectureDiagram() {
         {/* Dashed bypass paths — route through the corridor between the
             Encryption Service (bottom edge y=345) and EDEK Store (top edge
             y=365), never touching the service. */}
-        <path d="M 200,350 L 660,350 L 660,160 L 690,160" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <path d="M 200,350 L 660,350 L 660,270 L 690,270" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
         <text x="430" y="344" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — KV metadata read</text>
 
         <path d="M 200,358 L 420,358 L 420,425 L 440,425" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
         <text x="290" y="372" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
 
-        <rect x="20" y="460" width="400" height="224" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
+        <rect x="20" y="460" width="400" height="248" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="220" y="480" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT PAYLOAD FLOW</text>
 
         <text x="36" y="500" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
@@ -279,6 +299,8 @@ function ArchitectureDiagram() {
         <text x="50" y="650" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
         <text x="50" y="662" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed immediately</text>
 
+        <text x="36" y="682" fill="#22d3ee" fontSize="8" fontFamily="monospace">Cache: DEK encrypted w/ CEK → Redis(edek_id, cek_version) — next decrypt skips HSM</text>
+
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#3b82f6" />
@@ -291,6 +313,9 @@ function ArchitectureDiagram() {
           </marker>
           <marker id="arr-cyan" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#38bdf8" />
+          </marker>
+          <marker id="arr-teal" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#22d3ee" />
           </marker>
           <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#fb923c" />
@@ -356,6 +381,7 @@ const FLOWS = [
       'Encryption Service encrypts the plaintext locally using AES-256-GCM with the DEK.',
       'Encryption Service calls Azure Key Vault — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
       'Encryption Service persists the EDEK plus metadata (owner app_id, algorithm, key version) to the EDEK Store (PostgreSQL).',
+      'Encryption Service encrypts the just-generated DEK a second time, locally, using the Cache Encryption Key (CEK) fetched from Key Vault at startup — and writes the result to Redis, keyed by edek_id and tagged with the CEK\'s version. This lets a decrypt of the same edek_id skip the HSM round-trip entirely (see Decrypt below).',
       'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request, since the call itself arrives under the Client SPN and wouldn\'t otherwise be attributable to a specific end-user.',
     ],
     actors: [
@@ -363,6 +389,7 @@ const FLOWS = [
       { id: 'service', label: 'Encryption Svc' },
       { id: 'keyvault', label: 'Key Vault' },
       { id: 'edek', label: 'EDEK Store' },
+      { id: 'redis', label: 'Redis Cache' },
     ],
     messages: [
       { from: 'client', to: 'service', label: 'POST /encrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 6 },
@@ -371,7 +398,8 @@ const FLOWS = [
       { from: 'service', to: 'keyvault', label: 'wrap(DEK) — Service SPN', stepNum: 10 },
       { from: 'keyvault', to: 'service', label: 'EDEK', stepNum: 10 },
       { from: 'service', to: 'edek', label: 'persist EDEK + metadata', stepNum: 11 },
-      { from: 'service', to: 'client', label: 'ciphertext + edek_id → audit_log (Client + User)', stepNum: 12 },
+      { from: 'service', to: 'redis', label: 'write AES-256-GCM(CEK, DEK) → edek_id, cek_version', stepNum: 12 },
+      { from: 'service', to: 'client', label: 'ciphertext + edek_id → audit_log (Client + User)', stepNum: 13 },
     ],
   },
   {
@@ -381,27 +409,33 @@ const FLOWS = [
       'Client calls POST /decrypt directly (having independently obtained Permit from PlainID above), presenting ciphertext + edek_id + its own app-level Bearer JWT (App-ID) + an explicit end_user_id field + App-ID header.',
       'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request — its own authorization layer, independent of PlainID.',
       'Encryption Service looks up the EDEK record by edek_id in the EDEK Store, and verifies the requesting app_id matches the owner (or holds an active grant).',
-      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end_user_id).',
-      'Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
-      'Encryption Service decrypts the ciphertext locally using the unwrapped DEK and the stored IV (AES-256-GCM).',
+      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end_user_id). This check always runs before the cache is consulted — a cached DEK is exactly as access-controlled as one freshly unwrapped from the HSM.',
+      'Encryption Service checks Redis for a cached DEK under this edek_id, tagged with the current cek_version. On a cache hit, it decrypts the cached blob locally with the CEK and skips straight to the final decrypt step below — no HSM call at all.',
+      'On a cache miss (or a stale cek_version — e.g. after CEK rotation): Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
+      'Encryption Service writes the freshly-unwrapped DEK back into Redis (encrypted with the CEK, same as the Encrypt flow), so subsequent decrypts of this edek_id become cache hits.',
+      'Encryption Service decrypts the ciphertext locally using the DEK (from cache or from the HSM) and the stored IV (AES-256-GCM).',
       'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'Encryption Svc' },
       { id: 'edek', label: 'EDEK Store' },
+      { id: 'redis', label: 'Redis Cache' },
       { id: 'keyvault', label: 'Key Vault' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 13 },
-      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 14 },
-      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 15 },
-      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 15 },
-      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 16 },
-      { from: 'service', to: 'keyvault', label: 'unwrap(EDEK) — Service SPN', stepNum: 17 },
-      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 17 },
-      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 18 },
-      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed) → audit_log (Client + User)', stepNum: 19 },
+      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 14 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 15 },
+      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 16 },
+      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 16 },
+      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 17 },
+      { from: 'service', to: 'redis', label: 'check cache(edek_id, cek_version)', stepNum: 18 },
+      { from: 'redis', to: 'service', dashed: true, label: 'hit → decrypt w/ CEK, skip HSM', stepNum: 18 },
+      { from: 'service', to: 'keyvault', label: 'miss → unwrap(EDEK) — Service SPN', stepNum: 19 },
+      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 19 },
+      { from: 'service', to: 'redis', label: 'write AES-256-GCM(CEK, DEK) → edek_id, cek_version', stepNum: 20 },
+      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 21 },
+      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed) → audit_log (Client + User)', stepNum: 22 },
     ],
   },
   {
@@ -421,13 +455,13 @@ const FLOWS = [
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
-      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 20 },
-      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 21 },
-      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 22 },
-      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 23 },
-      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 23 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 24 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 25 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 23 },
+      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 24 },
+      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 25 },
+      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 26 },
+      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 26 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 27 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 28 },
     ],
   },
 ];
@@ -493,7 +527,7 @@ function SequenceDiagram({ actors, messages, color, markerId }) {
   );
 }
 
-// ── End-to-end overview — condensed macro-view, not a 24-step merge ──────────
+// ── End-to-end overview — condensed macro-view, not a 28-step merge ──────────
 // Deliberately NOT all 24 individual messages: past ~8-10 arrows across 6
 // lifelines a sequence diagram stops being readable. This shows the 4 flows
 // as macro-phases instead, with Audit/Scan visually separated by a divider
@@ -507,6 +541,7 @@ function OverviewSequenceDiagram() {
     { id: 'service', label: 'Encryption Svc' },
     { id: 'keyvault', label: 'Key Vault' },
     { id: 'edek', label: 'EDEK Store' },
+    { id: 'redis', label: 'Redis Cache' },
     { id: 'auditor', label: 'Auditor SPN' },
   ];
   const laneGap = width / (actors.length + 1);
@@ -514,18 +549,21 @@ function OverviewSequenceDiagram() {
 
   // PlainID is consulted by the Client only — it never reaches the Service.
   // The Client independently calls the Service afterward as a separate,
-  // unrelated arrow (row 3), not a continuation/forward from PlainID.
+  // unrelated arrow (row 3), not a continuation/forward from PlainID. Row 5
+  // condenses Encrypt/Decrypt's cache read-or-write into one arrow — the
+  // per-flow diagrams below spell out the hit/miss branch in full.
   const mainRows = [
     { from: 'client', to: 'plainid', label: '1. Policy Check — App JWT (App-ID) + end_user_id', color: '#f59e0b' },
     { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#f59e0b' },
     { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — JWT (App-ID) + end_user_id (direct)', color: '#a78bfa' },
-    { from: 'service', to: 'keyvault', label: '4. wrap/unwrap — Service SPN', color: '#a78bfa' },
-    { from: 'service', to: 'edek', label: '5. persist / lookup EDEK', color: '#38bdf8' },
-    { from: 'service', to: 'client', label: '6. Result: ciphertext / plaintext', color: '#a78bfa' },
+    { from: 'service', to: 'keyvault', label: '4. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
+    { from: 'service', to: 'redis', label: '5. cache DEK read/write — AES-256-GCM(CEK, DEK)', color: '#22d3ee' },
+    { from: 'service', to: 'edek', label: '6. persist / lookup EDEK', color: '#38bdf8' },
+    { from: 'service', to: 'client', label: '7. Result: ciphertext / plaintext', color: '#a78bfa' },
   ];
   const auditRows = [
-    { from: 'auditor', to: 'keyvault', label: '7. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
-    { from: 'auditor', to: 'edek', label: '8. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'keyvault', label: '8. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'edek', label: '9. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
   ];
 
   const topY = 34;
@@ -600,7 +638,7 @@ function FlowsSequence() {
       <section style={s.panel}>
         <div style={s.panelHead}>
           <h3 style={{ ...s.panelTitle, color: '#8b92b8' }}>0. End-to-End Overview</h3>
-          <p style={s.panelSub}>Macro view across all four flows — not a merge of all 24 steps (past ~8 arrows on 6 lifelines a sequence diagram stops being readable). See each flow below for the full detail.</p>
+          <p style={s.panelSub}>Macro view across all four flows — not a merge of all 28 steps (past ~8 arrows on 7 lifelines a sequence diagram stops being readable). See each flow below for the full detail.</p>
         </div>
         <div style={s.seqWrap}>
           <OverviewSequenceDiagram />
@@ -687,6 +725,13 @@ export default function HsmDemo() {
   const [encryptError, setEncryptError]   = useState(null);
   const [encrypting, setEncrypting]       = useState(false);
 
+  // end_user_id is an explicit request field, not derived from the app's JWT
+  // (the JWT only ever proves App-ID — see Architecture Diagram tab). It's
+  // per-operation, not per-app — each call independently states which
+  // end-user it's acting on behalf of — so it lives on the Encrypt and
+  // Decrypt panels rather than on the app picker above them.
+  const [encryptEndUserId, setEncryptEndUserId] = useState('');
+
   async function handleEncrypt() {
     if (!selectedApp || !plaintext.trim()) return;
     setEncrypting(true);
@@ -694,7 +739,7 @@ export default function HsmDemo() {
     const res = await callApi('/encrypt', {
       method: 'POST',
       app: selectedApp,
-      body: { plaintext, encoding: 'utf8', data_classification: dataClass || null },
+      body: { plaintext, encoding: 'utf8', data_classification: dataClass || null, end_user_id: encryptEndUserId.trim() || undefined },
     });
     setEncrypting(false);
     if (res.ok) {
@@ -719,23 +764,42 @@ export default function HsmDemo() {
   const [decryptError, setDecryptError]   = useState(null);
   const [decrypting, setDecrypting]       = useState(false);
 
+  // ── Simulated Redis cache state (client-side only) ──────────────────────────
+  // The external HSM service owns the real cache — this repo has no visibility
+  // into whether a given decrypt was actually a cache hit or a cache miss on
+  // the service side. cacheSeen is purely a local record of which edek_ids
+  // have already been decrypted once in THIS browser session, used to render
+  // a "simulated" hit/miss badge that illustrates the caching behavior without
+  // claiming to reflect the real service's internal cache state.
+  const [cacheSeen, setCacheSeen] = useState({}); // edek_id -> decrypt count this session
+
+  // Independent of encryptEndUserId — a decrypt is frequently performed on
+  // behalf of a different end-user than the one who originally encrypted the
+  // data (that's exactly what the Cross-App Decrypt Grants panel below
+  // demonstrates), so the two fields must not be tied together.
+  const [decryptEndUserId, setDecryptEndUserId] = useState('');
+
   async function handleDecrypt() {
     if (!selectedApp) return;
     setDecrypting(true);
     setDecryptError(null);
+    const edekId = decryptForm.edekId;
     const res = await callApi('/decrypt', {
       method: 'POST',
       app: selectedApp,
       body: {
-        edek_id:        decryptForm.edekId,
+        edek_id:        edekId,
         iv_b64:         decryptForm.ivB64,
         ciphertext_b64: decryptForm.ciphertextB64,
         tag_b64:        decryptForm.tagB64,
+        end_user_id:    decryptEndUserId.trim() || undefined,
       },
     });
     setDecrypting(false);
     if (res.ok) {
-      setDecryptResult({ ...res.data, decrypted_as: selectedApp.app_id });
+      const simulatedHit = !!cacheSeen[edekId];
+      setDecryptResult({ ...res.data, decrypted_as: selectedApp.app_id, end_user_id_sent: decryptEndUserId.trim() || null, cache_hit_simulated: simulatedHit });
+      setCacheSeen((prev) => ({ ...prev, [edekId]: (prev[edekId] || 0) + 1 }));
     } else {
       setDecryptError(errMessage(res, 'Decrypt failed'));
     }
@@ -968,13 +1032,22 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 2: Encrypt */}
-          <Panel title="2. Encrypt">
+          <Panel title="2. Encrypt" sub="End User ID is sent as an explicit request field — never derived from the app's JWT, which only ever proves App-ID (see Architecture Diagram tab).">
             <textarea
               style={s.textarea}
               placeholder="Plaintext to encrypt…"
               value={plaintext}
               onChange={(e) => setPlaintext(e.target.value)}
             />
+            <div style={s.formRow}>
+              <label style={s.label}>End User ID</label>
+              <input
+                style={s.input}
+                placeholder="end_user_id (optional)"
+                value={encryptEndUserId}
+                onChange={(e) => setEncryptEndUserId(e.target.value)}
+              />
+            </div>
             <div style={s.formRow}>
               <label style={s.label}>Data classification</label>
               <select style={s.select} value={dataClass} onChange={(e) => setDataClass(e.target.value)}>
@@ -1000,7 +1073,7 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 3: Decrypt */}
-          <Panel title="3. Decrypt" sub="Auto-filled from the Encrypt response above.">
+          <Panel title="3. Decrypt" sub="edek_id/iv/ciphertext/tag auto-filled from the Encrypt response above. End User ID is independent of the Encrypt panel's — a decrypt is often performed on behalf of a different end-user than the one who originally encrypted the data (see Cross-App Decrypt Grants below).">
             <div style={s.formGrid}>
               <input style={s.input} placeholder="edek_id" value={decryptForm.edekId}
                 onChange={(e) => setDecryptForm((f) => ({ ...f, edekId: e.target.value }))} />
@@ -1010,6 +1083,15 @@ export default function HsmDemo() {
                 onChange={(e) => setDecryptForm((f) => ({ ...f, ciphertextB64: e.target.value }))} />
               <input style={s.input} placeholder="tag_b64" value={decryptForm.tagB64}
                 onChange={(e) => setDecryptForm((f) => ({ ...f, tagB64: e.target.value }))} />
+            </div>
+            <div style={s.formRow}>
+              <label style={s.label}>End User ID</label>
+              <input
+                style={s.input}
+                placeholder="end_user_id (optional)"
+                value={decryptEndUserId}
+                onChange={(e) => setDecryptEndUserId(e.target.value)}
+              />
             </div>
             <button style={s.primaryBtn} onClick={handleDecrypt} disabled={decrypting || !decryptForm.edekId}>
               {decrypting ? 'Decrypting…' : 'Decrypt'}
@@ -1021,8 +1103,35 @@ export default function HsmDemo() {
                   { label: 'plaintext',     value: decryptResult.plaintext },
                   { label: 'owner_app_id',  value: decryptResult.owner_app_id },
                   { label: 'decrypted_as',  value: decryptResult.decrypted_as, explainer: 'The app identity that performed this decrypt — compare against owner_app_id to see a cross-app grant in action' },
+                  { label: 'end_user_id',   value: decryptResult.end_user_id ?? decryptResult.end_user_id_sent ?? '—', explainer: 'Explicit request field, not JWT-derived — the actual value used for this call\'s audit_log entry' },
+                  { label: 'redis_cache',   value: decryptResult.cache_hit_simulated ? 'simulated hit — skipped HSM' : 'simulated miss — unwrapped via HSM', explainer: 'Simulated locally: the real HSM service owns cache state and does not echo it back — see panel 3b below' },
                 ]}
               />
+            )}
+          </Panel>
+
+          {/* Panel 3b: Redis Cache (simulated) */}
+          <Panel title="3b. Redis Cache — Simulated" sub="The real cache lives in the external HSM service, which doesn't expose its hit/miss state to this demo. This panel tracks which edek_ids have been decrypted before in this browser session, purely to illustrate the cache behavior described in the Architecture Diagram and Flows tabs.">
+            {Object.keys(cacheSeen).length === 0 ? (
+              <p style={s.muted}>No decrypts yet this session.</p>
+            ) : (
+              <table style={s.table}>
+                <thead>
+                  <tr><th style={s.th}>edek_id</th><th style={s.th}>Decrypts this session</th><th style={s.th}>Next decrypt would be</th></tr>
+                </thead>
+                <tbody>
+                  {Object.entries(cacheSeen).map(([id, count]) => (
+                    <tr key={id}>
+                      <td style={s.tdMono}>{truncate(id, 20)}</td>
+                      <td style={s.td}>{count}</td>
+                      <td style={s.td}>simulated hit</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {Object.keys(cacheSeen).length > 0 && (
+              <button style={{ ...s.dangerBtn, marginTop: '0.75rem' }} onClick={() => setCacheSeen({})}>Clear simulated cache</button>
             )}
           </Panel>
 
@@ -1261,7 +1370,7 @@ export default function HsmDemo() {
           <div role="tabpanel" style={s.diagramTabWrap}>
             <div style={s.diagramHeader}>
               <h3 style={s.diagramHeaderTitle}>HSM Encryption Service — Architecture</h3>
-              <p style={s.diagramHeaderSub}>2-SPN split (Service SPN vs. Auditor SPN) · multi-client PlainID/PBAC gate · DEK/KEK envelope encryption</p>
+              <p style={s.diagramHeaderSub}>2-SPN split (Service SPN vs. Auditor SPN) · multi-client PlainID/PBAC gate · DEK/KEK envelope encryption · Redis DEK cache (CEK-encrypted)</p>
             </div>
             <div style={s.diagramScrollBody}>
               <ArchitectureDiagram />
@@ -1269,7 +1378,7 @@ export default function HsmDemo() {
           </div>
         )}
 
-        {/* ── Tab 3: Flows — 24-step numbered sequence, plain text/cards ── */}
+        {/* ── Tab 3: Flows — 28-step numbered sequence, plain text/cards ── */}
         {activeTab === 'flows' && (
           <div role="tabpanel" style={s.demoScroll}>
             <FlowsSequence />
