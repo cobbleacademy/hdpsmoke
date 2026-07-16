@@ -60,6 +60,7 @@ const FIELD_EXPLAINERS = {
   encoding: "utf8 vs base64 — tells the caller how to interpret plaintext on the way back out",
   plaintext: "The recovered original data",
   decrypted_as: "The app that made this decrypt call — may differ from owner_app_id if a grant exists",
+  cache: "Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60 s",
 };
 
 function showFieldBreakdown(el, fields, isError = false) {
@@ -86,7 +87,7 @@ async function encrypt() {
     const res = await fetch(`${API}/encrypt`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ plaintext, data_classification, context: { source: "demo-ui" } }),
+      body: JSON.stringify({ plaintext, data_classification, end_user_id: $("encryptEndUserId").value || null, context: { source: "demo-ui" } }),
     });
     const data = await res.json();
     if (!res.ok) { showResult($("encryptResult"), data, true); return; }
@@ -107,12 +108,15 @@ async function encrypt() {
 async function decrypt() {
   const btn = $("decryptBtn");
   btn.disabled = true;
+  const edekId = $("edekId").value;
+  const isHit = edekId ? _demoCacheLookup(edekId) : false;
   try {
     const body = {
-      edek_id: $("edekId").value,
+      edek_id: edekId,
       iv_b64: $("iv").value,
       ciphertext_b64: $("ciphertext").value,
       tag_b64: $("tag").value,
+      end_user_id: $("decryptEndUserId").value || null,
     };
     const res = await fetch(`${API}/decrypt`, {
       method: "POST",
@@ -125,6 +129,7 @@ async function decrypt() {
       plaintext: data.plaintext,
       owner_app_id: data.owner_app_id,
       decrypted_as: currentApp.app_id,
+      cache: isHit ? "HIT (KV unwrap skipped)" : "MISS (KV unwrapped, now cached 60s)",
     });
   } catch (e) {
     showResult($("decryptResult"), String(e), true);
@@ -245,7 +250,7 @@ async function revealConsumerAccount(id) {
     const res = await fetch(`${API}/demo/consumer/accounts/${id}/reveal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reveal_as }),
+      body: JSON.stringify({ reveal_as, end_user_id: $("revealEndUserId").value || null }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -330,6 +335,53 @@ async function refreshAuditLog() {
   }).join("");
 }
 
+// ── Redis DEK Cache simulation ────────────────────────────────────────────────
+// In demo mode NullDEKCache is active server-side, so we simulate cache state
+// client-side: first decrypt of an edek_id is a MISS; repeats within 60s are HITs.
+const _demoCache = new Map(); // edek_id → { cachedAt: Date, timer: id }
+let _cacheHits = 0;
+let _cacheMisses = 0;
+
+function _demoCacheLookup(edekId) {
+  const entry = _demoCache.get(edekId);
+  if (entry) {
+    _cacheHits++;
+    refreshCachePanel(edekId, "HIT");
+    return true;
+  }
+  _cacheMisses++;
+  const timer = setTimeout(() => {
+    _demoCache.delete(edekId);
+    refreshCachePanel(null, null);
+  }, 60000);
+  _demoCache.set(edekId, { cachedAt: new Date(), timer });
+  refreshCachePanel(edekId, "MISS");
+  return false;
+}
+
+function refreshCachePanel(lastEdekId, lastResult) {
+  $("cacheHits").textContent   = _cacheHits;
+  $("cacheMisses").textContent = _cacheMisses;
+  $("cacheSize").textContent   = _demoCache.size;
+  const tbody = document.querySelector("#cacheTable tbody");
+  if (_demoCache.size === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:#555b7a;font-style:italic;">Cache empty — decrypt something to populate</td></tr>';
+    return;
+  }
+  const now = Date.now();
+  tbody.innerHTML = [..._demoCache.entries()].map(([id, e]) => {
+    const ageMs  = now - e.cachedAt.getTime();
+    const ttlSec = Math.max(0, Math.ceil((60000 - ageMs) / 1000));
+    const isLast = id === lastEdekId;
+    return `<tr>
+      <td><code>${id.slice(0,8)}…</code></td>
+      <td>${e.cachedAt.toLocaleTimeString()}</td>
+      <td>${ttlSec}s</td>
+      <td style="color:${isLast && lastResult === 'HIT' ? '#10b981' : isLast && lastResult === 'MISS' ? '#f87171' : '#8b92b8'}">${isLast ? lastResult || '—' : '—'}</td>
+    </tr>`;
+  }).join("");
+}
+
 function showTab(name) {
   const views = { demo: $("demoView"), diagram: $("diagramView"), sequence: $("sequenceView") };
   const tabs  = { demo: $("tabDemo"),  diagram: $("tabDiagram"),  sequence: $("tabSequence")  };
@@ -353,6 +405,11 @@ $("decryptBtn").addEventListener("click", decrypt);
 $("rotateBtn").addEventListener("click", rotate);
 $("addGrantBtn").addEventListener("click", addGrant);
 $("createAccountBtn").addEventListener("click", createConsumerAccount);
+$("clearCacheBtn").addEventListener("click", () => {
+  for (const e of _demoCache.values()) clearTimeout(e.timer);
+  _demoCache.clear();
+  refreshCachePanel(null, null);
+});
 
 loadApps();
 refreshAuditLog();

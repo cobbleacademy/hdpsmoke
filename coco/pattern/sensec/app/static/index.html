@@ -41,6 +41,8 @@
           <option value="pci">pci</option>
           <option value="internal">internal</option>
         </select>
+        <label for="encryptEndUserId">End User ID <span class="field-note">— optional; logged in audit trail for SIEM correlation (e.g. user email or SSO subject)</span></label>
+        <input id="encryptEndUserId" type="text" placeholder="user@example.com" />
         <button id="encryptBtn">Encrypt →</button>
         <div id="encryptResult" class="result"></div>
       </section>
@@ -56,10 +58,27 @@
         <input id="ciphertext" type="text" />
         <label for="tag">Tag (base64) <span class="field-note">— GCM auth tag; proves ciphertext + app_id weren't tampered with</span></label>
         <input id="tag" type="text" />
+        <label for="decryptEndUserId">End User ID <span class="field-note">— optional; logged in audit trail for SIEM correlation (e.g. user email or SSO subject)</span></label>
+        <input id="decryptEndUserId" type="text" placeholder="user@example.com" />
         <button id="decryptBtn">Decrypt →</button>
         <div id="decryptResult" class="result"></div>
       </section>
     </div>
+
+    <section class="panel" style="margin-bottom:1rem;">
+      <h2>3b. Redis DEK Cache <span class="field-note">— simulated in demo; in production this is Azure Cache for Redis (TLS, CEK-encrypted)</span></h2>
+      <p class="hint">After a cache MISS, the unwrapped DEK is AES-256-GCM encrypted with the CEK and stored in Redis for 60 s. Repeat decrypts of the same <code>edek_id</code> within the TTL window skip the Azure Key Vault unwrap entirely (cache HIT).</p>
+      <div style="display:flex;gap:1.5rem;align-items:flex-end;margin-bottom:0.75rem;flex-wrap:wrap;">
+        <div class="cache-stat"><span id="cacheHits" style="color:#10b981;font-size:1.6rem;font-weight:700;">0</span><label style="display:block;font-size:0.75rem;color:#8b92b8;">Cache HITs</label></div>
+        <div class="cache-stat"><span id="cacheMisses" style="color:#f87171;font-size:1.6rem;font-weight:700;">0</span><label style="display:block;font-size:0.75rem;color:#8b92b8;">Cache MISSes</label></div>
+        <div class="cache-stat"><span id="cacheSize" style="color:#14b8a6;font-size:1.6rem;font-weight:700;">0</span><label style="display:block;font-size:0.75rem;color:#8b92b8;">Entries (live)</label></div>
+        <button id="clearCacheBtn" style="margin-left:auto;background:#1a1d27;border:1px solid #14b8a6;color:#14b8a6;">Clear Demo Cache</button>
+      </div>
+      <table id="cacheTable">
+        <thead><tr><th>EDEK ID</th><th>Cached At</th><th>Expires In</th><th>Last Result</th></tr></thead>
+        <tbody><tr><td colspan="4" style="color:#555b7a;font-style:italic;">No entries — decrypt something above to populate the cache</td></tr></tbody>
+      </table>
+    </section>
 
     <div class="grid">
       <section class="panel admin-panel">
@@ -76,6 +95,38 @@
           <thead><tr><th>Version</th><th>Key Size</th><th>Created</th><th>Current</th></tr></thead>
           <tbody></tbody>
         </table>
+        <details style="margin-top:0.9rem;">
+          <summary style="cursor:pointer;font-size:0.8rem;color:var(--muted);user-select:none;">Production scripts — inspect the real KEK &amp; CEK</summary>
+          <div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:0.75rem;">
+            <div>
+              <p class="hint" style="margin-bottom:0.3rem;"><strong style="color:var(--fg);">HSM KEK (Azure Key Vault Managed HSM)</strong> — list key versions and see which is current:</p>
+              <pre style="background:#0d0f17;border-radius:4px;padding:0.6rem 0.8rem;font-size:0.75rem;overflow-x:auto;color:#e2e8f0;margin:0"># list all versions of the KEK
+az keyvault key list-versions \
+  --hsm-name &lt;your-mhsm-name&gt; \
+  --name hsm-master-kek \
+  --query "[].{version:name,enabled:attributes.enabled,created:attributes.created}" \
+  --output table
+
+# show current key version (non-extractable — bytes never leave the HSM)
+az keyvault key show \
+  --hsm-name &lt;your-mhsm-name&gt; \
+  --name hsm-master-kek</pre>
+            </div>
+            <div>
+              <p class="hint" style="margin-bottom:0.3rem;"><strong style="color:var(--fg);">CEK — Cache Encryption Key (regular Azure Key Vault secret)</strong> — stored in a <em>separate</em> vault because Managed HSM does not support the Secrets API:</p>
+              <pre style="background:#0d0f17;border-radius:4px;padding:0.6rem 0.8rem;font-size:0.75rem;overflow-x:auto;color:#e2e8f0;margin:0"># show secret metadata (no value)
+az keyvault secret show \
+  --vault-name &lt;your-vault-name&gt; \
+  --name hsm-dek-cache-key \
+  --query "{name:name,enabled:attributes.enabled,created:attributes.created,expires:attributes.expires}"
+
+# provision / rotate the CEK (32 random bytes, base64-encoded)
+python scripts/provision_dek_cache_key.py \
+  --vault-name &lt;your-vault-name&gt; \
+  --secret-name hsm-dek-cache-key</pre>
+            </div>
+          </div>
+        </details>
       </section>
     </div>
 
@@ -137,6 +188,8 @@
         <div>
           <label for="revealAs">Reveal as <span class="field-note">— exercises the same grant check as /decrypt</span></label>
           <select id="revealAs"></select>
+          <label for="revealEndUserId">End User ID <span class="field-note">— optional; logged in audit trail alongside the reveal event</span></label>
+          <input id="revealEndUserId" type="text" placeholder="user@example.com" />
         </div>
       </div>
 
@@ -190,10 +243,10 @@
       </p>
 
       <div class="diagram-panel">
-        <svg viewBox="0 0 1100 860" xmlns="http://www.w3.org/2000/svg" role="img">
+        <svg viewBox="0 0 1100 940" xmlns="http://www.w3.org/2000/svg" role="img">
           <title>HSM Encryption Service Architecture</title>
           <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern</desc>
-          <rect width="1100" height="860" fill="#0f1117"/>
+          <rect width="1100" height="940" fill="#0f1117"/>
           <!-- ── MULTIPLE CLIENTS ─────────────────────────────────────────────── -->
           <rect x="15" y="10" width="168" height="152" rx="8" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
           <text x="99" y="28" text-anchor="middle" fill="#8b92b8" font-size="10" letter-spacing="1" font-family="monospace">MULTIPLE CLIENTS</text>
@@ -250,8 +303,8 @@
           <text x="540" y="270" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">random IV → wrap DEK</text>
           <rect x="455" y="285" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" stroke-width="1"/>
           <text x="540" y="303" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace">POST /decrypt</text>
-          <text x="540" y="318" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Grant check → unwrap</text>
-          <text x="540" y="330" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">AES-256-GCM decrypt</text>
+          <text x="540" y="318" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Grant check → cache lookup</text>
+          <text x="540" y="330" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">→ unwrap on MISS → decrypt</text>
           <rect x="455" y="345" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" stroke-width="1"/>
           <text x="540" y="363" text-anchor="middle" fill="#fb923c" font-size="10" font-family="monospace">/admin/rotate-kek · /grants</text>
           <text x="540" y="376" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Re-wrap EDEKs · manage grants</text>
@@ -259,25 +312,35 @@
           <text x="540" y="412" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">GET /health · /apps/status</text>
           <rect x="455" y="432" width="170" height="22" rx="4" fill="#1e3a2f" stroke="#10b981" stroke-width="1"/>
           <text x="540" y="447" text-anchor="middle" fill="#10b981" font-size="9" font-family="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
-          <!-- Arrow: ENCRYPTION SERVICE → AZURE KEY VAULT (Service SPN) -->
-          <line x1="640" y1="290" x2="690" y2="290" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arr-purple)"/>
-          <text x="665" y="278" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">Service SPN</text>
-          <text x="665" y="288" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">wrap/unwrap</text>
-          <!-- ── AZURE KEY VAULT ─────────────────────────────────────────────── -->
-          <rect x="690" y="220" width="190" height="200" rx="8" fill="#1a1d27" stroke="#e879f9" stroke-width="2"/>
-          <text x="785" y="242" text-anchor="middle" fill="#e879f9" font-size="10" letter-spacing="1" font-family="monospace">AZURE KEY VAULT</text>
-          <text x="785" y="256" text-anchor="middle" fill="#e879f9" font-size="9" font-family="monospace">Managed HSM · FIPS 140-2 L3</text>
-          <rect x="705" y="266" width="160" height="30" rx="4" fill="#2d1b47" stroke="#e879f9" stroke-width="1"/>
-          <text x="785" y="281" text-anchor="middle" fill="#e879f9" font-size="10" font-family="monospace">KEK (RSA-HSM 4096)</text>
-          <text x="785" y="293" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">never leaves HSM boundary</text>
-          <rect x="705" y="305" width="160" height="24" rx="4" fill="#22263a"/>
-          <text x="785" y="321" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Key Versioning</text>
-          <rect x="705" y="337" width="160" height="24" rx="4" fill="#22263a"/>
-          <text x="785" y="353" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Auto-rotation Policy</text>
-          <rect x="705" y="369" width="160" height="24" rx="4" fill="#22263a"/>
-          <text x="785" y="385" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Role-based Access (RBAC)</text>
-          <rect x="705" y="401" width="160" height="14" rx="3" fill="#22263a"/>
-          <text x="785" y="412" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Managed Identity (no secrets)</text>
+          <!-- ── AZURE KV SECRETS (regular vault.azure.net — Secrets API) ──── -->
+          <rect x="690" y="180" width="190" height="36" rx="4" fill="#0a1f1e" stroke="#14b8a6" stroke-width="1.5"/>
+          <text x="785" y="196" text-anchor="middle" fill="#14b8a6" font-size="9" letter-spacing="1" font-family="monospace">AZURE KV SECRETS</text>
+          <text x="785" y="210" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">vault.azure.net · CEK · hsm-dek-cache-key</text>
+          <!-- Arrow: ENCRYPTION SERVICE → AZURE KV SECRETS (CEK fetch at startup) -->
+          <line x1="640" y1="198" x2="690" y2="198" stroke="#14b8a6" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-teal)"/>
+          <text x="665" y="194" text-anchor="middle" fill="#14b8a6" font-size="7" font-family="monospace">CEK (startup)</text>
+          <!-- Arrow: ENCRYPTION SERVICE → REDIS CACHE (cache GET/SET, now above AKV) -->
+          <line x1="640" y1="279" x2="690" y2="279" stroke="#14b8a6" stroke-width="1.5" marker-end="url(#arr-teal)"/>
+          <text x="665" y="273" text-anchor="middle" fill="#14b8a6" font-size="7" font-family="monospace">cache GET/SET</text>
+          <!-- Arrow: ENCRYPTION SERVICE → AZURE KEY VAULT (Service SPN, L-path to moved box) -->
+          <path d="M 640 300 L 678 300 L 678 405 L 690 405" fill="none" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arr-purple)"/>
+          <text x="659" y="291" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">Service SPN</text>
+          <text x="659" y="301" text-anchor="middle" fill="#a78bfa" font-size="7" font-family="monospace">wrap / unwrap: MISS</text>
+          <!-- ── AZURE KEY VAULT (Managed HSM) — moved below Redis ─────────── -->
+          <rect x="690" y="343" width="190" height="200" rx="8" fill="#1a1d27" stroke="#e879f9" stroke-width="2"/>
+          <text x="785" y="365" text-anchor="middle" fill="#e879f9" font-size="10" letter-spacing="1" font-family="monospace">AZURE KEY VAULT</text>
+          <text x="785" y="379" text-anchor="middle" fill="#e879f9" font-size="9" font-family="monospace">Managed HSM · FIPS 140-2 L3</text>
+          <rect x="705" y="389" width="160" height="30" rx="4" fill="#2d1b47" stroke="#e879f9" stroke-width="1"/>
+          <text x="785" y="404" text-anchor="middle" fill="#e879f9" font-size="10" font-family="monospace">KEK (RSA-HSM 4096)</text>
+          <text x="785" y="416" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">never leaves HSM boundary</text>
+          <rect x="705" y="428" width="160" height="24" rx="4" fill="#22263a"/>
+          <text x="785" y="444" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Key Versioning</text>
+          <rect x="705" y="460" width="160" height="24" rx="4" fill="#22263a"/>
+          <text x="785" y="476" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Auto-rotation Policy</text>
+          <rect x="705" y="492" width="160" height="24" rx="4" fill="#22263a"/>
+          <text x="785" y="508" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">Role-based Access (RBAC)</text>
+          <rect x="705" y="524" width="160" height="14" rx="3" fill="#22263a"/>
+          <text x="785" y="535" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Managed Identity (no secrets)</text>
           <!-- ── EDEK STORE ──────────────────────────────────────────────────── -->
           <rect x="440" y="500" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
           <text x="540" y="522" text-anchor="middle" fill="#38bdf8" font-size="10" letter-spacing="1" font-family="monospace">EDEK STORE</text>
@@ -290,17 +353,30 @@
           <text x="540" y="611" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">encrypted at rest · TDE</text>
           <!-- Arrow: ENCRYPTION SERVICE → EDEK STORE -->
           <line x1="540" y1="460" x2="540" y2="500" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr-cyan)"/>
+          <!-- ── REDIS DEK CACHE — moved below AKV Secrets ───────────────────── -->
+          <rect x="690" y="222" width="190" height="115" rx="8" fill="#1a1d27" stroke="#14b8a6" stroke-width="2"/>
+          <text x="785" y="242" text-anchor="middle" fill="#14b8a6" font-size="10" letter-spacing="1" font-family="monospace">REDIS DEK CACHE</text>
+          <text x="785" y="255" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Azure Cache for Redis · TLS</text>
+          <rect x="705" y="262" width="160" height="22" rx="4" fill="#22263a"/>
+          <text x="785" y="277" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">key: dek:v1:{edek_id}</text>
+          <rect x="705" y="290" width="160" height="22" rx="4" fill="#22263a"/>
+          <text x="785" y="305" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">value: CEK-encrypted DEK</text>
+          <rect x="705" y="318" width="160" height="14" rx="3" fill="#1e3a2f" stroke="#14b8a6" stroke-width="1"/>
+          <text x="785" y="329" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">TTL 60s · never plaintext</text>
+          <!-- Arrow: REDIS CACHE → AZURE KEY VAULT (cache MISS → unwrap, now going down) -->
+          <path d="M 880 279 L 920 279 L 920 443 L 880 443" fill="none" stroke="#14b8a6" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-teal)"/>
+          <text x="931" y="361" fill="#14b8a6" font-size="8" font-family="monospace" transform="rotate(-90,931,361)">cache MISS → unwrapKey</text>
           <!-- ── GRANTS + ROTATION ───────────────────────────────────────────── -->
-          <rect x="690" y="470" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" stroke-width="1.5"/>
-          <text x="785" y="490" text-anchor="middle" fill="#fb923c" font-size="10" letter-spacing="1" font-family="monospace">GRANTS + ROTATION</text>
-          <rect x="705" y="498" width="160" height="22" rx="4" fill="#22263a"/>
-          <text x="785" y="513" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">grantee → owner pairs</text>
-          <rect x="705" y="526" width="160" height="22" rx="4" fill="#22263a"/>
-          <text x="785" y="541" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">default-deny, audited</text>
-          <rect x="705" y="554" width="160" height="20" rx="4" fill="#22263a"/>
-          <text x="785" y="568" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">monthly KEK re-wrap job</text>
-          <line x1="785" y1="470" x2="785" y2="420" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arr-orange)"/>
-          <line x1="690" y1="525" x2="640" y2="570" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-orange)"/>
+          <rect x="690" y="549" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" stroke-width="1.5"/>
+          <text x="785" y="569" text-anchor="middle" fill="#fb923c" font-size="10" letter-spacing="1" font-family="monospace">GRANTS + ROTATION</text>
+          <rect x="705" y="577" width="160" height="22" rx="4" fill="#22263a"/>
+          <text x="785" y="592" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">grantee → owner pairs</text>
+          <rect x="705" y="605" width="160" height="22" rx="4" fill="#22263a"/>
+          <text x="785" y="620" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">default-deny, audited</text>
+          <rect x="705" y="633" width="160" height="20" rx="4" fill="#22263a"/>
+          <text x="785" y="647" text-anchor="middle" fill="#cdd2f0" font-size="9" font-family="monospace">monthly KEK re-wrap job</text>
+          <line x1="785" y1="549" x2="785" y2="490" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+          <line x1="690" y1="604" x2="640" y2="559" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-orange)"/>
           <!-- ── ENCRYPT PAYLOAD FLOW ────────────────────────────────────────── -->
           <rect x="20" y="620" width="400" height="220" rx="8" fill="#1a1d27" stroke="#2d3148" stroke-width="1.5"/>
           <text x="220" y="640" text-anchor="middle" fill="#8b92b8" font-size="10" letter-spacing="1" font-family="monospace">ENCRYPT PAYLOAD FLOW</text>
@@ -314,7 +390,7 @@
           <text x="36" y="760" fill="#f87171" font-size="10" font-family="monospace">Decrypt:</text>
           <rect x="36" y="768" width="365" height="54" rx="4" fill="#22263a"/>
           <text x="50" y="782" fill="#555b7a" font-size="9" font-family="monospace">Request:   { edek_id, iv, ciphertext, tag, end_user_id }</text>
-          <text x="50" y="796" fill="#555b7a" font-size="9" font-family="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
+          <text x="50" y="796" fill="#555b7a" font-size="9" font-family="monospace">Lookup → grant check → Redis HIT (skip KV) / MISS → unwrap → decrypt</text>
           <text x="50" y="808" fill="#555b7a" font-size="9" font-family="monospace">Response:  { plaintext, owner_app_id }  DEK zeroed immediately</text>
           <!-- ── AUDITOR SPN ─────────────────────────────────────────────────── -->
           <rect x="906" y="220" width="178" height="200" rx="8" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
@@ -332,9 +408,9 @@
           <rect x="918" y="386" width="154" height="28" rx="3" fill="#22263a"/>
           <text x="995" y="400" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">SIEM / Splunk audited</text>
           <text x="995" y="412" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">separately from service</text>
-          <!-- Arrow: AUDITOR SPN → AZURE KEY VAULT (read-only, dashed) -->
-          <line x1="906" y1="302" x2="880" y2="302" stroke="#f87171" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-red)"/>
-          <text x="893" y="296" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">read-only</text>
+          <!-- Arrow: AUDITOR SPN → AZURE KEY VAULT (read-only, dashed, updated y) -->
+          <line x1="906" y1="420" x2="880" y2="420" stroke="#f87171" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-red)"/>
+          <text x="893" y="414" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">read-only</text>
           <!-- Arrow: AUDITOR SPN → EDEK STORE (dashed diagonal) -->
           <line x1="920" y1="420" x2="642" y2="558" stroke="#f87171" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-red)"/>
           <text x="800" y="496" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">read edek_records</text>
@@ -346,6 +422,7 @@
             <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#fb923c"/></marker>
             <marker id="arr-green"  markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#10b981"/></marker>
             <marker id="arr-red"    markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#f87171"/></marker>
+            <marker id="arr-teal"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#14b8a6"/></marker>
           </defs>
         </svg>
       </div>
@@ -357,7 +434,12 @@
         separate scopes (<code>grant</code> vs <code>rotate</code>). The Auth
         Middleware box now explicitly includes the grant check, and the encrypt
         payload includes <code>encoding</code> and <code>data_classification</code>,
-        added after the original review.
+        added after the original review. The <strong style="color:#14b8a6">Redis DEK Cache</strong>
+        (teal, bottom-right) is new: after HSM unwraps a DEK on decrypt, the raw DEK bytes are
+        AES-256-GCM encrypted with a Cache Encryption Key (CEK) and stored in Redis for 60 s.
+        Subsequent decrypts of the same record within the TTL window skip the KV unwrap entirely.
+        Cache MISS escalates to Azure Key Vault (dashed teal arrow, right side).
+        CEK is loaded from Azure Key Vault Secret at startup — never stored as plaintext.
       </p>
     </section>
   </div>
@@ -369,18 +451,20 @@
         Step-by-step call flow from multiple client apps through the PlainID/PBAC policy gate,
         into the HSM service for encrypt and decrypt, and the separate direct path used by the
         Auditor SPN for scanning. Solid arrows are requests; dashed arrows are responses.
+        Redis DEK Cache steps (teal) are shown inline in the decrypt flow — cache HIT skips
+        the Azure Key Vault unwrap entirely; MISS falls through to KV then writes the result back.
       </p>
       <!-- flex column: header is fixed, body scrolls inside the bounded height -->
       <div style="display:flex;flex-direction:column;height:78vh;border-radius:6px;overflow:hidden;">
 
         <!-- ── PARTICIPANT HEADER (never scrolls) ───────────────────────── -->
         <div style="flex-shrink:0;border-bottom:1px solid #2d3148;">
-        <svg viewBox="0 0 980 70" xmlns="http://www.w3.org/2000/svg"
+        <svg viewBox="0 0 1120 70" xmlns="http://www.w3.org/2000/svg"
              style="width:100%;display:block;height:auto;"
              preserveAspectRatio="xMidYMin meet">
-          <rect width="980" height="70" fill="#0f1117"/>
+          <rect width="1120" height="70" fill="#0f1117"/>
           <!-- bottom border line -->
-          <line x1="0" y1="69" x2="980" y2="69" stroke="#2d3148" stroke-width="1"/>
+          <line x1="0" y1="69" x2="1120" y2="69" stroke="#2d3148" stroke-width="1"/>
 
           <!-- participant boxes -->
           <rect x="15"  y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
@@ -397,44 +481,72 @@
 
           <rect x="505" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#e879f9" stroke-width="1.5"/>
           <text x="565" y="26" text-anchor="middle" fill="#e879f9" font-size="10" font-family="monospace">Azure Key Vault</text>
-          <text x="565" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Managed HSM</text>
+          <text x="565" y="37" text-anchor="middle" fill="#555b7a" font-size="7"  font-family="monospace">mhsm (KEK wrap/unwrap)</text>
+          <text x="565" y="48" text-anchor="middle" fill="#14b8a6" font-size="7"  font-family="monospace">vault.azure.net (CEK secret)</text>
 
           <rect x="660" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
           <text x="720" y="26" text-anchor="middle" fill="#38bdf8" font-size="10" font-family="monospace">EDEK Store</text>
           <text x="720" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">PostgreSQL</text>
 
-          <rect x="820" y="8" width="140" height="44" rx="6" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
-          <text x="890" y="26" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace">Auditor SPN</text>
-          <text x="890" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Scan / Audit</text>
+          <rect x="800" y="8" width="120" height="44" rx="6" fill="#1a1d27" stroke="#14b8a6" stroke-width="1.5"/>
+          <text x="860" y="26" text-anchor="middle" fill="#14b8a6" font-size="10" font-family="monospace">Redis Cache</text>
+          <text x="860" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">DEK Cache · TLS</text>
+
+          <rect x="960" y="8" width="140" height="44" rx="6" fill="#1a1d27" stroke="#f87171" stroke-width="1.5"/>
+          <text x="1030" y="26" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace">Auditor SPN</text>
+          <text x="1030" y="40" text-anchor="middle" fill="#555b7a" font-size="8"  font-family="monospace">Scan / Audit</text>
 
           <!-- lifeline stubs connecting boxes to scrollable body below -->
-          <line x1="75"  y1="52" x2="75"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="215" y1="52" x2="215" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="400" y1="52" x2="400" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="565" y1="52" x2="565" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="720" y1="52" x2="720" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="890" y1="52" x2="890" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="75"   y1="52" x2="75"   y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="215"  y1="52" x2="215"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="400"  y1="52" x2="400"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="565"  y1="52" x2="565"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="720"  y1="52" x2="720"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="860"  y1="52" x2="860"  y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="1030" y1="52" x2="1030" y2="70" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
         </svg>
         </div><!-- /header -->
 
         <!-- ── SCROLLABLE SEQUENCE BODY ──────────────────────────────────── -->
         <div style="flex:1;overflow-y:auto;">
-        <svg viewBox="0 0 980 728" xmlns="http://www.w3.org/2000/svg"
+        <svg viewBox="0 0 1120 920" xmlns="http://www.w3.org/2000/svg"
              role="img" style="width:100%;display:block;height:auto;"
              preserveAspectRatio="xMidYMin meet">
           <title>HSM Encryption Service – Sequence Diagram</title>
-          <rect width="980" height="728" fill="#0f1117"/>
+          <rect width="1120" height="920" fill="#0f1117"/>
+
+          <!-- lifelines through STARTUP section (y=0..80) -->
+          <line x1="75"   y1="0" x2="75"   y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="215"  y1="0" x2="215"  y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="400"  y1="0" x2="400"  y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="565"  y1="0" x2="565"  y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="720"  y1="0" x2="720"  y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="860"  y1="0" x2="860"  y2="80" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="1030" y1="0" x2="1030" y2="80" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+
+          <!-- STARTUP — CEK loaded from Azure KV before first request -->
+          <rect x="10" y="4" width="750" height="72" rx="5" fill="#0a1f1e" stroke="#14b8a6" stroke-width="0.6"/>
+          <text x="18" y="17" fill="#14b8a6" font-size="9" font-family="monospace" letter-spacing="1">STARTUP  (one-time at service init — not per request)</text>
+          <line x1="400" y1="31" x2="561" y2="31" stroke="#14b8a6" stroke-width="1.5" marker-end="url(#sq-teal)"/>
+          <text x="482" y="27" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">0a. fetch secret  hsm-dek-cache-key  [Service SPN · regular vault.azure.net]</text>
+          <line x1="565" y1="48" x2="404" y2="48" stroke="#14b8a6" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-teal)"/>
+          <text x="482" y="44" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">0b. CEK bytes  (32-byte AES-256)  →  DEKCache initialized · same secret across all pods</text>
+          <text x="18" y="68" fill="#555b7a" font-size="7" font-family="monospace">Note: Managed HSM does not support Secrets API — CEK lives in a separate regular vault.azure.net · KEK lives in Managed HSM</text>
+
+          <!-- remaining content shifted down 80px -->
+          <g transform="translate(0,80)">
 
           <!-- lifelines -->
-          <line x1="75"  y1="0" x2="75"  y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="215" y1="0" x2="215" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="400" y1="0" x2="400" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="565" y1="0" x2="565" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="720" y1="0" x2="720" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="890" y1="0" x2="890" y2="728" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="75"   y1="0" x2="75"   y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="215"  y1="0" x2="215"  y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="400"  y1="0" x2="400"  y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="565"  y1="0" x2="565"  y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="720"  y1="0" x2="720"  y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="860"  y1="0" x2="860"  y2="840" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="1030" y1="0" x2="1030" y2="840" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
 
           <!-- SECTION 1 — POLICY CHECK (y offset -54 from original) -->
-          <rect x="10" y="6" width="830" height="96" rx="5" fill="#1a1a05" stroke="#eab308" stroke-width="0.6"/>
+          <rect x="10" y="6" width="970" height="96" rx="5" fill="#1a1a05" stroke="#eab308" stroke-width="0.6"/>
           <text x="18" y="19" fill="#eab308" font-size="9" font-family="monospace" letter-spacing="1">POLICY CHECK  (every client request must clear this gate first)</text>
           <line x1="75" y1="33" x2="211" y2="33" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
           <text x="143" y="28" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">1. policy check  (JWT + logged-in user identity)</text>
@@ -445,7 +557,7 @@
           <text x="18" y="94" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT</text>
 
           <!-- SECTION 2 — ENCRYPT FLOW -->
-          <rect x="10" y="108" width="830" height="216" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
+          <rect x="10" y="108" width="970" height="216" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
           <text x="18" y="121" fill="#10b981" font-size="9" font-family="monospace" letter-spacing="1">ENCRYPT FLOW</text>
           <line x1="75" y1="135" x2="396" y2="135" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
           <text x="235" y="130" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">3. POST /encrypt  { plaintext, encoding, data_classification, end_user_id }</text>
@@ -467,7 +579,7 @@
           <text x="235" y="303" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">11. { edek_id, owner_app_id, iv, ciphertext, tag }</text>
 
           <!-- SECTION 3 — DECRYPT FLOW -->
-          <rect x="10" y="330" width="830" height="250" rx="5" fill="#140505" stroke="#f87171" stroke-width="0.6"/>
+          <rect x="10" y="330" width="970" height="290" rx="5" fill="#140505" stroke="#f87171" stroke-width="0.6"/>
           <text x="18" y="343" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">DECRYPT FLOW</text>
           <line x1="75" y1="357" x2="396" y2="357" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
           <text x="235" y="352" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { edek_id, iv, ciphertext, tag, end_user_id }</text>
@@ -476,33 +588,47 @@
           <line x1="720" y1="389" x2="404" y2="389" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
           <text x="558" y="384" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">14. { edek_blob, kek_version, owner_app_id, data_class }</text>
           <path d="M 400 403 L 428 403 L 428 421 L 404 421" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="432" y="415" fill="#a78bfa" font-size="8" font-family="monospace">15. grant check: caller → owner?</text>
-          <line x1="400" y1="436" x2="561" y2="436" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
-          <text x="482" y="431" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">16. unwrap DEK  [Service SPN]</text>
-          <line x1="565" y1="452" x2="404" y2="452" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
-          <text x="482" y="447" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">17. raw DEK bytes</text>
-          <path d="M 400 466 L 428 466 L 428 484 L 404 484" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="432" y="478" fill="#a78bfa" font-size="8" font-family="monospace">18. AES-256-GCM decrypt · zero DEK immediately</text>
-          <path d="M 400 498 L 428 498 L 428 516 L 404 516" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="432" y="510" fill="#a78bfa" font-size="8" font-family="monospace">19. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
-          <line x1="400" y1="532" x2="79" y2="532" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
-          <text x="235" y="527" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">20. { plaintext, owner_app_id }  — DEK zeroed in memory</text>
+          <text x="432" y="415" fill="#a78bfa" font-size="8" font-family="monospace">15. grant check: caller → owner?  (governance SPN bypasses)</text>
+
+          <!-- Redis cache — proper sequence arrows to Redis participant column -->
+          <line x1="400" y1="435" x2="856" y2="435" stroke="#14b8a6" stroke-width="1.5" marker-end="url(#sq-teal)"/>
+          <text x="628" y="430" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">15a. GET dek:v1:{edek_id}</text>
+          <line x1="860" y1="452" x2="404" y2="452" stroke="#14b8a6" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-teal)"/>
+          <text x="628" y="447" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">HIT → cached DEK bytes  (skip steps 16 &amp; 17 — jump to step 18)</text>
+          <text x="628" y="462" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">MISS → nil  →  continue to KV unwrap ↓</text>
+
+          <line x1="400" y1="478" x2="561" y2="478" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
+          <text x="482" y="473" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">[MISS only]</text>
+          <text x="482" y="483" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">16. unwrap DEK  [Service SPN · RSA-OAEP-256]</text>
+          <line x1="565" y1="496" x2="404" y2="496" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
+          <text x="482" y="491" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">17. raw DEK bytes  [MISS]</text>
+          <line x1="400" y1="512" x2="856" y2="512" stroke="#14b8a6" stroke-width="1.5" marker-end="url(#sq-teal)"/>
+          <text x="628" y="507" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">16a. [MISS] SET dek:v1:{edek_id}  CEK-encrypted  EX 60s</text>
+
+          <path d="M 400 528 L 428 528 L 428 546 L 404 546" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="540" fill="#a78bfa" font-size="8" font-family="monospace">18. AES-256-GCM decrypt · zero DEK immediately</text>
+          <path d="M 400 562 L 428 562 L 428 580 L 404 580" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="432" y="574" fill="#a78bfa" font-size="8" font-family="monospace">19. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
+          <line x1="400" y1="596" x2="79" y2="596" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
+          <text x="235" y="591" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">20. { plaintext, owner_app_id }  — DEK zeroed in memory</text>
 
           <!-- SECTION 4 — AUDIT / SCAN FLOW -->
-          <rect x="10" y="587" width="962" height="135" rx="5" fill="#100404" stroke="#f87171" stroke-width="0.6"/>
-          <text x="18" y="600" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">AUDIT / SCAN FLOW  (Auditor SPN — direct path, bypasses HSM service entirely)</text>
-          <line x1="890" y1="613" x2="569" y2="613" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
-          <text x="729" y="608" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">21. list / get keys  [read-only · no wrap · no unwrap]</text>
-          <line x1="565" y1="629" x2="886" y2="629" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
-          <text x="729" y="624" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">22. key metadata  (version, status, attributes)</text>
-          <line x1="890" y1="645" x2="724" y2="645" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
-          <text x="807" y="640" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">23. SELECT * FROM edek_records  [read-only DB role]</text>
-          <line x1="720" y1="661" x2="886" y2="661" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
-          <text x="807" y="656" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">24. edek records  (wrapped blobs only)</text>
-          <rect x="18" y="673" width="946" height="22" rx="3" fill="#22263a"/>
-          <text x="491" y="687" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Audit trail: Azure KV Diagnostic Logs  +  Splunk  (separate pipeline — not via this service's audit_log)</text>
-          <rect x="18" y="700" width="946" height="22" rx="3" fill="#1a1d27"/>
-          <text x="491" y="714" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Auditor SPN: no wrap/unwrap RBAC on Azure KV · no write access to any DB table</text>
+          <rect x="10" y="632" width="1102" height="168" rx="5" fill="#100404" stroke="#f87171" stroke-width="0.6"/>
+          <text x="18" y="645" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">AUDIT / SCAN FLOW  (Auditor SPN — direct path, bypasses HSM service entirely)</text>
+          <line x1="1030" y1="659" x2="569" y2="659" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
+          <text x="797" y="654" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">21. list / get keys  [read-only · no wrap · no unwrap]</text>
+          <line x1="565" y1="675" x2="1026" y2="675" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
+          <text x="797" y="670" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">22. key metadata  (version, status, attributes)</text>
+          <line x1="1030" y1="691" x2="724" y2="691" stroke="#f87171" stroke-width="1.5" marker-end="url(#sq-red)"/>
+          <text x="875" y="686" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">23. SELECT * FROM edek_records  [read-only DB role]</text>
+          <line x1="720" y1="707" x2="1026" y2="707" stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-red)"/>
+          <text x="875" y="702" text-anchor="middle" fill="#f87171" font-size="8" font-family="monospace">24. edek records  (wrapped blobs only)</text>
+          <rect x="18" y="718" width="1085" height="22" rx="3" fill="#22263a"/>
+          <text x="560" y="732" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Audit trail: Azure KV Diagnostic Logs  +  Splunk  (separate pipeline — not via this service's audit_log)</text>
+          <rect x="18" y="746" width="1085" height="22" rx="3" fill="#1a1d27"/>
+          <text x="560" y="760" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Auditor SPN: no wrap/unwrap RBAC on Azure KV · no write access to any DB table · Redis cache not accessible</text>
+
+          </g><!-- /translate(0,80) -->
 
           <defs>
             <marker id="sq-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3b82f6"/></marker>
@@ -511,6 +637,7 @@
             <marker id="sq-cyan"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#38bdf8"/></marker>
             <marker id="sq-green"  markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#10b981"/></marker>
             <marker id="sq-red"    markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f87171"/></marker>
+            <marker id="sq-teal"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#14b8a6"/></marker>
           </defs>
         </svg>
         </div><!-- /body scroll -->
@@ -522,6 +649,6 @@
 
   <footer>Centralized Encryption Service · Demo UI · Not for production use</footer>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=2"></script>
 </body>
 </html>
