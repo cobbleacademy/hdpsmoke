@@ -32,8 +32,13 @@ class KEKClient:
             vault_url=settings.azure_keyvault_url,
             credential=self._credential,
         )
+        # Secrets API requires a regular Key Vault (*.vault.azure.net).
+        # Managed HSM does not support secrets — use the dedicated secret vault
+        # URL when provided, otherwise fall back to the same vault URL (valid
+        # only if azure_keyvault_url is a regular vault, not an MHSM endpoint).
+        _secret_vault_url = settings.azure_keyvault_secret_url or settings.azure_keyvault_url
         self._secret_client = SecretClient(
-            vault_url=settings.azure_keyvault_url,
+            vault_url=_secret_vault_url,
             credential=self._credential,
         )
         self._crypto_client: CryptographyClient | None = None
