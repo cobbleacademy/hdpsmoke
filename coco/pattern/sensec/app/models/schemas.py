@@ -109,7 +109,8 @@ class ConsumerAccountResponse(BaseModel):
 
 
 class ConsumerRevealRequest(BaseModel):
-    reveal_as: str   # which app_id is asking to decrypt — exercises the same grant model as /decrypt
+    reveal_as: str              # which app_id is asking to decrypt — exercises the same grant model as /decrypt
+    end_user_id: str | None = None   # logged-in user who triggered the reveal; passed through to audit log
 
 
 class ConsumerRevealResponse(BaseModel):
