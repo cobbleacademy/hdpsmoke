@@ -14,6 +14,7 @@ from app.audit.logger import audit_log
 from app.auth.app_registry import AppRegistration, AppRegistry, AppRegistryError
 from app.auth.jwt_validator import JWTValidator, TokenValidationError
 from app.config import Settings, get_settings
+from app.crypto.dek_cache import DEKCache, NullDEKCache
 from app.crypto.kek_client import KEKClient
 from app.models.edek_record import Base as EDEKBase
 
@@ -24,10 +25,11 @@ _kek_client: KEKClient | None = None
 _jwt_validator: object | None = None
 _app_registry: AppRegistry | None = None
 _session_factory: async_sessionmaker | None = None
+_dek_cache: DEKCache | NullDEKCache = NullDEKCache()
 
 
 async def init_dependencies(settings: Settings) -> None:
-    global _kek_client, _jwt_validator, _app_registry, _session_factory
+    global _kek_client, _jwt_validator, _app_registry, _session_factory, _dek_cache
 
     if settings.demo_mode:
         from app.auth.app_registry import AppDecryptGrant
@@ -70,8 +72,31 @@ async def init_dependencies(settings: Settings) -> None:
     _jwt_validator = JWTValidator(settings)
     _app_registry = AppRegistry(_session_factory)
 
+    if settings.dek_cache_enabled and settings.redis_url:
+        import base64
+        import redis.asyncio as aioredis
+        cek_b64 = await _kek_client.fetch_secret(settings.dek_cache_key_secret_name)
+        cek = base64.b64decode(cek_b64)
+        redis_client = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=False,
+            socket_connect_timeout=2,
+            socket_timeout=1,
+        )
+        excluded = {c.strip().lower() for c in settings.dek_cache_excluded_classifications.split(",") if c.strip()}
+        _dek_cache = DEKCache(
+            redis_client=redis_client,
+            cek=cek,
+            ttl_seconds=settings.dek_cache_ttl_seconds,
+            excluded_classifications=excluded,
+        )
+
 
 # ── Dependency functions ──────────────────────────────────────────────────────
+
+def get_dek_cache() -> DEKCache | NullDEKCache:
+    return _dek_cache
+
 
 def get_kek_client() -> KEKClient:
     assert _kek_client is not None, "KEKClient not initialised"

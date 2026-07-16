@@ -13,10 +13,17 @@ class Settings(BaseSettings):
     # fakes so the service (and its demo UI) can run with zero external deps.
     demo_mode: bool = False
 
-    # ── Azure Key Vault ───────────────────────────────────────────────────────
-    azure_keyvault_url: str = ""
+    # ── Azure Key Vault — HSM (Managed HSM, wrap/unwrap only) ────────────────
+    azure_keyvault_url: str = ""       # https://<name>.managedhsm.azure.net/
     azure_kek_name: str = "hsm-master-kek"
-    azure_kek_version: str = ""  # empty → latest
+    azure_kek_version: str = ""        # empty → latest
+
+    # ── Azure Key Vault — Secrets (regular vault, not Managed HSM) ────────────
+    # Managed HSM does not support the Secrets API. Plain secrets (Splunk HEC
+    # token, DEK cache CEK) must live in a regular Key Vault at this URL.
+    # If empty, falls back to azure_keyvault_url (valid only when that URL is
+    # a regular vault, not an MHSM endpoint).
+    azure_keyvault_secret_url: str = ""   # https://<name>.vault.azure.net/
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = ""
@@ -73,6 +80,15 @@ class Settings(BaseSettings):
     # ── KEK Rotation ──────────────────────────────────────────────────────────
     kek_rotation_cron: str = "0 2 1 * *"
     kek_rotation_enabled: bool = True
+
+    # ── Redis DEK Cache ───────────────────────────────────────────────────────
+    # When enabled, unwrapped DEK bytes are CEK-encrypted and cached in Redis
+    # for dek_cache_ttl_seconds to skip redundant KV unwrap round-trips.
+    redis_url: str = ""                            # empty → cache disabled; use rediss:// for TLS
+    dek_cache_enabled: bool = False
+    dek_cache_ttl_seconds: int = 60
+    dek_cache_key_secret_name: str = "hsm-dek-cache-key"
+    dek_cache_excluded_classifications: str = ""   # comma-sep list, e.g. "pci,pii"
 
 
 @lru_cache
