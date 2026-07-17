@@ -106,200 +106,261 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 900 730" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
-        <title>HSM Encryption Service Architecture — 2-SPN Split</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Two distinct service principals: a Service SPN (wrap/unwrap only, used by the microservice) and an Auditor SPN (read-only KV metadata + read-only DB, bypasses the service entirely, audited via KV Diagnostic Logs). PlainID/PBAC is a client-side-only policy decision — the client consults it before calling the service; the service itself has no visibility into or dependency on PlainID. All JWTs (both to PlainID and to the Service) are app-level only — issued to the calling App-ID, not to individual end-users, since minting per-user tokens isn't viable at end-user scale. Each end-user operation carries an explicit end_user_id field in the request itself, used by both PlainID's decision and the Service's own authorization/audit — never derived from the JWT. Post-unwrap DEKs are cached in Redis, encrypted with a separate Cache Encryption Key (CEK) held in the same Azure Key Vault — every pod independently reads the CEK via its own Workload Identity, so no key-distribution problem exists across replicas.</desc>
+      <svg viewBox="0 0 1180 900" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+        <title>HSM Encryption Service Architecture — Subscription-Isolated, 2-SPN Split</title>
+        <desc>Two independent Azure subscriptions: the Sensec HSM Service subscription (Encryption Service, Redis DEK cache, Azure Key Vault holding the CEK, a separate Managed HSM holding the KEK, EDEK Store, Grants+Rotation) and a separate Governance/Audit subscription (Auditor SPN), which reaches into the HSM subscription only via read-only cross-subscription RBAC — never through the Encryption Service. PlainID is a shared PBAC decision point consulted independently by both the Client (before it ever calls the Service) and the Service itself (as its own authorization step) — neither call is proxied through the other; PlainID never forwards a decision from one caller to the other. All JWTs (to PlainID and to the Service) are app-level only, never per-end-user; every end-user operation instead carries an explicit end_user_id field. Post-unwrap DEKs are cached in Redis, encrypted with a Cache Encryption Key (CEK) held in Azure Key Vault (a distinct resource from the Managed HSM housing the KEK) — each pod runs a DEKCache that independently reads the CEK via Workload Identity and supports hot-reload rotation with dual-read/backfill against versioned Redis keys.</desc>
 
-        <rect width="900" height="730" fill="#0f1117" />
+        <rect width="1180" height="900" fill="#0f1117" />
 
-        <rect x="20" y="20" width="160" height="220" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
-        <text x="100" y="40" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS (N CLIENTS)</text>
-        <rect x="35" y="50" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
-        <text x="100" y="72" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App A</text>
-        <rect x="35" y="94" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
-        <text x="100" y="116" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App B</text>
-        <rect x="35" y="138" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
-        <text x="100" y="160" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C …</text>
-        <text x="100" y="203" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT (App-ID) +</text>
-        <text x="100" y="215" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">end_user_id (request field)</text>
-        <text x="100" y="227" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">+ App-ID header</text>
+        {/* ── Callers ── */}
+        <rect x="20" y="30" width="160" height="210" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
+        <text x="100" y="50" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">CALLERS (N CLIENTS)</text>
+        <rect x="35" y="60" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
+        <text x="100" y="82" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App A</text>
+        <rect x="35" y="104" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
+        <text x="100" y="126" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App B</text>
+        <rect x="35" y="148" width="130" height="34" rx="5" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
+        <text x="100" y="170" textAnchor="middle" fill="#3b82f6" fontFamily="monospace">App C …</text>
+        <text x="100" y="200" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Bearer JWT (App-ID) +</text>
+        <text x="100" y="212" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">end_user_id (request field)</text>
+        <text x="100" y="224" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">+ App-ID header</text>
 
-        {/* ── PlainID (client-side only) — the client consults this BEFORE
-            calling the service; it is not in the service's request path and
-            the service has no visibility into it. Two short arrows to/from
-            Callers only — nothing connects PlainID to Encryption Service. ── */}
-        <rect x="230" y="20" width="160" height="90" rx="8" fill="#1a1d27" stroke="#f59e0b" strokeWidth="1.5" />
-        <text x="310" y="38" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID (CLIENT-SIDE)</text>
-        <text x="310" y="50" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">policy decision only</text>
-        <rect x="245" y="58" width="130" height="20" rx="4" fill="#22263a" />
-        <text x="310" y="71" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Evaluate App-ID + end_user_id</text>
-        <rect x="245" y="82" width="130" height="20" rx="4" fill="#78350f" />
-        <text x="310" y="95" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">Permit / Deny → Client</text>
+        {/* ── PlainID — SHARED PBAC, consulted independently by Client and
+            Service. Neither call is proxied through the other; this is two
+            separate PDP decisions against the same policy engine, not
+            middleware in the request path of either caller. ── */}
+        <rect x="210" y="30" width="190" height="210" rx="8" fill="#1a1d27" stroke="#f59e0b" strokeWidth="1.5" />
+        <text x="305" y="50" textAnchor="middle" fill="#f59e0b" fontSize="9" letterSpacing="0.5" fontFamily="monospace">PLAINID (SHARED PBAC)</text>
+        <text x="305" y="62" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">independent PDP calls — not a proxy</text>
 
-        <line x1="180" y1="45" x2="230" y2="55" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
-        <line x1="230" y1="80" x2="180" y2="90" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
+        <rect x="225" y="70" width="160" height="20" rx="4" fill="#22263a" />
+        <text x="305" y="83" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Evaluate App-ID + end_user_id</text>
 
-        {/* Single continuous call, Client straight to Service — no PlainID hop */}
-        <line x1="180" y1="130" x2="440" y2="130" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
-        <text x="310" y="124" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS — JWT (App-ID) + end_user_id, direct</text>
+        <rect x="225" y="94" width="160" height="20" rx="4" fill="#78350f" />
+        <text x="305" y="107" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">Client: Permit/Deny → Client</text>
 
-        <rect x="440" y="20" width="200" height="325" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
-        <text x="540" y="42" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
-        <text x="540" y="56" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
+        <rect x="225" y="118" width="160" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="305" y="131" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">Service: Permit/Deny → own authz</text>
 
-        <rect x="455" y="63" width="170" height="22" rx="4" fill="#22263a" stroke="#fbbf24" strokeWidth="1" />
-        <text x="540" y="77" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">JWT (App-ID) + end_user_id Check</text>
+        <text x="305" y="152" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">Service never sees Client's decision</text>
+        <text x="305" y="163" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">and vice-versa — two PDP calls,</text>
+        <text x="305" y="174" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">not a shared/forwarded one</text>
 
-        <rect x="455" y="91" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
-        <text x="540" y="109" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
-        <text x="540" y="124" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
-        <text x="540" y="136" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
+        <line x1="180" y1="70" x2="210" y2="80" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
+        <line x1="210" y1="100" x2="180" y2="110" stroke="#f59e0b" strokeWidth="1.2" markerEnd="url(#arr-amber)" />
+        <text x="195" y="192" textAnchor="middle" fill="#f59e0b" fontSize="7" fontFamily="monospace" transform="rotate(-90 195 192)">client pre-check</text>
 
-        <rect x="455" y="151" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
-        <text x="540" y="169" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
-        <text x="540" y="184" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Grant check → unwrap</text>
-        <text x="540" y="196" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
+        {/* Direct client → service call — independent of the PlainID hop above */}
+        <line x1="180" y1="220" x2="450" y2="220" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
+        <text x="315" y="214" textAnchor="middle" fill="#3b82f6" fontSize="9" fontFamily="monospace">HTTPS/TLS — JWT (App-ID) + end_user_id, direct</text>
 
-        <rect x="455" y="211" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
-        <text x="540" y="229" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
-        <text x="540" y="242" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · manage grants</text>
+        {/* ── HSM Service subscription boundary ── */}
+        <rect x="430" y="10" width="740" height="555" rx="10" fill="none" stroke="#555b7a" strokeWidth="1.5" strokeDasharray="7,4" />
+        <text x="446" y="26" fill="#8b92b8" fontSize="8" letterSpacing="0.5" fontFamily="monospace">SUBSCRIPTION BOUNDARY — SENSEC HSM SERVICE (own Azure subscription)</text>
 
-        <rect x="455" y="259" width="170" height="30" rx="5" fill="#22263a" stroke="#64748b" strokeWidth="1" />
-        <text x="540" y="278" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">GET /health · /apps/status</text>
+        <rect x="450" y="40" width="200" height="360" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <text x="550" y="62" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
+        <text x="550" y="76" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
 
-        <rect x="455" y="297" width="170" height="22" rx="4" fill="#1e3a2f" stroke="#10b981" strokeWidth="1" />
-        <text x="540" y="312" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
+        <rect x="465" y="83" width="170" height="22" rx="4" fill="#22263a" stroke="#fbbf24" strokeWidth="1" />
+        <text x="550" y="97" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">JWT (App-ID) + end_user_id Check</text>
 
-        <rect x="455" y="321" width="170" height="18" rx="4" fill="#78350f" />
-        <text x="540" y="333" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit tags: end_user_id / operator_id</text>
+        <rect x="465" y="109" width="170" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="550" y="122" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">→ own PlainID PBAC call</text>
 
-        {/* ── Redis Cache — sits above the Key Vault box (per requirement).
-            Post-unwrap DEKs land here, encrypted with the CEK, so a repeat
-            decrypt of the same edek_id skips the HSM round-trip entirely. ── */}
-        <rect x="690" y="60" width="190" height="90" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="2" />
-        <text x="785" y="80" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS CACHE</text>
-        <text x="785" y="92" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">post-unwrap DEK cache</text>
-        <rect x="705" y="100" width="160" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
-        <text x="785" y="114" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">AES-256-GCM(CEK, DEK) · edek_id</text>
-        <rect x="705" y="124" width="160" height="20" rx="4" fill="#22263a" />
-        <text x="785" y="138" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">cek_version tag · TTL expiry</text>
+        <rect x="465" y="133" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
+        <text x="550" y="151" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
+        <text x="550" y="166" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
+        <text x="550" y="178" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
 
-        <line x1="640" y1="105" x2="690" y2="105" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arr-teal)" />
-        <text x="665" y="97" textAnchor="middle" fill="#22d3ee" fontSize="8" fontFamily="monospace">cache check / write</text>
+        <rect x="465" y="187" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
+        <text x="550" y="205" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
+        <text x="550" y="220" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Grant check → unwrap</text>
+        <text x="550" y="232" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
 
-        <line x1="640" y1="145" x2="690" y2="230" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
-        <text x="680" y="180" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
-        <rect x="648" y="185" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
-        <text x="680" y="196" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">SVC SPN</text>
+        <rect x="465" y="241" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
+        <text x="550" y="259" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
+        <text x="550" y="272" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · manage grants</text>
 
-        <line x1="640" y1="260" x2="690" y2="280" stroke="#e879f9" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-purple)" />
-        <text x="670" y="253" textAnchor="middle" fill="#e879f9" fontSize="7" fontFamily="monospace">CEK fetch — startup, per-pod</text>
+        <rect x="465" y="283" width="170" height="30" rx="5" fill="#22263a" stroke="#64748b" strokeWidth="1" />
+        <text x="550" y="302" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">GET /health · /apps/status</text>
 
-        <rect x="690" y="160" width="190" height="224" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
-        <text x="785" y="182" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
-        <text x="785" y="196" textAnchor="middle" fill="#e879f9" fontSize="9" fontFamily="monospace">Managed HSM · FIPS 140-2 L3</text>
+        <rect x="465" y="317" width="170" height="22" rx="4" fill="#1e3a2f" stroke="#10b981" strokeWidth="1" />
+        <text x="550" y="332" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">FIPS 140-2 Level 3 · AES-256-GCM</text>
 
-        <rect x="705" y="206" width="160" height="30" rx="4" fill="#2d1b47" stroke="#e879f9" strokeWidth="1" />
-        <text x="785" y="221" textAnchor="middle" fill="#e879f9" fontSize="10" fontFamily="monospace">KEK (RSA-HSM 4096)</text>
-        <text x="785" y="233" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">never leaves HSM boundary</text>
+        <rect x="465" y="343" width="170" height="18" rx="4" fill="#78350f" />
+        <text x="550" y="355" textAnchor="middle" fill="#fbbf24" fontSize="7" fontFamily="monospace">Audit tags: end_user_id / operator_id</text>
 
-        <rect x="705" y="244" width="160" height="22" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
-        <text x="785" y="259" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK (AES-256) — cache-only, SPN-read</text>
+        {/* Service → PlainID — its own independent PDP call, dashed to
+            distinguish from the solid client→service call above. */}
+        <path d="M 465,119 L 400,119 L 400,128 L 385,128" fill="none" stroke="#22d3ee" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
+        <path d="M 385,118 L 400,118 L 400,110 L 465,110" fill="none" stroke="#22d3ee" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
 
-        <rect x="705" y="274" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="290" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Key Versioning</text>
+        {/* ── Redis Cache — with CEK hot-reload detail ── */}
+        <rect x="700" y="40" width="230" height="200" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="2" />
+        <text x="815" y="60" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS CACHE</text>
+        <text x="815" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">post-unwrap DEK cache</text>
 
-        <rect x="705" y="306" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="322" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Auto-rotation Policy</text>
+        <rect x="715" y="80" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="815" y="94" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">AES-256-GCM(CEK, DEK)</text>
 
-        <rect x="705" y="338" width="160" height="24" rx="4" fill="#22263a" />
-        <text x="785" y="354" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Role-based Access (RBAC)</text>
+        <rect x="715" y="104" width="200" height="20" rx="4" fill="#2d1b47" stroke="#fbbf24" strokeWidth="1" />
+        <text x="815" y="118" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">key: dek:{'{'}ver{'}'}:{'{'}edek_id{'}'}</text>
 
-        <rect x="705" y="366" width="160" height="14" rx="3" fill="#22263a" />
-        <text x="785" y="377" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Managed Identity (no secrets)</text>
+        <rect x="715" y="128" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="815" y="142" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK Hot-Reload — DEKCache.rotate()</text>
 
-        <rect x="440" y="365" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
-        <text x="540" y="387" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
-        <text x="540" y="401" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">PostgreSQL</text>
+        <rect x="715" y="152" width="200" height="30" rx="4" fill="#22263a" />
+        <text x="815" y="164" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">dual-read old ver(s) on miss</text>
+        <text x="815" y="176" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">then backfill @ current ver</text>
 
-        <rect x="455" y="409" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="424" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
+        <text x="815" y="196" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">see CEK HOT-RELOAD DESIGN panel below</text>
 
-        <rect x="455" y="437" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="452" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
+        <line x1="650" y1="90" x2="700" y2="90" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arr-teal)" />
+        <text x="675" y="82" textAnchor="middle" fill="#22d3ee" fontSize="8" fontFamily="monospace">cache check / write</text>
 
-        <rect x="455" y="465" width="170" height="14" rx="3" fill="#22263a" />
-        <text x="540" y="476" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
+        {/* ── Azure Key Vault — general purpose, holds only the CEK.
+            Deliberately a separate resource from the Managed HSM below. ── */}
+        <rect x="950" y="40" width="200" height="100" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
+        <text x="1050" y="60" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
+        <text x="1050" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">general purpose · Standard tier</text>
+        <rect x="965" y="80" width="170" height="24" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="1050" y="96" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK (AES-256) — cache-only</text>
+        <text x="1050" y="118" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">SPN-read · no HSM boundary</text>
+        <text x="1050" y="130" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">distinct resource from Managed HSM</text>
 
-        <line x1="540" y1="345" x2="540" y2="365" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
+        <line x1="650" y1="115" x2="950" y2="80" stroke="#e879f9" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-pink)" />
+        <text x="800" y="103" textAnchor="middle" fill="#e879f9" fontSize="7" fontFamily="monospace">CEK fetch — startup, per-pod (Workload Identity)</text>
 
-        <rect x="690" y="400" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
-        <text x="785" y="420" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
-        <rect x="705" y="428" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="443" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
-        <rect x="705" y="456" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="471" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
-        <rect x="705" y="484" width="160" height="20" rx="4" fill="#22263a" />
-        <text x="785" y="498" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
+        {/* ── Managed HSM — holds only the KEK, its own dedicated resource ── */}
+        <rect x="950" y="160" width="200" height="140" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <text x="1050" y="180" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">MANAGED HSM</text>
+        <text x="1050" y="192" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">Azure Key Vault HSM · FIPS 140-2 L3</text>
 
-        <line x1="785" y1="400" x2="785" y2="384" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
-        <line x1="690" y1="455" x2="640" y2="425" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+        <rect x="965" y="200" width="170" height="30" rx="4" fill="#2d1b47" stroke="#a78bfa" strokeWidth="1" />
+        <text x="1050" y="215" textAnchor="middle" fill="#e9d5ff" fontSize="10" fontFamily="monospace">KEK (RSA-HSM 4096)</text>
+        <text x="1050" y="227" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">never leaves HSM boundary</text>
 
-        {/* ── Auditor SPN — second SPN, read-only, bypasses the service entirely ── */}
-        <rect x="20" y="260" width="180" height="180" rx="8" fill="#1a1d27" stroke="#f43f5e" strokeWidth="1.5" />
-        <text x="110" y="280" textAnchor="middle" fill="#f43f5e" fontSize="10" letterSpacing="1" fontFamily="monospace">AUDITOR SPN</text>
-        <text x="110" y="292" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">read-only · bypasses service</text>
+        <rect x="965" y="238" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="1050" y="253" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Key Versioning</text>
 
-        <rect x="35" y="302" width="150" height="22" rx="4" fill="#22263a" />
-        <text x="110" y="316" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">KV Metadata (read-only)</text>
+        <rect x="965" y="266" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="1050" y="281" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Auto-rotation Policy</text>
 
-        <rect x="35" y="330" width="150" height="22" rx="4" fill="#22263a" />
-        <text x="110" y="344" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">EDEK Store (read-only)</text>
+        <line x1="650" y1="210" x2="950" y2="220" stroke="#a78bfa" strokeWidth="1.5" markerEnd="url(#arr-purple)" />
+        <text x="800" y="205" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">wrap/unwrap</text>
+        <rect x="768" y="212" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
+        <text x="800" y="223" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">SVC SPN</text>
 
-        <rect x="35" y="358" width="150" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
-        <text x="110" y="371" textAnchor="middle" fill="#fca5a5" fontSize="8" fontFamily="monospace">→ KV Diagnostic Logs</text>
+        {/* ── Grants + Rotation ── */}
+        <rect x="700" y="260" width="230" height="120" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
+        <text x="815" y="280" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
+        <rect x="715" y="288" width="200" height="22" rx="4" fill="#22263a" />
+        <text x="815" y="303" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
+        <rect x="715" y="316" width="200" height="22" rx="4" fill="#22263a" />
+        <text x="815" y="331" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
+        <rect x="715" y="344" width="200" height="20" rx="4" fill="#22263a" />
+        <text x="815" y="358" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
 
-        <rect x="35" y="382" width="150" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
-        <text x="110" y="395" textAnchor="middle" fill="#fca5a5" fontSize="7" fontFamily="monospace">Governance Scope: BYPASS</text>
+        <line x1="930" y1="270" x2="950" y2="290" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
+        <line x1="700" y1="320" x2="650" y2="260" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
 
-        {/* Dashed bypass paths — route through the corridor between the
-            Encryption Service (bottom edge y=345) and EDEK Store (top edge
-            y=365), never touching the service. */}
-        <path d="M 200,350 L 660,350 L 660,270 L 690,270" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
-        <text x="430" y="344" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — KV metadata read</text>
+        {/* ── EDEK Store ── */}
+        <rect x="450" y="420" width="200" height="130" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
+        <text x="550" y="442" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
+        <text x="550" y="456" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">PostgreSQL</text>
 
-        <path d="M 200,358 L 420,358 L 420,425 L 440,425" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
-        <text x="290" y="372" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">bypass — DB read-only scan</text>
+        <rect x="465" y="464" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="550" y="479" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
 
-        <rect x="20" y="460" width="400" height="248" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
-        <text x="220" y="480" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT PAYLOAD FLOW</text>
+        <rect x="465" y="492" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="550" y="507" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
 
-        <text x="36" y="500" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
-        <rect x="36" y="508" width="365" height="60" rx="4" fill="#22263a" />
-        <text x="50" y="522" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, encoding, ..., end_user_id {'}'}</text>
-        <text x="50" y="536" fill="#555b7a" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
-        <text x="50" y="550" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
-        <text x="50" y="562" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
+        <rect x="465" y="520" width="170" height="14" rx="3" fill="#22263a" />
+        <text x="550" y="531" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
 
-        <text x="36" y="582" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} edek_id, owner_app_id, algorithm, iv, ciphertext, tag {'}'}</text>
+        <line x1="550" y1="400" x2="550" y2="420" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
 
-        {/* end_user_id is an explicit request field, not derived from the JWT
-            (the JWT is app-level only — minting per-user tokens isn't viable
-            at end-user scale). It's also deliberately NOT in the AAD: grants
-            are app_id-level, not user-level, so binding end_user_id into the
-            AAD would silently break legitimate same-app/cross-grant
-            decryption by any user other than the original encrypter — a
-            stricter, ungoverned access-control axis the grant model has no
-            way to express or unlock. */}
-        <text x="36" y="596" fill="#fbbf24" fontSize="8" fontFamily="monospace">end_user_id: explicit request field (not JWT, not AAD)</text>
+        {/* ── Encrypt/Decrypt payload flow reference ── */}
+        <rect x="10" y="590" width="430" height="260" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
+        <text x="225" y="610" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT / DECRYPT PAYLOAD FLOW</text>
 
-        <text x="36" y="614" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
-        <rect x="36" y="622" width="365" height="44" rx="4" fill="#22263a" />
-        <text x="50" y="636" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} edek_id, iv, ciphertext, tag, end_user_id {'}'}</text>
-        <text x="50" y="650" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup owner → grant check → HSM.unwrap → AES-256-GCM decrypt</text>
-        <text x="50" y="662" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed immediately</text>
+        <text x="26" y="630" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
+        <rect x="26" y="638" width="395" height="60" rx="4" fill="#22263a" />
+        <text x="38" y="652" fill="#555b7a" fontSize="8" fontFamily="monospace">Request:  {'{'} plaintext, encoding, ..., end_user_id {'}'}</text>
+        <text x="38" y="666" fill="#555b7a" fontSize="8" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
+        <text x="38" y="680" fill="#555b7a" fontSize="8" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
+        <text x="38" y="692" fill="#555b7a" fontSize="8" fontFamily="monospace">EDEK    =  KEK.wrap(DEK) via Managed HSM → EDEK Store</text>
 
-        <text x="36" y="682" fill="#22d3ee" fontSize="8" fontFamily="monospace">Cache: DEK encrypted w/ CEK → Redis(edek_id, cek_version) — next decrypt skips HSM</text>
+        <text x="26" y="712" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Response: {'{'} edek_id, owner_app_id, algorithm, iv, ciphertext, tag {'}'}</text>
+        <text x="26" y="726" fill="#fbbf24" fontSize="7" fontFamily="monospace">end_user_id: explicit request field (not JWT, not AAD)</text>
+
+        <text x="26" y="746" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
+        <rect x="26" y="754" width="395" height="44" rx="4" fill="#22263a" />
+        <text x="38" y="768" fill="#555b7a" fontSize="8" fontFamily="monospace">Request:   {'{'} edek_id, iv, ciphertext, tag, end_user_id {'}'}</text>
+        <text x="38" y="782" fill="#555b7a" fontSize="8" fontFamily="monospace">Lookup owner → grant → PlainID → cache/HSM.unwrap → decrypt</text>
+        <text x="38" y="794" fill="#555b7a" fontSize="8" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed</text>
+
+        <text x="26" y="816" fill="#22d3ee" fontSize="7" fontFamily="monospace">Cache: DEK encrypted w/ CEK → Redis(dek:{'{'}ver{'}'}:{'{'}edek_id{'}'}) — next decrypt skips HSM</text>
+        <text x="26" y="828" fill="#78716c" fontSize="7" fontFamily="monospace">Split HSM: Managed HSM = KEK only · Azure Key Vault = CEK only</text>
+        <text x="26" y="840" fill="#78716c" fontSize="7" fontFamily="monospace">Auditor SPN: cross-subscription, never through this service</text>
+
+        {/* ── CEK Hot-Reload design — plain-text summary, not literal code.
+            Every fact here is also stated in the Redis Cache box above and
+            in Decrypt flow steps 20-22 (Flows tab); this panel exists only
+            to spell those same facts out in one place, not to introduce new
+            behavior, so it stays prose rather than a pseudocode block. ── */}
+        <rect x="460" y="590" width="460" height="200" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="1.5" />
+        <text x="690" y="610" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">CEK HOT-RELOAD DESIGN</text>
+        <text x="690" y="622" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">DEKCache — per-pod, in-memory CEK + Redis-backed DEK cache</text>
+
+        <rect x="476" y="630" width="428" height="150" rx="4" fill="#22263a" />
+        <text x="488" y="646" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Constructed once per pod with a Redis client, a Key</text>
+        <text x="488" y="658" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Vault client, the CEK secret name, and a refresh interval.</text>
+        <text x="488" y="674" fill="#fbbf24" fontSize="8" fontFamily="monospace">rotate(new_version) — atomic in-memory CEK swap,</text>
+        <text x="488" y="686" fill="#fbbf24" fontSize="8" fontFamily="monospace">no service restart.</text>
+        <text x="488" y="702" fill="#67e8f9" fontSize="8" fontFamily="monospace">Redis key: dek:{'{'}version{'}'}:{'{'}edek_id{'}'} — a retired CEK</text>
+        <text x="488" y="714" fill="#67e8f9" fontSize="8" fontFamily="monospace">version is never silently misread as current.</text>
+        <text x="488" y="730" fill="#cdd2f0" fontSize="8" fontFamily="monospace">On a miss under the current version: dual-read the last</text>
+        <text x="488" y="742" fill="#cdd2f0" fontSize="8" fontFamily="monospace">N prior versions' keys, decrypt with the matching</text>
+        <text x="488" y="754" fill="#cdd2f0" fontSize="8" fontFamily="monospace">historical CEK, and backfill under the current version.</text>
+        <text x="488" y="770" fill="#78716c" fontSize="7" fontFamily="monospace">Net effect: zero-downtime rotation, no bulk re-encrypt job.</text>
+
+        {/* ── Auditor subscription boundary — pushed to the far right, a
+            genuinely separate Azure subscription from the HSM Service; the
+            only paths in are two read-only cross-subscription RBAC arrows,
+            never through the Encryption Service. ── */}
+        <rect x="940" y="590" width="230" height="230" rx="10" fill="none" stroke="#555b7a" strokeWidth="1.5" strokeDasharray="7,4" />
+        <text x="956" y="606" fill="#8b92b8" fontSize="8" letterSpacing="0.5" fontFamily="monospace">SUBSCRIPTION BOUNDARY — GOVERNANCE / AUDIT</text>
+
+        <rect x="955" y="620" width="200" height="185" rx="8" fill="#1a1d27" stroke="#f43f5e" strokeWidth="1.5" />
+        <text x="1055" y="640" textAnchor="middle" fill="#f43f5e" fontSize="10" letterSpacing="1" fontFamily="monospace">AUDITOR SPN</text>
+        <text x="1055" y="652" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">read-only · own subscription</text>
+
+        <rect x="970" y="662" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="1055" y="676" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">KV Metadata (read-only)</text>
+
+        <rect x="970" y="690" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="1055" y="704" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">EDEK Store (read-only)</text>
+
+        <rect x="970" y="718" width="170" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
+        <text x="1055" y="731" textAnchor="middle" fill="#fca5a5" fontSize="8" fontFamily="monospace">→ KV Diagnostic Logs</text>
+
+        <rect x="970" y="742" width="170" height="20" rx="4" fill="#3f1220" stroke="#f43f5e" strokeWidth="1" />
+        <text x="1055" y="755" textAnchor="middle" fill="#fca5a5" fontSize="7" fontFamily="monospace">Governance Scope: BYPASS</text>
+
+        <text x="1055" y="775" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">no identity or network path</text>
+        <text x="1055" y="786" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">through Encryption Service</text>
+
+        {/* Cross-subscription bypass — dashed, routed through the gap
+            between the HSM subscription boundary (bottom edge y=565) and
+            the bottom row of panels (top edge y=590) to reach Managed HSM
+            and EDEK Store without ever touching the Encryption Service. */}
+        <path d="M 1050,590 L 1050,300" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="1058" y="450" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace" transform="rotate(-90 1058 450)">cross-subscription RBAC — KEK metadata (read-only)</text>
+
+        <path d="M 955,577 L 550,577 L 550,550" fill="none" stroke="#f43f5e" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="750" y="573" textAnchor="middle" fill="#f43f5e" fontSize="7" fontFamily="monospace">cross-subscription RBAC — DB read-only scan</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
@@ -316,6 +377,9 @@ function ArchitectureDiagram() {
           </marker>
           <marker id="arr-teal" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#22d3ee" />
+          </marker>
+          <marker id="arr-pink" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#e879f9" />
           </marker>
           <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#fb923c" />
@@ -341,24 +405,39 @@ function ArchitectureDiagram() {
 // own authorization/audit consume that same field — never derived from the
 // JWT, which only ever proves the App-ID.
 //
-// PlainID/PBAC (Policy Check) is CLIENT-SIDE ONLY — the client consults it
-// directly and independently, before ever calling the Encryption Service. It
-// is not middleware in front of the service; the service has no visibility
-// into or dependency on it. The Service performs its OWN, separate
-// authorization (validate the app JWT + check the end_user_id request
-// field) once the client calls it — this is the actual security boundary,
-// since the call arrives under the Client SPN and would otherwise be
-// indistinguishable per-end-user without that explicit field.
+// PlainID/PBAC is now a SHARED decision point, consulted INDEPENDENTLY by
+// both the Client and the Encryption Service — two separate PDP calls
+// against the same policy engine, not one call proxied or forwarded to the
+// other. The Client's pre-check (below) can abort before the Service is
+// ever called; the Service's own check (in Encrypt/Decrypt) is a second,
+// unrelated decision using the Service's own identity — the Service never
+// sees the Client's Permit/Deny, and PlainID never forwards one caller's
+// decision to the other.
+//
+// JWTs are APP-LEVEL ONLY, everywhere — issued to the calling App-ID, never
+// to individual end-users (minting per-user tokens isn't viable at
+// end-user scale — thousands of end-users, one app credential). Every
+// end-user operation instead carries an explicit end_user_id field in the
+// request itself, consumed independently by the Client's PlainID check,
+// the Service's own PlainID check, and the Service's audit_log.
+//
+// The HSM Service and Auditor SPN live in SEPARATE Azure subscriptions
+// (see Architecture Diagram). Auditor never calls the Encryption Service —
+// its reads cross the subscription boundary via read-only RBAC directly
+// against Managed HSM and EDEK Store.
+//
+// Azure Key Vault (holds only the CEK) and Managed HSM (holds only the KEK)
+// are two distinct resources, not one combined vault.
 const FLOWS = [
   {
-    title: '1. Policy Check',
+    title: '1. Policy Check (Client pre-check)',
     color: '#f59e0b',
     steps: [
       'Client app authenticates as itself and obtains an app-level JWT (App-ID) — not a per-end-user token; the same app JWT is reused across all of that app\'s calls, for every end-user.',
       'Client sends a decision request to PlainID: its app JWT (App-ID) plus an explicit end_user_id field identifying which end-user the action is for. This exchange is entirely client-side — the Encryption Service is not involved and has no visibility into it.',
       'PlainID evaluates its PBAC policy against the App-ID and end_user_id for the requested action/resource class.',
       'If denied: PlainID returns Deny to the Client, which aborts — no call is ever made to the Encryption Service.',
-      'If permitted: PlainID returns Permit, and the Client independently calls the Encryption Service directly (Encrypt or Decrypt below), presenting its own app JWT + the same end_user_id field for the Service\'s own, separate authorization.',
+      'If permitted: PlainID returns Permit, and the Client independently calls the Encryption Service directly (Encrypt or Decrypt below). The Service does not receive or trust this Permit — it performs its own, entirely separate PlainID check once the call arrives (see step 8 / step 17 below).',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -376,30 +455,34 @@ const FLOWS = [
     color: '#10b981',
     steps: [
       'Client calls POST /encrypt directly (having independently obtained Permit from PlainID above), presenting its own app-level Bearer JWT (App-ID) + an explicit end_user_id field in the request body + App-ID header.',
-      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request — independent of PlainID, since the Service has no visibility into that exchange. This is the Service\'s own, separate authorization layer; end_user_id is never derived from the JWT.',
+      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request.',
+      'Encryption Service makes its OWN, independent call to PlainID — using its own identity, not the Client\'s — to authorize this specific App-ID + end_user_id for the encrypt operation. This is a second, unrelated PDP decision; the Service never sees or trusts the Client\'s earlier Permit. A Service-side deny rejects the request and logs to audit_log before any key material is touched.',
       'Encryption Service generates a new Data Encryption Key (DEK) and a random IV.',
       'Encryption Service encrypts the plaintext locally using AES-256-GCM with the DEK.',
-      'Encryption Service calls Azure Key Vault — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
+      'Encryption Service calls Managed HSM (the dedicated Azure Key Vault HSM resource holding the KEK — a separate resource from the Azure Key Vault below) — using its Service SPN — to wrap (encrypt) the DEK with the current KEK, producing an EDEK.',
       'Encryption Service persists the EDEK plus metadata (owner app_id, algorithm, key version) to the EDEK Store (PostgreSQL).',
-      'Encryption Service encrypts the just-generated DEK a second time, locally, using the Cache Encryption Key (CEK) fetched from Key Vault at startup — and writes the result to Redis, keyed by edek_id and tagged with the CEK\'s version. This lets a decrypt of the same edek_id skip the HSM round-trip entirely (see Decrypt below).',
+      'Encryption Service encrypts the just-generated DEK a second time, locally, using the Cache Encryption Key (CEK) held in the separate Azure Key Vault resource and loaded by the pod\'s DEKCache at startup — and writes the result to Redis under the versioned key dek:{ver}:{edek_id}, where {ver} is the CEK version. This lets a decrypt of the same edek_id skip the HSM round-trip entirely (see Decrypt below).',
       'Encryption Service returns the ciphertext + edek_id to the client; the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request, since the call itself arrives under the Client SPN and wouldn\'t otherwise be attributable to a specific end-user.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'Encryption Svc' },
-      { id: 'keyvault', label: 'Key Vault' },
+      { id: 'plainid', label: 'PlainID' },
+      { id: 'hsm', label: 'Managed HSM' },
       { id: 'edek', label: 'EDEK Store' },
       { id: 'redis', label: 'Redis Cache' },
     ],
     messages: [
       { from: 'client', to: 'service', label: 'POST /encrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 6 },
-      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 7 },
-      { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV, AES-256-GCM encrypt', stepNum: '8–9' },
-      { from: 'service', to: 'keyvault', label: 'wrap(DEK) — Service SPN', stepNum: 10 },
-      { from: 'keyvault', to: 'service', label: 'EDEK', stepNum: 10 },
-      { from: 'service', to: 'edek', label: 'persist EDEK + metadata', stepNum: 11 },
-      { from: 'service', to: 'redis', label: 'write AES-256-GCM(CEK, DEK) → edek_id, cek_version', stepNum: 12 },
-      { from: 'service', to: 'client', label: 'ciphertext + edek_id → audit_log (Client + User)', stepNum: 13 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID), read end_user_id field', stepNum: 7 },
+      { from: 'service', to: 'plainid', dashed: true, label: 'own independent PBAC check (Service identity)', stepNum: 8 },
+      { from: 'plainid', to: 'service', dashed: true, label: 'Permit/Deny → Service (not forwarded from Client)', stepNum: 8 },
+      { from: 'service', to: 'service', self: true, label: 'Gen DEK + IV, AES-256-GCM encrypt', stepNum: '9–10' },
+      { from: 'service', to: 'hsm', label: 'wrap(DEK) — Service SPN', stepNum: 11 },
+      { from: 'hsm', to: 'service', label: 'EDEK', stepNum: 11 },
+      { from: 'service', to: 'edek', label: 'persist EDEK + metadata', stepNum: 12 },
+      { from: 'service', to: 'redis', label: 'write dek:{ver}:{edek_id} = AES-256-GCM(CEK, DEK)', stepNum: 13 },
+      { from: 'service', to: 'client', label: 'ciphertext + edek_id → audit_log (Client + User)', stepNum: 14 },
     ],
   },
   {
@@ -407,61 +490,65 @@ const FLOWS = [
     color: '#f87171',
     steps: [
       'Client calls POST /decrypt directly (having independently obtained Permit from PlainID above), presenting ciphertext + edek_id + its own app-level Bearer JWT (App-ID) + an explicit end_user_id field + App-ID header.',
-      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request — its own authorization layer, independent of PlainID.',
+      'Encryption Service validates the JWT to authenticate the App-ID, and reads the end_user_id field from the request.',
+      'Encryption Service makes its OWN, independent call to PlainID for this decrypt operation — the same pattern as Encrypt step 8, a second unrelated PDP decision using the Service\'s own identity. This runs before the grant/ownership check below, and before the cache is ever consulted.',
       'Encryption Service looks up the EDEK record by edek_id in the EDEK Store, and verifies the requesting app_id matches the owner (or holds an active grant).',
-      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end_user_id). This check always runs before the cache is consulted — a cached DEK is exactly as access-controlled as one freshly unwrapped from the HSM.',
-      'Encryption Service checks Redis for a cached DEK under this edek_id, tagged with the current cek_version. On a cache hit, it decrypts the cached blob locally with the CEK and skips straight to the final decrypt step below — no HSM call at all.',
-      'On a cache miss (or a stale cek_version — e.g. after CEK rotation): Encryption Service calls Azure Key Vault — using its Service SPN — to unwrap the EDEK back into the plaintext DEK.',
-      'Encryption Service writes the freshly-unwrapped DEK back into Redis (encrypted with the CEK, same as the Encrypt flow), so subsequent decrypts of this edek_id become cache hits.',
-      'Encryption Service decrypts the ciphertext locally using the DEK (from cache or from the HSM) and the stored IV (AES-256-GCM).',
+      'If there\'s no ownership match or active grant: reject (403) and log the denial to audit_log (Client + end_user_id). A cached DEK is exactly as access-controlled as one freshly unwrapped from the HSM — this check always runs first.',
+      'Encryption Service checks Redis for a cached DEK under the versioned key dek:{ver}:{edek_id}, where {ver} is the pod\'s current CEK version. On a cache hit, it decrypts the cached blob locally with the CEK and skips straight to the final decrypt step below — no HSM call at all.',
+      'On a cache miss (e.g. the pod\'s current CEK version has no entry for this edek_id — most commonly right after a CEK rotation): the DEKCache dual-reads the last N prior CEK versions\' keys before giving up. A hit there is decrypted with the matching historical CEK and immediately backfilled under the current version — see the CEK Hot-Reload Design panel in the Architecture Diagram.',
+      'If dual-read also misses: Encryption Service calls Managed HSM — using its Service SPN — to unwrap the EDEK back into the plaintext DEK, then writes the freshly-unwrapped DEK back into Redis (encrypted with the current CEK), so subsequent decrypts of this edek_id become cache hits.',
+      'Encryption Service decrypts the ciphertext locally using the DEK (from cache, dual-read backfill, or the HSM) and the stored IV (AES-256-GCM).',
       'Encryption Service returns the plaintext to the client; the DEK is zeroed immediately, and the action is recorded in audit_log — tagged with both the Client (App-ID) and the end_user_id field from the request.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'Encryption Svc' },
+      { id: 'plainid', label: 'PlainID' },
       { id: 'edek', label: 'EDEK Store' },
       { id: 'redis', label: 'Redis Cache' },
-      { id: 'keyvault', label: 'Key Vault' },
+      { id: 'hsm', label: 'Managed HSM' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 14 },
-      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID) + check end_user_id field', stepNum: 15 },
-      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 16 },
-      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 16 },
-      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 17 },
-      { from: 'service', to: 'redis', label: 'check cache(edek_id, cek_version)', stepNum: 18 },
-      { from: 'redis', to: 'service', dashed: true, label: 'hit → decrypt w/ CEK, skip HSM', stepNum: 18 },
-      { from: 'service', to: 'keyvault', label: 'miss → unwrap(EDEK) — Service SPN', stepNum: 19 },
-      { from: 'keyvault', to: 'service', label: 'DEK', stepNum: 19 },
-      { from: 'service', to: 'redis', label: 'write AES-256-GCM(CEK, DEK) → edek_id, cek_version', stepNum: 20 },
-      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 21 },
-      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed) → audit_log (Client + User)', stepNum: 22 },
+      { from: 'client', to: 'service', label: 'POST /decrypt — JWT (App-ID) + end_user_id (direct)', stepNum: 15 },
+      { from: 'service', to: 'service', self: true, label: 'Validate JWT (App-ID), read end_user_id field', stepNum: 16 },
+      { from: 'service', to: 'plainid', dashed: true, label: 'own independent PBAC check (Service identity)', stepNum: 17 },
+      { from: 'plainid', to: 'service', dashed: true, label: 'Permit/Deny → Service (not forwarded from Client)', stepNum: 17 },
+      { from: 'service', to: 'edek', label: 'lookup owner by edek_id', stepNum: 18 },
+      { from: 'edek', to: 'service', label: 'owner_app_id, algorithm', stepNum: 18 },
+      { from: 'service', to: 'client', dashed: true, label: '403 if no grant/ownership → audit_log', stepNum: 19 },
+      { from: 'service', to: 'redis', label: 'GET dek:{ver}:{edek_id}', stepNum: 20 },
+      { from: 'redis', to: 'service', dashed: true, label: 'hit → decrypt w/ CEK, skip HSM', stepNum: 20 },
+      { from: 'service', to: 'hsm', label: 'dual-read miss → unwrap(EDEK) — Service SPN', stepNum: 21 },
+      { from: 'hsm', to: 'service', label: 'DEK', stepNum: 21 },
+      { from: 'service', to: 'redis', label: 'backfill dek:{ver}:{edek_id} = AES-256-GCM(CEK, DEK)', stepNum: 22 },
+      { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt', stepNum: 23 },
+      { from: 'service', to: 'client', label: 'plaintext (DEK zeroed) → audit_log (Client + User)', stepNum: 24 },
     ],
   },
   {
-    title: '4. Audit / Scan',
+    title: '4. Audit / Scan (separate subscription)',
     color: '#f43f5e',
     steps: [
-      'Auditor — a separate identity/tool, not an app client — authenticates directly to Azure AD using the Auditor SPN, a distinct service principal from the Service SPN, scoped to read-only permissions only.',
-      'Auditor calls Azure Key Vault directly — bypassing the Encryption Service entirely — to read KEK metadata: version history, rotation timestamps, and access policies, via read-only Key Vault RBAC scoped to the Auditor SPN.',
-      'Every Auditor SPN call against Key Vault is captured automatically by Key Vault\'s own Diagnostic Logs (Azure Monitor/Log Analytics) — not the Encryption Service\'s audit_log, since the Auditor SPN never touches the service.',
-      'Auditor separately connects directly to the EDEK Store (PostgreSQL) using a read-only database role — again bypassing the Encryption Service — to scan EDEK records (owner app_id, algorithm, key version, timestamps) for compliance reporting.',
-      'Auditor cross-references KV Diagnostic Logs with the EDEK Store scan results to reconcile key usage and rotation compliance (e.g. flagging EDEKs still wrapped under a retired KEK version).',
-      'Findings are compiled into a compliance/audit report — entirely outside the Encryption Service\'s own audit_log and PlainID/PBAC governance scope, by design, so oversight isn\'t mediated (or potentially blocked) by the same service being audited.',
+      'Auditor — a separate identity/tool in a wholly separate Azure subscription from the HSM Service, not an app client — authenticates directly to Azure AD using the Auditor SPN, scoped to read-only permissions only.',
+      'Auditor calls Managed HSM directly — crossing the subscription boundary via read-only RBAC, never through the Encryption Service — to read KEK metadata: version history, rotation timestamps, and access policies.',
+      'Every Auditor SPN call against Managed HSM is captured automatically by its own Diagnostic Logs (Azure Monitor/Log Analytics) — not the Encryption Service\'s audit_log, since the Auditor SPN never touches the service or its subscription\'s resources beyond this read.',
+      'Auditor separately connects directly to the EDEK Store (PostgreSQL) using a read-only database role — again crossing the subscription boundary, never through the Encryption Service — to scan EDEK records (owner app_id, algorithm, key version, timestamps) for compliance reporting.',
+      'Auditor cross-references Diagnostic Logs with the EDEK Store scan results to reconcile key usage and rotation compliance (e.g. flagging EDEKs still wrapped under a retired KEK version).',
+      'Findings are compiled into a compliance/audit report — entirely outside the Encryption Service\'s own audit_log and PlainID/PBAC governance scope, and outside the HSM Service\'s subscription entirely, by design, so oversight isn\'t mediated (or potentially blocked) by the same subscription being audited.',
     ],
     actors: [
       { id: 'auditor', label: 'Auditor SPN' },
-      { id: 'keyvault', label: 'Key Vault' },
+      { id: 'hsm', label: 'Managed HSM' },
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
-      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 23 },
-      { from: 'auditor', to: 'keyvault', dashed: true, label: 'Read KEK metadata (read-only)', stepNum: 24 },
-      { from: 'keyvault', to: 'auditor', label: 'version history, rotation ts → KV Diagnostic Logs', stepNum: 25 },
-      { from: 'auditor', to: 'edek', dashed: true, label: 'Read-only DB scan', stepNum: 26 },
-      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 26 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 27 },
-      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 28 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Authenticate via Auditor SPN', stepNum: 25 },
+      { from: 'auditor', to: 'hsm', dashed: true, label: 'cross-subscription RBAC — read KEK metadata', stepNum: 26 },
+      { from: 'hsm', to: 'auditor', label: 'version history, rotation ts → Diagnostic Logs', stepNum: 27 },
+      { from: 'auditor', to: 'edek', dashed: true, label: 'cross-subscription RBAC — read-only DB scan', stepNum: 28 },
+      { from: 'edek', to: 'auditor', label: 'EDEK records', stepNum: 28 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Reconcile logs vs scan', stepNum: 29 },
+      { from: 'auditor', to: 'auditor', self: true, label: 'Compile compliance report', stepNum: 30 },
     ],
   },
 ];
@@ -527,7 +614,7 @@ function SequenceDiagram({ actors, messages, color, markerId }) {
   );
 }
 
-// ── End-to-end overview — condensed macro-view, not a 28-step merge ──────────
+// ── End-to-end overview — condensed macro-view, not a 30-step merge ──────────
 // Deliberately NOT all 24 individual messages: past ~8-10 arrows across 6
 // lifelines a sequence diagram stops being readable. This shows the 4 flows
 // as macro-phases instead, with Audit/Scan visually separated by a divider
@@ -539,7 +626,7 @@ function OverviewSequenceDiagram() {
     { id: 'client', label: 'Client' },
     { id: 'plainid', label: 'PlainID' },
     { id: 'service', label: 'Encryption Svc' },
-    { id: 'keyvault', label: 'Key Vault' },
+    { id: 'hsm', label: 'Managed HSM' },
     { id: 'edek', label: 'EDEK Store' },
     { id: 'redis', label: 'Redis Cache' },
     { id: 'auditor', label: 'Auditor SPN' },
@@ -547,23 +634,28 @@ function OverviewSequenceDiagram() {
   const laneGap = width / (actors.length + 1);
   const xFor = (i) => laneGap * (i + 1);
 
-  // PlainID is consulted by the Client only — it never reaches the Service.
-  // The Client independently calls the Service afterward as a separate,
-  // unrelated arrow (row 3), not a continuation/forward from PlainID. Row 5
-  // condenses Encrypt/Decrypt's cache read-or-write into one arrow — the
-  // per-flow diagrams below spell out the hit/miss branch in full.
+  // PlainID is a SHARED PDP consulted independently by both the Client
+  // (row 1-2, before it ever calls the Service) and the Service itself
+  // (row 4, its own separate check once the call arrives) — two distinct
+  // decisions, never one forwarded to the other. Row 6 condenses
+  // Encrypt/Decrypt's cache read-or-write into one arrow — the per-flow
+  // diagrams below spell out the versioned key + dual-read/backfill hit/miss
+  // branch in full. Managed HSM (KEK) and the separate Azure Key Vault (CEK)
+  // are two distinct resources — only Managed HSM appears here since the CEK
+  // fetch happens once at pod startup, not per-request.
   const mainRows = [
-    { from: 'client', to: 'plainid', label: '1. Policy Check — App JWT (App-ID) + end_user_id', color: '#f59e0b' },
+    { from: 'client', to: 'plainid', label: '1. Client pre-check — App JWT (App-ID) + end_user_id', color: '#f59e0b' },
     { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#f59e0b' },
     { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — JWT (App-ID) + end_user_id (direct)', color: '#a78bfa' },
-    { from: 'service', to: 'keyvault', label: '4. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
-    { from: 'service', to: 'redis', label: '5. cache DEK read/write — AES-256-GCM(CEK, DEK)', color: '#22d3ee' },
-    { from: 'service', to: 'edek', label: '6. persist / lookup EDEK', color: '#38bdf8' },
-    { from: 'service', to: 'client', label: '7. Result: ciphertext / plaintext', color: '#a78bfa' },
+    { from: 'service', to: 'plainid', label: "4. Service's own independent PBAC check", color: '#22d3ee', dashed: true },
+    { from: 'service', to: 'hsm', label: '5. wrap/unwrap (dual-read cache miss) — Service SPN', color: '#a78bfa' },
+    { from: 'service', to: 'redis', label: '6. dek:{ver}:{edek_id} read/write — AES-256-GCM(CEK, DEK)', color: '#22d3ee' },
+    { from: 'service', to: 'edek', label: '7. persist / lookup EDEK', color: '#38bdf8' },
+    { from: 'service', to: 'client', label: '8. Result: ciphertext / plaintext', color: '#a78bfa' },
   ];
   const auditRows = [
-    { from: 'auditor', to: 'keyvault', label: '8. Audit: read-only KV metadata', color: '#f43f5e', dashed: true },
-    { from: 'auditor', to: 'edek', label: '9. Audit: read-only DB scan', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'hsm', label: '9. Audit: cross-subscription RBAC — KEK metadata (read-only)', color: '#f43f5e', dashed: true },
+    { from: 'auditor', to: 'edek', label: '10. Audit: cross-subscription RBAC — DB scan (read-only)', color: '#f43f5e', dashed: true },
   ];
 
   const topY = 34;
@@ -593,7 +685,7 @@ function OverviewSequenceDiagram() {
         const x2 = xFor(actors.findIndex((a) => a.id === m.to));
         return (
           <g key={`main-${idx}`}>
-            <line x1={x1} y1={y} x2={x2} y2={y} stroke={m.color} strokeWidth="1.4" markerEnd={`url(#ov-arrow-main-${idx})`} />
+            <line x1={x1} y1={y} x2={x2} y2={y} stroke={m.color} strokeWidth="1.4" strokeDasharray={m.dashed ? '4,3' : undefined} markerEnd={`url(#ov-arrow-main-${idx})`} />
             <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">{m.label}</text>
           </g>
         );
@@ -638,7 +730,7 @@ function FlowsSequence() {
       <section style={s.panel}>
         <div style={s.panelHead}>
           <h3 style={{ ...s.panelTitle, color: '#8b92b8' }}>0. End-to-End Overview</h3>
-          <p style={s.panelSub}>Macro view across all four flows — not a merge of all 28 steps (past ~8 arrows on 7 lifelines a sequence diagram stops being readable). See each flow below for the full detail.</p>
+          <p style={s.panelSub}>Macro view across all four flows — not a merge of all 30 steps (past ~8 arrows on 7 lifelines a sequence diagram stops being readable). See each flow below for the full detail.</p>
         </div>
         <div style={s.seqWrap}>
           <OverviewSequenceDiagram />
@@ -1370,7 +1462,7 @@ export default function HsmDemo() {
           <div role="tabpanel" style={s.diagramTabWrap}>
             <div style={s.diagramHeader}>
               <h3 style={s.diagramHeaderTitle}>HSM Encryption Service — Architecture</h3>
-              <p style={s.diagramHeaderSub}>2-SPN split (Service SPN vs. Auditor SPN) · multi-client PlainID/PBAC gate · DEK/KEK envelope encryption · Redis DEK cache (CEK-encrypted)</p>
+              <p style={s.diagramHeaderSub}>Cross-subscription 2-SPN split (HSM Service vs. Auditor) · shared PlainID PBAC (Client + Service) · KEK/CEK on separate resources · Redis DEK cache w/ CEK hot-reload</p>
             </div>
             <div style={s.diagramScrollBody}>
               <ArchitectureDiagram />
@@ -1378,7 +1470,7 @@ export default function HsmDemo() {
           </div>
         )}
 
-        {/* ── Tab 3: Flows — 28-step numbered sequence, plain text/cards ── */}
+        {/* ── Tab 3: Flows — 30-step numbered sequence, plain text/cards ── */}
         {activeTab === 'flows' && (
           <div role="tabpanel" style={s.demoScroll}>
             <FlowsSequence />
