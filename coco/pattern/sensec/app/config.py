@@ -87,8 +87,14 @@ class Settings(BaseSettings):
     redis_url: str = ""                            # empty → cache disabled; use rediss:// for TLS
     dek_cache_enabled: bool = False
     dek_cache_ttl_seconds: int = 60
-    dek_cache_key_secret_name: str = "hsm-dek-cache-key"
+    # Secret that stores the ACTIVE version string, e.g. "v2".  The actual CEK
+    # lives at  hsm-dek-cache-key-{version}  in the same vault.
+    dek_cache_key_current_secret_name: str = "hsm-dek-cache-key-current"
     dek_cache_excluded_classifications: str = ""   # comma-sep list, e.g. "pci,pii"
+    # How often (seconds) each pod polls Azure KV for a new CEK version.
+    # Must be ≤ dek_cache_ttl_seconds so old entries expire before pods drop
+    # the fallback CEK.  Default 30s is well within the 60s TTL.
+    dek_cache_reload_interval_seconds: int = 30
 
 
 @lru_cache

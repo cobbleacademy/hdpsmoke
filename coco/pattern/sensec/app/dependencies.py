@@ -5,7 +5,11 @@ Import `get_*` functions and use them via `Depends()`.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Annotated, AsyncGenerator
+
+_log = logging.getLogger(__name__)
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -75,8 +79,29 @@ async def init_dependencies(settings: Settings) -> None:
     if settings.dek_cache_enabled and settings.redis_url:
         import base64
         import redis.asyncio as aioredis
-        cek_b64 = await _kek_client.fetch_secret(settings.dek_cache_key_secret_name)
-        cek = base64.b64decode(cek_b64)
+
+        # Load current CEK version pointer (e.g. "v2") then the keyed secret.
+        # A previous version (e.g. "v1") is also loaded as the fallback so
+        # entries written before rotation are still readable during the 30s
+        # convergence window — no pod restart needed.
+        current_ver = await _kek_client.fetch_secret(settings.dek_cache_key_current_secret_name)
+        current_ver = current_ver.strip()
+        cek = base64.b64decode(
+            await _kek_client.fetch_secret(f"hsm-dek-cache-key-{current_ver}")
+        )
+
+        prev_cek: bytes | None = None
+        prev_ver: str | None = None
+        try:
+            ver_num = int(current_ver.lstrip("v"))
+            if ver_num > 1:
+                prev_ver = f"v{ver_num - 1}"
+                prev_cek = base64.b64decode(
+                    await _kek_client.fetch_secret(f"hsm-dek-cache-key-{prev_ver}")
+                )
+        except Exception:
+            pass  # first version or non-numeric scheme — no prev CEK
+
         redis_client = aioredis.from_url(
             settings.redis_url,
             decode_responses=False,
@@ -87,9 +112,55 @@ async def init_dependencies(settings: Settings) -> None:
         _dek_cache = DEKCache(
             redis_client=redis_client,
             cek=cek,
+            version=current_ver,
             ttl_seconds=settings.dek_cache_ttl_seconds,
             excluded_classifications=excluded,
+            prev_cek=prev_cek,
+            prev_version=prev_ver,
         )
+
+        # Background task: poll Azure KV every dek_cache_reload_interval_seconds.
+        # When a new version is detected, DEKCache.rotate() is called in-process —
+        # no pod restart, no MISS storm, no cross-pod collisions.
+        asyncio.create_task(
+            _cek_reload_loop(_dek_cache, _kek_client, settings),
+            name="cek-reload",
+        )
+
+
+# ── CEK hot-reload background task ───────────────────────────────────────────
+
+async def _cek_reload_loop(
+    cache: DEKCache,
+    kek_client: KEKClient,
+    settings,
+) -> None:
+    """
+    Polls Azure KV every dek_cache_reload_interval_seconds for a new CEK
+    version.  On change, calls cache.rotate() in-process — no pod restart
+    required.  All pods converge within one poll interval (~30s), well within
+    the 60s TTL, so no MISS storm and no cross-pod key collisions occur.
+    """
+    import base64
+    while True:
+        await asyncio.sleep(settings.dek_cache_reload_interval_seconds)
+        try:
+            latest_ver = (
+                await kek_client.fetch_secret(settings.dek_cache_key_current_secret_name)
+            ).strip()
+            if latest_ver != cache.current_version:
+                new_cek = base64.b64decode(
+                    await kek_client.fetch_secret(f"hsm-dek-cache-key-{latest_ver}")
+                )
+                cache.rotate(new_cek, latest_ver)
+                _log.info(
+                    "CEK rotated",
+                    extra={"prev_version": cache.current_version, "new_version": latest_ver},
+                )
+        except Exception as exc:
+            # Log and continue — a failed poll leaves the current CEK in place.
+            # The next poll interval will retry.
+            _log.warning("CEK reload poll failed: %s", exc)
 
 
 # ── Dependency functions ──────────────────────────────────────────────────────
