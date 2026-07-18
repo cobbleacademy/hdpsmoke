@@ -108,7 +108,7 @@ function ArchitectureDiagram() {
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 1180 900" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Encryption Service Architecture — Subscription-Isolated, 2-SPN Split</title>
-        <desc>Two independent Azure subscriptions: the Sensec HSM Service subscription (Encryption Service, Redis DEK cache, Azure Key Vault holding the CEK, a separate Managed HSM holding the KEK, EDEK Store, Grants+Rotation) and a separate Governance/Audit subscription (Auditor SPN), which reaches into the HSM subscription only via read-only cross-subscription RBAC — never through the Encryption Service. PlainID is a shared PBAC decision point consulted independently by both the Client (before it ever calls the Service) and the Service itself (as its own authorization step) — neither call is proxied through the other; PlainID never forwards a decision from one caller to the other. All JWTs (to PlainID and to the Service) are app-level only, never per-end-user; every end-user operation instead carries an explicit end_user_id field. Post-unwrap DEKs are cached in Redis, encrypted with a Cache Encryption Key (CEK) held in Azure Key Vault (a distinct resource from the Managed HSM housing the KEK) — each pod runs a DEKCache that independently reads the CEK via Workload Identity and supports hot-reload rotation with dual-read/backfill against versioned Redis keys.</desc>
+        <desc>Two independent Azure subscriptions: the Sensec HSM Service subscription (Encryption Service, Redis DEK cache, KV Secrets holding the CEK, a separate Managed HSM holding the KEK, EDEK Store, Grants+Rotation) and a separate Governance/Audit subscription (Auditor SPN), which reaches into the HSM subscription only via read-only cross-subscription RBAC — never through the Encryption Service. PlainID is a shared PBAC decision point consulted independently by both the Client (before it ever calls the Service) and the Service itself (as its own authorization step) — neither call is proxied through the other; PlainID never forwards a decision from one caller to the other. All JWTs (to PlainID and to the Service) are app-level only, never per-end-user; every end-user operation instead carries an explicit end_user_id field. Post-unwrap DEKs are cached in Redis, encrypted with a Cache Encryption Key (CEK) held in KV Secrets (a distinct resource from the Managed HSM housing the KEK) — each pod runs a DEKCache that independently reads the CEK via Workload Identity and supports hot-reload rotation with dual-read/backfill against versioned Redis keys.</desc>
 
         <rect width="1180" height="900" fill="#0f1117" />
 
@@ -175,8 +175,8 @@ function ArchitectureDiagram() {
 
         <rect x="465" y="187" width="170" height="50" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
         <text x="550" y="205" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
-        <text x="550" y="220" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Grant check → unwrap</text>
-        <text x="550" y="232" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
+        <text x="550" y="219" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">PlainID → grant → cache/unwrap</text>
+        <text x="550" y="231" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">AES-256-GCM decrypt</text>
 
         <rect x="465" y="241" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
         <text x="550" y="259" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
@@ -196,41 +196,49 @@ function ArchitectureDiagram() {
         <path d="M 465,119 L 400,119 L 400,128 L 385,128" fill="none" stroke="#22d3ee" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
         <path d="M 385,118 L 400,118 L 400,110 L 465,110" fill="none" stroke="#22d3ee" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
 
-        {/* ── Redis Cache — with CEK hot-reload detail ── */}
+        {/* ── Redis DEK Cache — with CEK hot-reload detail ── */}
         <rect x="700" y="40" width="230" height="200" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="2" />
-        <text x="815" y="60" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS CACHE</text>
-        <text x="815" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">post-unwrap DEK cache</text>
+        <text x="815" y="60" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS DEK CACHE</text>
+        <text x="815" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">Azure Cache for Redis · TLS</text>
 
-        <rect x="715" y="80" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
-        <text x="815" y="94" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">AES-256-GCM(CEK, DEK)</text>
+        <rect x="715" y="80" width="200" height="20" rx="4" fill="#2d1b47" stroke="#fbbf24" strokeWidth="1" />
+        <text x="815" y="94" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}</text>
 
-        <rect x="715" y="104" width="200" height="20" rx="4" fill="#2d1b47" stroke="#fbbf24" strokeWidth="1" />
-        <text x="815" y="118" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace">key: dek:{'{'}ver{'}'}:{'{'}edek_id{'}'}</text>
+        <rect x="715" y="104" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="815" y="118" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">value: CEK-encrypted DEK</text>
 
-        <rect x="715" y="128" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
-        <text x="815" y="142" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK Hot-Reload — DEKCache.rotate()</text>
+        <rect x="715" y="128" width="200" height="20" rx="4" fill="#22263a" />
+        <text x="815" y="142" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">TTL 60s · versioned · no flush needed</text>
 
-        <rect x="715" y="152" width="200" height="30" rx="4" fill="#22263a" />
-        <text x="815" y="164" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">dual-read old ver(s) on miss</text>
-        <text x="815" y="176" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">then backfill @ current ver</text>
+        <rect x="715" y="152" width="200" height="20" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="815" y="166" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK hot-reload (see panel below)</text>
 
-        <text x="815" y="196" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">see CEK HOT-RELOAD DESIGN panel below</text>
+        <text x="815" y="190" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">dual-read + backfill on version miss</text>
 
         <line x1="650" y1="90" x2="700" y2="90" stroke="#22d3ee" strokeWidth="1.5" markerEnd="url(#arr-teal)" />
         <text x="675" y="82" textAnchor="middle" fill="#22d3ee" fontSize="8" fontFamily="monospace">cache check / write</text>
 
-        {/* ── Azure Key Vault — general purpose, holds only the CEK.
-            Deliberately a separate resource from the Managed HSM below. ── */}
-        <rect x="950" y="40" width="200" height="100" rx="8" fill="#1a1d27" stroke="#e879f9" strokeWidth="2" />
-        <text x="1050" y="60" textAnchor="middle" fill="#e879f9" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KEY VAULT</text>
-        <text x="1050" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">general purpose · Standard tier</text>
-        <rect x="965" y="80" width="170" height="24" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
-        <text x="1050" y="96" textAnchor="middle" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK (AES-256) — cache-only</text>
-        <text x="1050" y="118" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">SPN-read · no HSM boundary</text>
-        <text x="1050" y="130" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">distinct resource from Managed HSM</text>
+        {/* ── Azure KV Secrets — general purpose, holds only the CEK (as
+            three secrets: alpha-key + beta-key hold the actual CEK bytes,
+            current_key is a pointer whose value is "alpha" or "beta").
+            Teal to visually pair with Redis Cache (both cache-support
+            resources); deliberately a separate resource from the Managed
+            HSM below. ── */}
+        <rect x="950" y="40" width="200" height="100" rx="8" fill="#1a1d27" stroke="#22d3ee" strokeWidth="2" />
+        <text x="1050" y="60" textAnchor="middle" fill="#22d3ee" fontSize="10" letterSpacing="1" fontFamily="monospace">AZURE KV SECRETS</text>
+        <text x="1050" y="72" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">vault.azure.net · Secrets API</text>
+        <rect x="965" y="80" width="170" height="22" rx="4" fill="#083344" stroke="#22d3ee" strokeWidth="1" />
+        <text x="1050" y="94" textAnchor="middle" fill="#67e8f9" fontSize="7" fontFamily="monospace">alpha-key · beta-key (CEK, versioned)</text>
+        <text x="1050" y="112" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">current_key → "alpha" | "beta"</text>
+        <text x="1050" y="126" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">Service SPN: read · Rotation SPN: write</text>
 
-        <line x1="650" y1="115" x2="950" y2="80" stroke="#e879f9" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-pink)" />
-        <text x="800" y="103" textAnchor="middle" fill="#e879f9" fontSize="7" fontFamily="monospace">CEK fetch — startup, per-pod (Workload Identity)</text>
+        {/* CEK-fetch routed through the top margin (y=10..40, above every
+            box) rather than diagonally across the canvas — a straight
+            Service→KV line at this height would cut through the Redis
+            Cache box's interior and render underneath it, hiding both the
+            arrow and its label. */}
+        <path d="M 550,40 L 550,22 L 1050,22 L 1050,40" fill="none" stroke="#22d3ee" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-teal)" />
+        <text x="800" y="18" textAnchor="middle" fill="#22d3ee" fontSize="7" fontFamily="monospace">CEK fetch — startup, per-pod (Workload Identity)</text>
 
         {/* ── Managed HSM — holds only the KEK, its own dedicated resource ── */}
         <rect x="950" y="160" width="200" height="140" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
@@ -264,6 +272,34 @@ function ArchitectureDiagram() {
 
         <line x1="930" y1="270" x2="950" y2="290" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
         <line x1="700" y1="320" x2="650" y2="260" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+
+        {/* ── CEK Rotation Svc — a separate deployable (own K8s Service,
+            own Rotation SPN), not part of the Encryption Service or the
+            Grants + Rotation job above (that one only re-wraps EDEKs under
+            Managed HSM's KEK; this one owns the CEK's alpha/beta rotation).
+            Dashed border signals "separate deployable" the way the
+            subscription boundaries do, distinct from every other
+            component box's solid border. ── */}
+        <rect x="700" y="400" width="230" height="150" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" strokeDasharray="5,3" />
+        <text x="815" y="420" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">CEK ROTATION SVC</text>
+        <text x="815" y="432" textAnchor="middle" fill="#78716c" fontSize="7" fontFamily="monospace">Separate K8s Service · Rotation SPN</text>
+
+        <rect x="715" y="440" width="200" height="20" rx="4" fill="#22263a" />
+        <text x="815" y="454" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">every 4h · immediate on recovery</text>
+
+        <rect x="715" y="464" width="200" height="20" rx="4" fill="#22263a" />
+        <text x="815" y="478" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">1. gen new 32-byte CEK → write slot</text>
+
+        <rect x="715" y="488" width="200" height="20" rx="4" fill="#22263a" />
+        <text x="815" y="502" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">2. update current_key pointer</text>
+
+        {/* Rotation SPN write path — CEK Rotation Svc to Azure KV Secrets,
+            routed around Managed HSM's right edge (x=1170, clear of its
+            x=1150 boundary) rather than straight through it. */}
+        <path d="M 930,415 L 1170,415 L 1170,90 L 1150,90" fill="none" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+        <rect x="938" y="407" width="64" height="16" rx="4" fill="#422006" stroke="#fbbf24" strokeWidth="1.2" />
+        <text x="970" y="418" textAnchor="middle" fill="#fbbf24" fontSize="8" fontFamily="monospace" fontWeight="bold">ROT SPN</text>
+        <text x="1176" y="252" textAnchor="middle" fill="#fb923c" fontSize="7" fontFamily="monospace" transform="rotate(-90 1176 252)">Rotation SPN — writes alpha/beta + current_key</text>
 
         {/* ── EDEK Store ── */}
         <rect x="450" y="420" width="200" height="130" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
@@ -301,8 +337,8 @@ function ArchitectureDiagram() {
         <text x="38" y="782" fill="#555b7a" fontSize="8" fontFamily="monospace">Lookup owner → grant → PlainID → cache/HSM.unwrap → decrypt</text>
         <text x="38" y="794" fill="#555b7a" fontSize="8" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed</text>
 
-        <text x="26" y="816" fill="#22d3ee" fontSize="7" fontFamily="monospace">Cache: DEK encrypted w/ CEK → Redis(dek:{'{'}ver{'}'}:{'{'}edek_id{'}'}) — next decrypt skips HSM</text>
-        <text x="26" y="828" fill="#78716c" fontSize="7" fontFamily="monospace">Split HSM: Managed HSM = KEK only · Azure Key Vault = CEK only</text>
+        <text x="26" y="816" fill="#22d3ee" fontSize="7" fontFamily="monospace">Cache: DEK encrypted w/ CEK → Redis({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) — next decrypt skips HSM</text>
+        <text x="26" y="828" fill="#78716c" fontSize="7" fontFamily="monospace">Split HSM: Managed HSM = KEK only · KV Secrets = CEK only</text>
         <text x="26" y="840" fill="#78716c" fontSize="7" fontFamily="monospace">Auditor SPN: cross-subscription, never through this service</text>
 
         {/* ── CEK Hot-Reload design — plain-text summary, not literal code.
@@ -319,8 +355,8 @@ function ArchitectureDiagram() {
         <text x="488" y="658" fill="#cdd2f0" fontSize="8" fontFamily="monospace">Vault client, the CEK secret name, and a refresh interval.</text>
         <text x="488" y="674" fill="#fbbf24" fontSize="8" fontFamily="monospace">rotate(new_version) — atomic in-memory CEK swap,</text>
         <text x="488" y="686" fill="#fbbf24" fontSize="8" fontFamily="monospace">no service restart.</text>
-        <text x="488" y="702" fill="#67e8f9" fontSize="8" fontFamily="monospace">Redis key: dek:{'{'}version{'}'}:{'{'}edek_id{'}'} — a retired CEK</text>
-        <text x="488" y="714" fill="#67e8f9" fontSize="8" fontFamily="monospace">version is never silently misread as current.</text>
+        <text x="488" y="702" fill="#67e8f9" fontSize="8" fontFamily="monospace">Redis key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'} — a retired</text>
+        <text x="488" y="714" fill="#67e8f9" fontSize="8" fontFamily="monospace">CEK version is never silently misread as current.</text>
         <text x="488" y="730" fill="#cdd2f0" fontSize="8" fontFamily="monospace">On a miss under the current version: dual-read the last</text>
         <text x="488" y="742" fill="#cdd2f0" fontSize="8" fontFamily="monospace">N prior versions' keys, decrypt with the matching</text>
         <text x="488" y="754" fill="#cdd2f0" fontSize="8" fontFamily="monospace">historical CEK, and backfill under the current version.</text>
