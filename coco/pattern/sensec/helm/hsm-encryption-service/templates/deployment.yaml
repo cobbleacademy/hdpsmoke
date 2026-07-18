@@ -1,3 +1,6 @@
+{{- if and (eq (.Values.config.demoMode | toString) "true") (or .Values.autoscaling.enabled (gt (.Values.replicaCount | int) 1)) }}
+{{- fail "DEMO_MODE's mock HSM key and SQLite store are per-process, not shared across replicas. Running config.demoMode=true with replicaCount > 1 (or autoscaling enabled) causes encrypt/decrypt to silently fail depending on which pod a request lands on. Set replicaCount: 1 and autoscaling.enabled: false while demo_mode is on, or turn demo_mode off for a real multi-replica deployment." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,6 +27,15 @@ spec:
         {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.istio.rewriteAppHTTPProbers }}
+        # Explicit, not left to the cluster/mesh-wide default — without this,
+        # kubelet's plain-HTTP probe can hit Envoy's intercepted inbound
+        # listener directly. Under STRICT mTLS that listener expects a TLS
+        # handshake, not a plaintext GET, and responds 400 instead of just
+        # routing through. This forces Istio to rewrite the probe to its
+        # dedicated, interception-exempt status port (15020) instead.
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -48,6 +60,7 @@ spec:
             - secretRef:
                 name: {{ include "hsm.secretName" . }}
                 optional: true
+          {{- if eq .Values.probes.type "http" }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.path }}
@@ -60,23 +73,56 @@ spec:
             httpGet:
               path: {{ .Values.probes.path }}
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
             timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- else if eq .Values.probes.type "tcp" }}
+          # Connection-level only — no HTTP request goes through, so this
+          # doesn't confirm the app is genuinely serving correctly. It's a
+          # deliberate middle ground: Istio's rewriteAppHTTPProbers only
+          # intercepts httpGet probes, so a tcpSocket check isn't subject
+          # to the same agent-forwarding path that was failing in practice
+          # — it still catches a dead/hung process (port stops accepting
+          # connections) without depending on that mechanism working.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.tmpVolume.enabled }}
           volumeMounts:
+            {{- if .Values.tmpVolume.enabled }}
             - name: tmp
               mountPath: /tmp
-          {{- end }}
-      {{- if .Values.tmpVolume.enabled }}
+            {{- end }}
+            {{- if .Values.pbacIntegration.enabled }}
+            - name: pbac-integration-config
+              mountPath: /app/config
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if .Values.tmpVolume.enabled }}
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
-      {{- end }}
+        {{- end }}
+        {{- if .Values.pbacIntegration.enabled }}
+        - name: pbac-integration-config
+          configMap:
+            name: {{ include "hsm.fullname" . }}-pbac-integration
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

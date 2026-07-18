@@ -32,9 +32,20 @@ data:
   KEK_ROTATION_CRON: {{ .Values.config.kekRotationCron | quote }}
   KEK_ROTATION_ENABLED: {{ .Values.config.kekRotationEnabled | quote }}
 
+  PBAC_ENABLED: {{ .Values.config.pbacEnabled | quote }}
+  PLAINID_URL: {{ .Values.config.plainidUrl | quote }}
+  PLAINID_API_KEY_SECRET_NAME: {{ .Values.config.plainidApiKeySecretName | quote }}
+  PBAC_CACHE_TTL_SECONDS: {{ .Values.config.pbacCacheTtlSeconds | quote }}
+  PBAC_FAIL_OPEN: {{ .Values.config.pbacFailOpen | quote }}
+  PBAC_HTTP_TIMEOUT_SECONDS: {{ .Values.config.pbacHttpTimeoutSeconds | quote }}
+  PBAC_INTEGRATION_CONFIG_PATH: {{ .Values.config.pbacIntegrationConfigPath | quote }}
+
   AZURE_KEYVAULT_SECRET_URL: {{ .Values.config.azureKeyVaultSecretUrl | quote }}
 
   DEK_CACHE_ENABLED: {{ .Values.config.dekCacheEnabled | quote }}
   DEK_CACHE_TTL_SECONDS: {{ .Values.config.dekCacheTtlSeconds | quote }}
-  DEK_CACHE_KEY_SECRET_NAME: {{ .Values.config.dekCacheKeySecretName | quote }}
+  CEK_CURRENT_KEY_SECRET_NAME: {{ .Values.config.cekCurrentKeySecretName | quote }}
+  CEK_ALPHA_SECRET_NAME: {{ .Values.config.cekAlphaSecretName | quote }}
+  CEK_BETA_SECRET_NAME: {{ .Values.config.cekBetaSecretName | quote }}
+  DEK_CACHE_RELOAD_INTERVAL_SECONDS: {{ .Values.config.dekCacheReloadIntervalSeconds | quote }}
   DEK_CACHE_EXCLUDED_CLASSIFICATIONS: {{ .Values.config.dekCacheExcludedClassifications | quote }}

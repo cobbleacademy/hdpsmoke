@@ -1,0 +1,31 @@
+{{- if .Values.pbacIntegration.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hsm.fullname" . }}-pbac-integration
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+data:
+  pbac_integration.json: |
+    {
+      "endpoint_path": {{ .Values.pbacIntegration.endpointPath | toJson }},
+      "auth": {
+        "header_name": {{ .Values.pbacIntegration.auth.headerName | toJson }},
+        "header_value_template": {{ .Values.pbacIntegration.auth.headerValueTemplate | toJson }}
+      },
+      "request": {
+        "principal_field": {{ .Values.pbacIntegration.request.principalField | toJson }},
+        "action_field":    {{ .Values.pbacIntegration.request.actionField | toJson }},
+        "resource_field":  {{ .Values.pbacIntegration.request.resourceField | toJson }},
+        "context_field":   {{ .Values.pbacIntegration.request.contextField | toJson }}
+      },
+      "response": {
+        "permitted_path": {{ .Values.pbacIntegration.response.permittedPath | toJson }}
+      },
+      "resource_templates": {
+        "encrypt": {{ .Values.pbacIntegration.resourceTemplates.encrypt | toJson }},
+        "decrypt": {{ .Values.pbacIntegration.resourceTemplates.decrypt | toJson }}
+      }
+    }
+{{- end }}
