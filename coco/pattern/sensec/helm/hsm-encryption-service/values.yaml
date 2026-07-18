@@ -187,6 +187,18 @@ config:
   kekRotationCron: "0 2 1 * *"
   kekRotationEnabled: "true"
 
+  # PlainID PBAC — per-user policy gate for encrypt/decrypt.
+  # When disabled (default), NullPBACClient is used (always permits).
+  # end_user_id must be present in the request for the check to fire;
+  # service-to-service calls without end_user_id skip PBAC entirely.
+  pbacEnabled: "false"
+  plainidUrl: ""                          # https://<tenant>.plainid.io
+  plainidApiKeySecretName: "plainid-api-key"  # AKV Secrets name; fetched at startup
+  pbacCacheTtlSeconds: "30"              # cache per (user, action, resource)
+  pbacFailOpen: "false"                  # false = deny on PlainID unreachable
+  pbacHttpTimeoutSeconds: "3.0"
+  pbacIntegrationConfigPath: "/app/config/pbac_integration.json"
+
   # Azure Key Vault — Secrets (regular vault, not Managed HSM)
   # Managed HSM does not support the Secrets API. Set this to your regular
   # Key Vault URL (https://<name>.vault.azure.net/) when azureKeyVaultUrl
@@ -198,7 +210,14 @@ config:
   # for dekCacheTtlSeconds to avoid redundant HSM unwrap round-trips.
   dekCacheEnabled: "false"
   dekCacheTtlSeconds: "60"
-  dekCacheKeySecretName: "hsm-dek-cache-key"
+  # Alpha/beta CEK slot secrets (vault.azure.net — Secrets API).
+  # Service SPN holds secrets/get on all three; Rotation SPN holds secrets/set.
+  cekCurrentKeySecretName: "cek-current-key"   # value is "alpha" or "beta"
+  cekAlphaSecretName: "cek-alpha"               # base64 32-byte AES-256 key
+  cekBetaSecretName: "cek-beta"                 # base64 32-byte AES-256 key
+  # How often each pod polls AKV for a current_key change (seconds).
+  # Must be ≤ dekCacheTtlSeconds so old entries expire before pods drop prev CEK.
+  dekCacheReloadIntervalSeconds: "30"
   dekCacheExcludedClassifications: ""   # comma-sep, e.g. "pci,pii"
 
 # ── Secrets ────────────────────────────────────────────────────────────────────
@@ -223,6 +242,40 @@ secrets:
     # Redis connection string for the DEK cache — credential-shaped, never in ConfigMap.
     # Use rediss:// (TLS) for production. Empty disables the cache even if dekCacheEnabled=true.
     redisUrl: ""
+
+# ── PlainID integration wire-format config ────────────────────────────────────
+# Mounted as /app/config/pbac_integration.json inside the container.
+# Change any field here to adapt to a different PlainID API version or tenant
+# without touching code or rebuilding the image.
+# Set enabled: true when pbacEnabled is also "true".
+pbacIntegration:
+  enabled: false
+
+  endpointPath: "/v2/isPermitted"
+
+  auth:
+    headerName: "Authorization"
+    headerValueTemplate: "Bearer {api_key}"   # {api_key} is substituted at runtime
+
+  request:
+    principalField: "principal"   # field that carries end_user_id
+    actionField:    "action"      # field that carries "encrypt" or "decrypt"
+    resourceField:  "resource"    # field that carries the resource string
+    contextField:   "context"     # field that carries extra metadata; set to "" to omit
+
+  response:
+    # Dot-notation path to the boolean in PlainID's response body.
+    # Examples:
+    #   "permitted"              → { "permitted": true }
+    #   "result.allowed"         → { "result": { "allowed": true } }
+    #   "data.decision.isAllow"  → { "data": { "decision": { "isAllow": true } } }
+    permittedPath: "permitted"
+
+  resourceTemplates:
+    # {data_classification} is substituted at runtime (falls back to "default").
+    # {action} is also available if you need it in the template.
+    encrypt: "hsm:encrypt:{data_classification}"
+    decrypt: "hsm:decrypt:{data_classification}"
 
 podAnnotations: {}
 podLabels: {}
