@@ -88,9 +88,21 @@ class KEKClient:
         return key.properties.version or ""
 
     async def fetch_secret(self, secret_name: str) -> str:
-        """Retrieve a secret from Key Vault (used for Splunk HEC token etc.)."""
+        """Retrieve a secret value from Azure KV Secrets (vault.azure.net)."""
         secret = await self._secret_client.get_secret(secret_name)
         return secret.value or ""
+
+    async def fetch_secret_with_version(self, secret_name: str) -> tuple[str, str]:
+        """Return (value, kv_version) for a secret.
+
+        kv_version is the last path segment of the secret id, e.g.:
+          https://vault.azure.net/secrets/cek-alpha/3f8a2b... → "3f8a2b..."
+        Used to construct Redis keys as {slot}:{kv_version}:{edek_id}.
+        """
+        secret = await self._secret_client.get_secret(secret_name)
+        value = secret.value or ""
+        kv_version = (secret.properties.id or "").rstrip("/").rsplit("/", 1)[-1]
+        return value, kv_version
 
     async def close(self) -> None:
         await self._key_client.close()
