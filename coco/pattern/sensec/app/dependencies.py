@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.audit.logger import audit_log
 from app.auth.app_registry import AppRegistration, AppRegistry, AppRegistryError
 from app.auth.jwt_validator import JWTValidator, TokenValidationError
+from app.auth.pbac_client import NullPBACClient, PBACClient, load_integration_config
 from app.config import Settings, get_settings
 from app.crypto.dek_cache import DEKCache, NullDEKCache
 from app.crypto.kek_client import KEKClient
@@ -30,10 +31,11 @@ _jwt_validator: object | None = None
 _app_registry: AppRegistry | None = None
 _session_factory: async_sessionmaker | None = None
 _dek_cache: DEKCache | NullDEKCache = NullDEKCache()
+_pbac_client: PBACClient | NullPBACClient = NullPBACClient()
 
 
 async def init_dependencies(settings: Settings) -> None:
-    global _kek_client, _jwt_validator, _app_registry, _session_factory, _dek_cache
+    global _kek_client, _jwt_validator, _app_registry, _session_factory, _dek_cache, _pbac_client
 
     if settings.demo_mode:
         from app.auth.app_registry import AppDecryptGrant
@@ -80,27 +82,30 @@ async def init_dependencies(settings: Settings) -> None:
         import base64
         import redis.asyncio as aioredis
 
-        # Load current CEK version pointer (e.g. "v2") then the keyed secret.
-        # A previous version (e.g. "v1") is also loaded as the fallback so
-        # entries written before rotation are still readable during the 30s
-        # convergence window — no pod restart needed.
-        current_ver = await _kek_client.fetch_secret(settings.dek_cache_key_current_secret_name)
-        current_ver = current_ver.strip()
-        cek = base64.b64decode(
-            await _kek_client.fetch_secret(f"hsm-dek-cache-key-{current_ver}")
-        )
+        # 1. Fetch current_key pointer ("alpha" or "beta") from KV Secrets (vault.azure.net).
+        #    Service SPN holds secrets/get; Rotation SPN (separate pod) holds secrets/set.
+        current_slot = (await _kek_client.fetch_secret(settings.cek_current_key_secret_name)).strip()
 
+        # 2. Fetch active slot bytes + kv_version. kv_version is the immutable AKV hex
+        #    version ID used to construct Redis keys as {slot}:{kv_version}:{edek_id},
+        #    preventing cross-pod collisions when alpha is reused after alpha→beta→alpha.
+        active_secret_name = getattr(settings, f"cek_{current_slot}_secret_name")
+        cek_b64, current_kv_version = await _kek_client.fetch_secret_with_version(active_secret_name)
+        cek = base64.b64decode(cek_b64)
+
+        # 3. Load the inactive slot as the previous CEK fallback so entries written
+        #    before rotation are still readable during the ~30s convergence window.
         prev_cek: bytes | None = None
-        prev_ver: str | None = None
+        prev_slot: str | None = None
+        prev_kv_version: str | None = None
         try:
-            ver_num = int(current_ver.lstrip("v"))
-            if ver_num > 1:
-                prev_ver = f"v{ver_num - 1}"
-                prev_cek = base64.b64decode(
-                    await _kek_client.fetch_secret(f"hsm-dek-cache-key-{prev_ver}")
-                )
+            inactive_slot = "beta" if current_slot == "alpha" else "alpha"
+            inactive_secret_name = getattr(settings, f"cek_{inactive_slot}_secret_name")
+            prev_b64, prev_kv_version = await _kek_client.fetch_secret_with_version(inactive_secret_name)
+            prev_cek = base64.b64decode(prev_b64)
+            prev_slot = inactive_slot
         except Exception:
-            pass  # first version or non-numeric scheme — no prev CEK
+            pass  # inactive slot may not exist yet on very first deployment
 
         redis_client = aioredis.from_url(
             settings.redis_url,
@@ -112,20 +117,30 @@ async def init_dependencies(settings: Settings) -> None:
         _dek_cache = DEKCache(
             redis_client=redis_client,
             cek=cek,
-            version=current_ver,
+            version=f"{current_slot}:{current_kv_version}",
             ttl_seconds=settings.dek_cache_ttl_seconds,
             excluded_classifications=excluded,
             prev_cek=prev_cek,
-            prev_version=prev_ver,
+            prev_version=f"{prev_slot}:{prev_kv_version}" if prev_slot else None,
         )
 
-        # Background task: poll Azure KV every dek_cache_reload_interval_seconds.
-        # When a new version is detected, DEKCache.rotate() is called in-process —
-        # no pod restart, no MISS storm, no cross-pod collisions.
         asyncio.create_task(
             _cek_reload_loop(_dek_cache, _kek_client, settings),
             name="cek-reload",
         )
+
+    if settings.pbac_enabled and settings.plainid_url:
+        api_key = await _kek_client.fetch_secret(settings.plainid_api_key_secret_name)
+        integration_cfg = load_integration_config(settings.pbac_integration_config_path)
+        _pbac_client = PBACClient(
+            plainid_url=settings.plainid_url,
+            api_key=api_key,
+            integration_config=integration_cfg,
+            cache_ttl_seconds=settings.pbac_cache_ttl_seconds,
+            fail_open=settings.pbac_fail_open,
+            http_timeout=settings.pbac_http_timeout_seconds,
+        )
+        _log.info("pbac_enabled", plainid_url=settings.plainid_url)
 
 
 # ── CEK hot-reload background task ───────────────────────────────────────────
@@ -136,30 +151,24 @@ async def _cek_reload_loop(
     settings,
 ) -> None:
     """
-    Polls Azure KV every dek_cache_reload_interval_seconds for a new CEK
-    version.  On change, calls cache.rotate() in-process — no pod restart
-    required.  All pods converge within one poll interval (~30s), well within
-    the 60s TTL, so no MISS storm and no cross-pod key collisions occur.
+    Polls Azure KV Secrets every dek_cache_reload_interval_seconds.
+    Detects slot change OR kv_version change (same slot, new bytes written by
+    Rotation SVC).  Calls cache.rotate() in-process — no pod restart needed.
+    All pods converge within one poll interval (~30s), well within the 60s TTL.
     """
     import base64
     while True:
         await asyncio.sleep(settings.dek_cache_reload_interval_seconds)
         try:
-            latest_ver = (
-                await kek_client.fetch_secret(settings.dek_cache_key_current_secret_name)
-            ).strip()
-            if latest_ver != cache.current_version:
-                new_cek = base64.b64decode(
-                    await kek_client.fetch_secret(f"hsm-dek-cache-key-{latest_ver}")
-                )
-                cache.rotate(new_cek, latest_ver)
-                _log.info(
-                    "CEK rotated",
-                    extra={"prev_version": cache.current_version, "new_version": latest_ver},
-                )
+            latest_slot = (await kek_client.fetch_secret(settings.cek_current_key_secret_name)).strip()
+            latest_secret_name = getattr(settings, f"cek_{latest_slot}_secret_name")
+            latest_b64, latest_kv_version = await kek_client.fetch_secret_with_version(latest_secret_name)
+            latest_composite = f"{latest_slot}:{latest_kv_version}"
+            if latest_composite != cache.current_version:
+                new_cek = base64.b64decode(latest_b64)
+                cache.rotate(new_cek, latest_composite)
+                _log.info("CEK rotated", extra={"new_version": latest_composite})
         except Exception as exc:
-            # Log and continue — a failed poll leaves the current CEK in place.
-            # The next poll interval will retry.
             _log.warning("CEK reload poll failed: %s", exc)
 
 
@@ -167,6 +176,10 @@ async def _cek_reload_loop(
 
 def get_dek_cache() -> DEKCache | NullDEKCache:
     return _dek_cache
+
+
+def get_pbac_client() -> PBACClient | NullPBACClient:
+    return _pbac_client
 
 
 def get_kek_client() -> KEKClient:

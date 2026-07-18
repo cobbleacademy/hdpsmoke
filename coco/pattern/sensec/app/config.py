@@ -77,6 +77,22 @@ class Settings(BaseSettings):
             raise ValueError("SPLUNK_HEC_URL is required when SPLUNK_ENABLED=true")
         return self
 
+    # ── PlainID PBAC ──────────────────────────────────────────────────────────
+    # When enabled, every encrypt/decrypt call with a non-empty end_user_id
+    # is checked against PlainID before the DEK is touched.
+    # If end_user_id is absent the check is skipped (service-to-service calls
+    # that carry no human identity are governed by app-level grants only).
+    pbac_enabled: bool = False
+    plainid_url: str = ""                           # https://<tenant>.plainid.io
+    plainid_api_key_secret_name: str = "plainid-api-key"  # AKV Secrets name; fetched at startup
+    pbac_cache_ttl_seconds: int = 30                # cache per (user, action, resource)
+    pbac_fail_open: bool = False                    # False = deny on PlainID unreachable (safer)
+    pbac_http_timeout_seconds: float = 3.0
+    # Path to the JSON file that defines the PlainID wire format:
+    # endpoint path, request field names, response boolean path, resource templates.
+    # Mount via ConfigMap in K8s. Defaults are used if the file is absent.
+    pbac_integration_config_path: str = "config/pbac_integration.json"
+
     # ── KEK Rotation ──────────────────────────────────────────────────────────
     kek_rotation_cron: str = "0 2 1 * *"
     kek_rotation_enabled: bool = True
@@ -87,11 +103,13 @@ class Settings(BaseSettings):
     redis_url: str = ""                            # empty → cache disabled; use rediss:// for TLS
     dek_cache_enabled: bool = False
     dek_cache_ttl_seconds: int = 60
-    # Secret that stores the ACTIVE version string, e.g. "v2".  The actual CEK
-    # lives at  hsm-dek-cache-key-{version}  in the same vault.
-    dek_cache_key_current_secret_name: str = "hsm-dek-cache-key-current"
+    # Alpha/beta CEK slot secrets (vault.azure.net — Secrets API, NOT Managed HSM).
+    # Service SPN holds secrets/get on all three; Rotation SPN holds secrets/set.
+    cek_current_key_secret_name: str = "cek-current-key"   # value is "alpha" or "beta"
+    cek_alpha_secret_name: str = "cek-alpha"                # base64 32-byte AES-256 key
+    cek_beta_secret_name: str = "cek-beta"                  # base64 32-byte AES-256 key
     dek_cache_excluded_classifications: str = ""   # comma-sep list, e.g. "pci,pii"
-    # How often (seconds) each pod polls Azure KV for a new CEK version.
+    # How often (seconds) each pod polls Azure KV Secrets for a current_key change.
     # Must be ≤ dek_cache_ttl_seconds so old entries expire before pods drop
     # the fallback CEK.  Default 30s is well within the 60s TTL.
     dek_cache_reload_interval_seconds: int = 30
