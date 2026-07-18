@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.logger import audit_log
 from app.auth.app_registry import AppRegistry
+from app.auth.pbac_client import NullPBACClient, PBACClient
 from app.crypto import dek_manager
 from app.crypto.dek_cache import DEKCache, NullDEKCache
 from app.crypto.kek_client import KEKClient
@@ -25,6 +26,7 @@ async def decrypt(
     app_registry: AppRegistry,
     caller_ip: str = "",
     dek_cache: DEKCache | NullDEKCache | None = None,
+    pbac_client: PBACClient | NullPBACClient | None = None,
 ) -> DecryptResponse:
     record: EDEKRecord | None = await session.get(EDEKRecord, request.edek_id)
 
@@ -42,6 +44,18 @@ async def decrypt(
             _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
                          "no_grant_for_owner", owner_app_id=owner_app_id, end_user_id=request.end_user_id)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+
+    if pbac_client is not None and request.end_user_id:
+        permitted = await pbac_client.check(
+            end_user_id=request.end_user_id,
+            action="decrypt",
+            data_classification=record.data_classification,
+            context={"app_id": app_id, "owner_app_id": owner_app_id, "caller_ip": caller_ip},
+        )
+        if not permitted:
+            _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
+                        "pbac_denied", end_user_id=request.end_user_id)
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied by policy")
 
     edek_id_str = str(request.edek_id)
     edek_bytes = base64.b64decode(record.edek_blob)

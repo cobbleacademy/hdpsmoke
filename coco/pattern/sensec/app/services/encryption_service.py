@@ -3,9 +3,11 @@ from __future__ import annotations
 import base64
 import uuid
 
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.logger import audit_log
+from app.auth.pbac_client import NullPBACClient, PBACClient
 from app.crypto import dek_manager
 from app.crypto.kek_client import KEKClient
 from app.models.edek_record import EDEKRecord, RotationStatus
@@ -19,7 +21,27 @@ async def encrypt(
     kek_client: KEKClient,
     session: AsyncSession,
     caller_ip: str = "",
+    pbac_client: PBACClient | NullPBACClient | None = None,
 ) -> EncryptResponse:
+    if pbac_client is not None and request.end_user_id:
+        permitted = await pbac_client.check(
+            end_user_id=request.end_user_id,
+            action="encrypt",
+            data_classification=request.data_classification,
+            context={"app_id": app_id, "caller_ip": caller_ip},
+        )
+        if not permitted:
+            audit_log(
+                "encrypt",
+                app_id=app_id,
+                sub=caller_sub,
+                end_user_id=request.end_user_id,
+                caller_ip=caller_ip,
+                status="failure",
+                reason="pbac_denied",
+            )
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied by policy")
+
     dek = dek_manager.generate_dek()
     try:
         result = dek_manager.encrypt(request.plaintext.encode(), dek, app_id)
