@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.logger import audit_log
-from app.dependencies import AuthenticatedCaller, get_caller, get_db_session, get_kek_client
+from app.dependencies import AuthenticatedCaller, get_caller, get_db_session, get_kek_client, get_pbac_client
 from app.models.schemas import EncryptRequest, EncryptResponse
 from app.services import encryption_service
 
@@ -18,6 +18,7 @@ async def encrypt_endpoint(
     caller: Annotated[AuthenticatedCaller, Depends(get_caller)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     kek_client=Depends(get_kek_client),
+    pbac_client=Depends(get_pbac_client),
 ):
     if "encrypt" not in caller.scopes:
         audit_log("encrypt", app_id=caller.app_id, sub=caller.sub,
@@ -32,4 +33,5 @@ async def encrypt_endpoint(
         kek_client=kek_client,
         session=session,
         caller_ip=request.client.host if request.client else "",
+        pbac_client=pbac_client,
     )
