@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cek-rotation.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cek-rotation.labels" . | nindent 4 }}
+spec:
+  # Singleton — two replicas writing to the same AKV slot simultaneously
+  # would race.  Keep this fixed at 1; do not wire up an HPA for this chart.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "cek-rotation.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cek-rotation.selectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "cek-rotation.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      containers:
+        - name: cek-rotation-service
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          # No HTTP server → no ports to expose.
+          env:
+            - name: AZURE_KEYVAULT_SECRET_URL
+              value: {{ .Values.config.azureKeyVaultSecretUrl | quote }}
+            - name: CEK_ALPHA_SECRET_NAME
+              value: {{ .Values.config.cekAlphaSecretName | quote }}
+            - name: CEK_BETA_SECRET_NAME
+              value: {{ .Values.config.cekBetaSecretName | quote }}
+            - name: CURRENT_KEY_SECRET_NAME
+              value: {{ .Values.config.currentKeySecretName | quote }}
+            - name: ROTATION_INTERVAL_HOURS
+              value: {{ .Values.config.rotationIntervalHours | quote }}
+            - name: REDIS_POST_ROTATION_MODE
+              value: {{ .Values.config.redisPostRotationMode | quote }}
+            - name: DEK_CACHE_TTL_SECONDS
+              value: {{ .Values.config.dekCacheTtlSeconds | quote }}
+            {{- if .Values.config.redisUrl }}
+            - name: REDIS_URL
+              value: {{ .Values.config.redisUrl | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.tmpVolume.enabled }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if .Values.tmpVolume.enabled }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
