@@ -1,0 +1,26 @@
+{
+  "_comment": "PlainID PBAC integration shape. Mount this file via ConfigMap and set PBAC_INTEGRATION_CONFIG_PATH to its path. All fields are configurable without a code change or image rebuild.",
+
+  "endpoint_path": "/v2/isPermitted",
+
+  "auth": {
+    "header_name": "Authorization",
+    "header_value_template": "Bearer {api_key}"
+  },
+
+  "request": {
+    "principal_field": "principal",
+    "action_field":    "action",
+    "resource_field":  "resource",
+    "context_field":   "context"
+  },
+
+  "response": {
+    "permitted_path": "permitted"
+  },
+
+  "resource_templates": {
+    "encrypt": "hsm:encrypt:{data_classification}",
+    "decrypt": "hsm:decrypt:{data_classification}"
+  }
+}
