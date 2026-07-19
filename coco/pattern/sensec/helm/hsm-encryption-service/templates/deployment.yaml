@@ -102,6 +102,13 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.corporateCa.enabled }}
+          env:
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/ssl/corporate/{{ .Values.corporateCa.certFile }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/corporate/{{ .Values.corporateCa.certFile }}
+          {{- end }}
           volumeMounts:
             {{- if .Values.tmpVolume.enabled }}
             - name: tmp
@@ -110,6 +117,11 @@ spec:
             {{- if .Values.pbacIntegration.enabled }}
             - name: pbac-integration-config
               mountPath: /app/config
+              readOnly: true
+            {{- end }}
+            {{- if .Values.corporateCa.enabled }}
+            - name: corporate-ca
+              mountPath: /etc/ssl/corporate
               readOnly: true
             {{- end }}
       volumes:
@@ -122,6 +134,11 @@ spec:
         - name: pbac-integration-config
           configMap:
             name: {{ include "hsm.fullname" . }}-pbac-integration
+        {{- end }}
+        {{- if .Values.corporateCa.enabled }}
+        - name: corporate-ca
+          configMap:
+            name: {{ .Values.corporateCa.configMapName }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

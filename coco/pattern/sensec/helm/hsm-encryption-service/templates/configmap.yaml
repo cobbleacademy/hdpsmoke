@@ -10,6 +10,7 @@ data:
   SKIP_AKV: {{ .Values.config.skipAkv | quote }}
   DB_SSL_ENABLED: {{ .Values.config.dbSslEnabled | quote }}
   DB_SSL_CA_CERT: {{ .Values.config.dbSslCaCert | quote }}
+  DB_SCHEMA: {{ .Values.config.dbSchema | quote }}
   SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
