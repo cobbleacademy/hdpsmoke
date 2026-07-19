@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Enum, Index, String, Text, Uuid
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 import enum
-
 
 class Base(DeclarativeBase):
     pass
@@ -31,7 +31,9 @@ class EDEKRecord(Base):
     encoding: Mapped[str] = mapped_column(String(16), nullable=False, default="utf8")
     data_classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rotation_status: Mapped[RotationStatus] = mapped_column(
-        Enum(RotationStatus), nullable=False, default=RotationStatus.current
+        Enum(RotationStatus, schema=os.environ.get("DB_SCHEMA") or None),
+        nullable=False,
+        default=RotationStatus.current,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -43,7 +45,6 @@ class EDEKRecord(Base):
         Index("idx_edek_rotation_status", "rotation_status"),
         Index("idx_edek_kek_version", "kek_version"),
         Index("idx_edek_classification", "data_classification"),
-        # Listing/admin queries page by recency — without this index, that
-        # query degrades to a full table scan as the table grows unbounded.
         Index("idx_edek_created_at", "created_at"),
+        {"schema": os.environ.get("DB_SCHEMA") or None},
     )
