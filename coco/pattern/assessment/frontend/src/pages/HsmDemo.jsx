@@ -205,7 +205,7 @@ function ArchitectureDiagram() {
         <text x="785" y="197" textAnchor="middle" fill="#14b8a6" fontSize="9" letterSpacing="1" fontFamily="monospace">AZURE KV SECRETS</text>
         <text x="785" y="210" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">vault.azure.net · Secrets API</text>
         <text x="785" y="222" textAnchor="middle" fill="#14b8a6" fontSize="7" fontFamily="monospace">cek-alpha · cek-beta (CEK bytes)</text>
-        <text x="785" y="234" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">current_key → "alpha" | "beta"</text>
+        <text x="785" y="234" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">current_key → "alpha:12" | "beta:7"</text>
         <text x="785" y="240" textAnchor="middle" fill="#555b7a" fontSize="6" fontFamily="monospace">Service SPN: read · Rotation SPN: write</text>
         <line x1="640" y1="210" x2="690" y2="210" stroke="#14b8a6" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
         <text x="665" y="205" textAnchor="middle" fill="#14b8a6" fontSize="7" fontFamily="monospace">read · 30s poll</text>
@@ -270,7 +270,7 @@ function ArchitectureDiagram() {
         <rect x="455" y="715" width="170" height="20" rx="4" fill="#22263a" />
         <text x="540" y="729" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">1. gen new 32-byte CEK → write slot</text>
         <rect x="455" y="741" width="170" height="20" rx="4" fill="#22263a" />
-        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">2. update current_key pointer</text>
+        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">2. update current_key → "slot:version"</text>
 
         {/* Rotation SPN write path — routed through the gap between the
             subscription boundary (right edge x=900) and the Auditor panel
@@ -310,8 +310,8 @@ function ArchitectureDiagram() {
 
         <rect x="36" y="856" width="365" height="68" rx="4" fill="#0a1f1e" stroke="#14b8a6" strokeWidth="1" />
         <text x="50" y="870" fill="#14b8a6" fontSize="9" fontFamily="monospace">CEK Rotation (alpha/beta · no restart):</text>
-        <text x="50" y="883" fill="#555b7a" fontSize="8" fontFamily="monospace">Rotation SVC: gen bytes → write inactive slot → update current_key</text>
-        <text x="50" y="895" fill="#555b7a" fontSize="8" fontFamily="monospace">Pods poll 30s: detect slot or kv_version change → rotate(cek, slot, ver)</text>
+        <text x="50" y="883" fill="#555b7a" fontSize="8" fontFamily="monospace">Rotation SVC: gen bytes → write inactive slot → update current_key to "slot:version"</text>
+        <text x="50" y="895" fill="#555b7a" fontSize="8" fontFamily="monospace">Pods poll 30s: detect current_key's "slot:version" change → rotate(cek, slot, ver)</text>
         <text x="50" y="907" fill="#555b7a" fontSize="8" fontFamily="monospace">Redis key: {'{'}slot{'}'}:{'{'}kv_ver{'}'}:{'{'}edek_id{'}'} · prev slot readable via fallback</text>
         <text x="50" y="919" fill="#555b7a" fontSize="8" fontFamily="monospace">Old {'{'}slot{'}'}:{'{'}old_ver{'}'}:* entries expire via 60s TTL — no flush needed</text>
 
@@ -422,17 +422,17 @@ const FLOWS = [
     title: '0. Startup (at service init — not per request)',
     color: '#14b8a6',
     steps: [
-      'HSM Service fetches current_key (returns "alpha") then fetches cek-alpha — CEK bytes plus its kv_version — from Azure KV Secrets, using its Service SPN.',
-      'Azure KV Secrets returns the CEK-alpha bytes, kv_version, and the previous slot (beta, if one exists) — the pod\'s DEKCache initializes with this, identically across every pod.',
-      'The Service starts a background task (cek_reload_loop) that polls current_key every 30s and calls rotate(cek, slot, kv_version) whenever it changes — see the CEK Rotation Flow below for what drives that change.',
+      'HSM Service fetches current_key — a single string combining slot and version, e.g. "alpha:12" — then fetches cek-alpha at that exact version from Azure KV Secrets, using its Service SPN.',
+      'Azure KV Secrets returns the CEK-alpha bytes for that version, plus the previous slot\'s value if the pod already has one cached (beta, if this isn\'t the first startup) — the pod\'s DEKCache initializes with this, identically across every pod.',
+      'The Service starts a background task (cek_reload_loop) that polls current_key every 30s and calls rotate(cek, slot, kv_version) — with slot and kv_version parsed back out of the "slot:version" string — whenever it changes; see the CEK Rotation Flow below for what drives that change.',
     ],
     actors: [
       { id: 'service', label: 'HSM Service' },
       { id: 'kvsecrets', label: 'Azure KV Secrets' },
     ],
     messages: [
-      { from: 'service', to: 'kvsecrets', label: 'fetch current_key → "alpha"; fetch cek-alpha → (CEK bytes, kv_version)', stepNum: '0a' },
-      { from: 'kvsecrets', to: 'service', dashed: true, label: 'CEK-alpha bytes + kv_version + prev slot (beta) → DEKCache init', stepNum: '0b' },
+      { from: 'service', to: 'kvsecrets', label: 'fetch current_key → "alpha:12" · fetch cek-alpha (v12) → CEK bytes', stepNum: '0a' },
+      { from: 'kvsecrets', to: 'service', dashed: true, label: 'CEK-alpha bytes (v12) + prev slot (beta, if cached) → DEKCache init', stepNum: '0b' },
       { from: 'service', to: 'service', self: true, label: 'cek_reload_loop: poll current_key every 30s → rotate() on change', stepNum: '0c' },
     ],
   },
@@ -460,6 +460,8 @@ const FLOWS = [
     steps: [
       'Client calls POST /encrypt directly, presenting { plaintext, encoding, data_classification, end_user_id }.',
       'HSM Service validates the JWT, the app_id, and the encrypt scope.',
+      'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT.',
+      'A DENY here blocks the operation immediately — no wrap, no EDEK insert, no audit_log write. An ALLOW (or PlainID not configured for this call) lets the request proceed.',
       'HSM Service calls Azure Managed HSM to wrap the DEK, using its Service SPN (RSA-OAEP-256).',
       'Azure Managed HSM returns the EDEK (wrapped DEK).',
       'HSM Service generates the DEK + IV and AES-256-GCM encrypts the plaintext.',
@@ -471,12 +473,15 @@ const FLOWS = [
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'HSM Service' },
+      { id: 'plainid', label: 'PlainID' },
       { id: 'hsm', label: 'Azure Managed HSM' },
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
       { from: 'client', to: 'service', label: 'POST /encrypt { plaintext, encoding, data_classification, end_user_id }', stepNum: 3 },
       { from: 'service', to: 'service', self: true, label: 'validate JWT · app_id · scope=encrypt', stepNum: 4 },
+      { from: 'service', to: 'plainid', label: '[optional] PBAC check (app_id + end_user_id + scope=encrypt) — Service\'s own identity', stepNum: '4a' },
+      { from: 'plainid', to: 'service', dashed: true, label: '[optional] PERMIT/DENY — DENY blocks before any wrap/EDEK/audit calls', stepNum: '4a' },
       { from: 'service', to: 'hsm', label: 'wrap DEK [Service SPN · RSA-OAEP-256]', stepNum: 5 },
       { from: 'hsm', to: 'service', dashed: true, label: 'EDEK (wrapped DEK)', stepNum: 6 },
       { from: 'service', to: 'service', self: true, label: 'gen DEK + IV · AES-256-GCM encrypt plaintext', stepNum: 7 },
@@ -494,6 +499,7 @@ const FLOWS = [
       'HSM Service looks up the edek_record by edek_id in the EDEK Store.',
       'EDEK Store returns { edek_blob, kek_version, owner_app_id, data_class }.',
       'HSM Service checks: does the caller match the owner, or hold a grant? A governance SPN bypasses this check.',
+      'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT. A DENY here blocks the operation immediately — no cache lookup, no unwrap, no audit_log write.',
       'HSM Service checks Redis for the current slot\'s cached DEK first, falling back to the previous slot: GET {slot}:{kv_ver}:{edek_id}.',
       'HIT: the cached DEK bytes are used directly — the unwrap and re-cache steps below are skipped entirely, jumping straight to the final decrypt step. MISS: continue to the Managed HSM unwrap below.',
       '[MISS only] HSM Service calls Azure Managed HSM to unwrap the DEK, using its Service SPN (RSA-OAEP-256).',
@@ -506,6 +512,7 @@ const FLOWS = [
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'HSM Service' },
+      { id: 'plainid', label: 'PlainID' },
       { id: 'edek', label: 'EDEK Store' },
       { id: 'redis', label: 'Redis Cache' },
       { id: 'hsm', label: 'Azure Managed HSM' },
@@ -515,6 +522,8 @@ const FLOWS = [
       { from: 'service', to: 'edek', label: 'SELECT edek_record WHERE id = edek_id', stepNum: 13 },
       { from: 'edek', to: 'service', dashed: true, label: '{ edek_blob, kek_version, owner_app_id, data_class }', stepNum: 14 },
       { from: 'service', to: 'service', self: true, label: 'grant check: caller → owner? (governance SPN bypasses)', stepNum: 15 },
+      { from: 'service', to: 'plainid', label: '[optional] PBAC check (app_id + end_user_id + scope=decrypt) — Service\'s own identity', stepNum: '15b' },
+      { from: 'plainid', to: 'service', dashed: true, label: '[optional] PERMIT/DENY — DENY blocks before cache/unwrap/audit calls', stepNum: '15b' },
       { from: 'service', to: 'redis', label: 'GET {slot}:{kv_ver}:{edek_id} (current slot first, prev slot fallback)', stepNum: '15a' },
       { from: 'redis', to: 'service', dashed: true, label: 'HIT → cached DEK bytes (skip 16 & 17) / MISS → nil → unwrap below', stepNum: '15a' },
       { from: 'service', to: 'hsm', label: '[MISS only] unwrap DEK [Service SPN · RSA-OAEP-256]', stepNum: 16 },
@@ -529,12 +538,12 @@ const FLOWS = [
     title: '4. CEK Rotation Flow (every 4h or immediately on recovery — no pod restart)',
     color: '#eab308',
     steps: [
-      'CEK Rotation Svc generates a new 32-byte CEK and writes it to the inactive slot (e.g. cek-beta), using its Rotation SPN — write-only on KV Secrets.',
-      'Azure KV Secrets returns the new kv_version for the beta slot.',
-      'CEK Rotation Svc updates current_key → "beta" — only after the slot bytes are already written, never before.',
-      'HSM Service\'s 30s poll (Service SPN, read-only) detects current_key = "beta" and the new kv_version.',
-      'Azure KV Secrets returns the cek-beta bytes + kv_version to the HSM Service.',
-      'HSM Service calls rotate(new_cek, "beta", kv_version) — this promotes alpha:{old_ver} to the previous slot and installs beta:{new_ver} as current. New cache MISS entries are written as beta:{new_kv_ver}:{edek_id}; old alpha:{old_ver}:* entries simply expire via their 60s TTL — dual-read covers the ~30s convergence window while pods catch up. If the Rotation Svc itself is down at the 4h mark, pods hold their current CEK indefinitely with no errors, and rotation resumes immediately once it recovers.',
+      'CEK Rotation Svc generates a new 32-byte CEK and writes it to whichever slot is currently inactive — only alpha and beta ever exist, so this is always "the other one" from current_key (shown here as alpha active → writes cek-beta) — using its Rotation SPN, write-only on KV Secrets.',
+      'Azure KV Secrets returns the new kv_version for that slot.',
+      'CEK Rotation Svc updates current_key to a new combined "slot:version" string — "beta:{new_ver}" in this example — only after the slot bytes are already written, never before.',
+      'HSM Service\'s 30s poll (Service SPN, read-only) detects current_key\'s "slot:version" string has changed.',
+      'HSM Service parses the slot and version back out of that string, then fetches that exact cek-beta version\'s bytes from Azure KV Secrets.',
+      'HSM Service calls rotate(new_cek, slot, kv_version) — this promotes the previously-active slot to "previous" and installs the newly-written slot as current. Every rotation flips current_key to whichever of alpha/beta was NOT already active, so the next rotation after this one flips right back — alpha→beta→alpha→beta, alternating indefinitely, never a third slot. New cache MISS entries are written under the new slot\'s key; old-slot entries simply expire via their 60s TTL — dual-read covers the ~30s convergence window while pods catch up. If the Rotation Svc itself is down at the 4h mark, pods hold their current CEK indefinitely with no errors, and rotation resumes immediately once it recovers.',
     ],
     actors: [
       { id: 'cekrotationsvc', label: 'CEK Rotation Svc' },
@@ -542,12 +551,12 @@ const FLOWS = [
       { id: 'service', label: 'HSM Service' },
     ],
     messages: [
-      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'gen new 32-byte CEK · write inactive slot (cek-beta) [Rotation SPN]', stepNum: 'R1' },
-      { from: 'kvsecrets', to: 'cekrotationsvc', dashed: true, label: 'returns new kv_version for beta slot', stepNum: 'R2' },
-      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'update current_key → "beta" [Rotation SPN · AFTER slot bytes written]', stepNum: 'R3' },
-      { from: 'service', to: 'kvsecrets', dashed: true, label: 'poll detects current_key="beta" + new kv_version [Service SPN · 30s]', stepNum: 'R4' },
-      { from: 'kvsecrets', to: 'service', dashed: true, label: 'fetch cek-beta bytes + kv_version', stepNum: 'R5' },
-      { from: 'service', to: 'service', self: true, label: 'rotate(new_cek, "beta", kv_version) → promotes alpha→prev, installs beta→current', stepNum: 'R6' },
+      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'gen new 32-byte CEK · write to the inactive slot — alpha or beta, whichever isn\'t current [Rotation SPN]', stepNum: 'R1' },
+      { from: 'kvsecrets', to: 'cekrotationsvc', dashed: true, label: 'returns new kv_version for that slot', stepNum: 'R2' },
+      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'update current_key → "beta:{new_ver}" (slot:version combined) [Rotation SPN · AFTER slot bytes written]', stepNum: 'R3' },
+      { from: 'service', to: 'kvsecrets', dashed: true, label: 'poll detects current_key\'s "slot:version" string changed [Service SPN · 30s]', stepNum: 'R4' },
+      { from: 'kvsecrets', to: 'service', dashed: true, label: 'fetch cek-beta bytes at the version parsed from current_key', stepNum: 'R5' },
+      { from: 'service', to: 'service', self: true, label: 'rotate(new_cek, slot, kv_version) → flips current_key to the other of alpha/beta each time — alternates indefinitely, never a third slot', stepNum: 'R6' },
     ],
   },
   {
@@ -753,18 +762,20 @@ const OVERVIEW_MAIN_ROWS = [
   { from: 'client', to: 'plainid', label: '1. Policy check (JWT + logged-in user identity)', color: '#eab308' },
   { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#eab308' },
   { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — client\'s own JWT (direct)', color: '#a78bfa' },
-  { from: 'service', to: 'hsm', label: '4. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
-  { from: 'service', to: 'redis', label: '5. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
-  { from: 'service', to: 'edek', label: '6. persist / lookup edek_record', color: '#38bdf8' },
-  { from: 'service', to: 'client', label: '7. Result: ciphertext / plaintext', color: '#a78bfa' },
+  { from: 'service', to: 'plainid', label: '4. [optional] PBAC check — HSM Service\'s own identity', color: '#eab308' },
+  { from: 'plainid', to: 'service', label: '5. [optional] Permit / Deny decision', color: '#eab308', dashed: true },
+  { from: 'service', to: 'hsm', label: '6. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
+  { from: 'service', to: 'redis', label: '7. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
+  { from: 'service', to: 'edek', label: '8. persist / lookup edek_record', color: '#38bdf8' },
+  { from: 'service', to: 'client', label: '9. Result: ciphertext / plaintext', color: '#a78bfa' },
 ];
 const OVERVIEW_ROTATION_ROWS = [
-  { from: 'cekrotationsvc', to: 'kvsecrets', label: '8. write inactive slot, then flip current_key — Rotation SPN', color: '#eab308' },
-  { from: 'service', to: 'kvsecrets', label: '9. poll detects change (30s) → fetch + rotate() — Service SPN', color: '#eab308', dashed: true },
+  { from: 'cekrotationsvc', to: 'kvsecrets', label: '10. write inactive slot, then flip current_key — Rotation SPN', color: '#eab308' },
+  { from: 'service', to: 'kvsecrets', label: '11. poll detects change (30s) → fetch + rotate() — Service SPN', color: '#eab308', dashed: true },
 ];
 const OVERVIEW_AUDIT_ROWS = [
-  { from: 'auditor', to: 'kvsecrets', label: '10. read-only secrets (crosses subscription boundary)', color: '#f87171', dashed: true },
-  { from: 'auditor', to: 'edek', label: '11. read-only DB scan (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'kvsecrets', label: '12. read-only secrets (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'edek', label: '13. read-only DB scan (crosses subscription boundary)', color: '#f87171', dashed: true },
 ];
 
 // ── End-to-end overview — condensed macro-view across all 9 participants ────
