@@ -13,6 +13,19 @@ class Settings(BaseSettings):
     # fakes so the service (and its demo UI) can run with zero external deps.
     demo_mode: bool = False
 
+    # ── Temporary bypass flags ────────────────────────────────────────────────
+    # SKIP_AKV=true uses MockKEKClient (in-memory keys) but connects to real
+    # Postgres and validates real JWTs. Use only to test DB/auth/routing while
+    # AKV network access is being resolved. Never set true in production.
+    skip_akv: bool = False
+
+    # ── Azure identity ────────────────────────────────────────────────────────
+    # Only needed when the workload identity webhook does not inject these env vars.
+    # If AZURE_CLIENT_ID / AZURE_TENANT_ID are already injected, leave these empty.
+    # If both are absent, the code decodes client_id from the JWT token file itself.
+    azure_client_id: str = ""
+    azure_tenant_id: str = ""
+
     # ── Azure Key Vault — HSM (Managed HSM, wrap/unwrap only) ────────────────
     azure_keyvault_url: str = ""       # https://<name>.managedhsm.azure.net/
     azure_kek_name: str = "hsm-master-kek"

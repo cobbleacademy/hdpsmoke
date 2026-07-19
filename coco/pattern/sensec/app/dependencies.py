@@ -74,9 +74,16 @@ async def init_dependencies(settings: Settings) -> None:
 
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     _session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    _kek_client = KEKClient(settings)
     _jwt_validator = JWTValidator(settings)
     _app_registry = AppRegistry(_session_factory)
+
+    if settings.skip_akv:
+        from app.demo.mock_kek_client import MockKEKClient
+        _kek_client = MockKEKClient()
+        _log.warning("SKIP_AKV=true — using mock KEK client; encrypt/decrypt use in-memory keys, NOT production-safe")
+        return
+
+    _kek_client = KEKClient(settings)
 
     if settings.dek_cache_enabled and settings.redis_url:
         import base64
