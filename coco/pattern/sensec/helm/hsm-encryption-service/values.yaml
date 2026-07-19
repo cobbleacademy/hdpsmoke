@@ -157,7 +157,9 @@ networkPolicy:
 # `secrets` below) — never put a credential-shaped value here.
 config:
   demoMode: "false"
-  skipAkv: "false"   # true = mock KEK + real Postgres/JWT; temporary AKV bypass only
+  skipAkv: "false"      # true = mock KEK + real Postgres/JWT; temporary AKV bypass only
+  dbSslEnabled: "false" # true = connect to Postgres over SSL (required by most managed PG)
+  dbSslCaCert: ""       # path to CA cert; if corporateCa.enabled use /etc/ssl/corporate/ca.crt
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
