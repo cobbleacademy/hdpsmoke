@@ -66,9 +66,12 @@ class JWTValidator:
         # JWKS path — cache with TTL
         jwks = self._get_jwks()
         kid = header.get("kid")
+        alg = header.get("alg", "RS256")
         for key_data in jwks.get("keys", []):
             if key_data.get("kid") == kid:
-                return jwk.construct(key_data)
+                # Azure AD JWKS omits the "alg" field — supply it explicitly
+                # so python-jose can construct the key without guessing.
+                return jwk.construct(key_data, algorithm=alg)
         raise TokenValidationError(f"No matching key for kid={kid}")
 
     def _get_jwks(self) -> dict[str, Any]:
