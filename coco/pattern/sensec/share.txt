@@ -1,0 +1,35 @@
+kubectl exec -it <pod> -- python3 -c "
+import ssl, socket, json
+
+ctx = ssl.create_default_context()
+try:
+    with ctx.wrap_socket(socket.create_connection(('login.microsoftonline.com', 443), timeout=5), server_hostname='login.microsoftonline.com') as s:
+        cert = s.getpeercert()
+        print('CONNECTED OK')
+        print('Subject:', cert.get('subject'))
+        print('Issuer:', cert.get('issuer'))
+except Exception as e:
+    print('FAILED:', e)
+"
+
+If that fails with CERTIFICATE_VERIFY_FAILED, try without verification to confirm connectivity itself works:
+
+kubectl exec -it <pod> -- python3 -c "
+import ssl, socket
+
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+try:
+    with ctx.wrap_socket(socket.create_connection(('login.microsoftonline.com', 443), timeout=5), server_hostname='login.microsoftonline.com') as s:
+        cert = s.getpeercert(binary_form=False)
+        print('CONNECTED (no verify)')
+        print('Issuer:', s.getpeercert().get('issuer'))
+except Exception as e:
+    print('FAILED even without SSL verify:', e)
+"
+
+
+First succeeds → SSL is fine, something else is wrong
+First fails, second succeeds → proxy CA cert issue, issuer output shows which CA to trust
+Both fail → pure network/egress block, no route to login.microsoftonline.com at all
