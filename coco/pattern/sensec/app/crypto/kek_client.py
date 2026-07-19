@@ -9,9 +9,11 @@ no static credentials.
 from __future__ import annotations
 
 import asyncio
-from functools import lru_cache
+import base64
+import json
+import os
 
-from azure.identity.aio import DefaultAzureCredential
+from azure.identity.aio import DefaultAzureCredential, ManagedIdentityCredential, WorkloadIdentityCredential
 from azure.keyvault.keys.aio import KeyClient
 from azure.keyvault.keys.crypto.aio import CryptographyClient
 from azure.keyvault.keys.crypto import KeyWrapAlgorithm
@@ -23,11 +25,68 @@ from app.config import Settings
 # RSA-OAEP-SHA-256 is the FIPS-approved wrapping algorithm for RSA keys in AKV HSM
 _WRAP_ALGORITHM = KeyWrapAlgorithm.rsa_oaep_256
 
+_TOKEN_FILE = "/var/run/secrets/azure/tokens/azure-identity-token"
+
+
+def _decode_token_claims(token_file: str) -> dict:
+    """Decode the injected JWT payload without verifying signature."""
+    try:
+        payload = open(token_file).read().split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # fix padding
+        return json.loads(base64.b64decode(payload))
+    except Exception:
+        return {}
+
+
+def _build_credential(settings: Settings):
+    """
+    Build the Azure credential without requiring env var injection.
+
+    Resolution order for each parameter:
+      client_id  : config → AZURE_CLIENT_ID env → JWT appid/azp claim
+      tenant_id  : config → AZURE_TENANT_ID env → JWT tid claim
+      token_file : AZURE_FEDERATED_TOKEN_FILE env → well-known path
+
+    If all three resolve, uses WorkloadIdentityCredential directly.
+    Falls back to DefaultAzureCredential only when the token file is absent
+    (local dev / demo mode).
+    """
+    token_file = os.environ.get("AZURE_FEDERATED_TOKEN_FILE", _TOKEN_FILE)
+
+    claims = _decode_token_claims(token_file) if os.path.exists(token_file) else {}
+
+    client_id = (
+        settings.azure_client_id
+        or os.environ.get("AZURE_CLIENT_ID")
+        or claims.get("appid")
+        or claims.get("azp")
+    )
+    tenant_id = (
+        settings.azure_tenant_id
+        or os.environ.get("AZURE_TENANT_ID")
+        or claims.get("tid")
+    )
+
+    if client_id and tenant_id and os.path.exists(token_file):
+        return WorkloadIdentityCredential(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            token_file_path=token_file,
+        )
+
+    # No federated credential configured — fall back to node managed identity
+    # via IMDS (169.254.169.254). Requires the AKS node pool to have a
+    # user-assigned managed identity with Key Vault permissions.
+    if settings.azure_client_id:
+        return ManagedIdentityCredential(client_id=settings.azure_client_id)
+
+    return DefaultAzureCredential()
+
 
 class KEKClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._credential = DefaultAzureCredential()
+        self._credential = _build_credential(settings)
         self._key_client = KeyClient(
             vault_url=settings.azure_keyvault_url,
             credential=self._credential,
