@@ -33,3 +33,83 @@ except Exception as e:
 First succeeds → SSL is fine, something else is wrong
 First fails, second succeeds → proxy CA cert issue, issuer output shows which CA to trust
 Both fail → pure network/egress block, no route to login.microsoftonline.com at all
+
+------------------------------------------------------
+
+What gets mocked:
+
+Component	Mock behaviour
+Azure Key Vault (KEK wrap/unwrap)	In-memory random key, returns fake EDEK
+Postgres (EDEK store)	In-memory dict
+JWT validation	Accepts demo.jwt.token as a valid token
+Redis DEK cache	Skipped (not wired in demo mode)
+Test encrypt/decrypt end-to-end:
+
+# Encrypt
+curl -X POST http://<service>/api/sensec/hsm/v1/encrypt \
+  -H "Authorization: Bearer demo.jwt.token" \
+  -H "Content-Type: application/json" \
+  -d '{"plaintext": "hello", "app_id": "app-demo"}'
+
+# Take the edek_id from above response and decrypt
+curl -X POST http://<service>/api/sensec/hsm/v1/decrypt \
+  -H "Authorization: Bearer demo.jwt.token" \
+  -H "Content-Type: application/json" \
+  -d '{"edek_id": "<id-from-above>", "app_id": "app-demo"}'
+
+
+------------------------------------------------------
+
+No create_all is called in production mode. Tables must exist before the pod starts — the app will crash on first DB operation if they don't.
+
+You need to run DDL in advance. Let me check what tables are needed:
+
+
+Ran 2 commands
+3 tables must exist before the pod starts in production. Here is the DDL — run this against your Postgres database once:
+
+-- 1. EDEK Records — stores wrapped DEKs
+CREATE TYPE rotation_status AS ENUM ('current', 'pending', 'rotated');
+
+CREATE TABLE edek_records (
+    edek_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    app_id          VARCHAR(128)    NOT NULL,
+    edek_blob       TEXT            NOT NULL,
+    kek_version     VARCHAR(64)     NOT NULL,
+    algorithm       VARCHAR(32)     NOT NULL DEFAULT 'AES-256-GCM',
+    encoding        VARCHAR(16)     NOT NULL DEFAULT 'utf8',
+    data_classification VARCHAR(32) NULL,
+    rotation_status rotation_status NOT NULL DEFAULT 'current',
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    rotated_at      TIMESTAMPTZ     NULL
+);
+
+CREATE INDEX idx_edek_app_id           ON edek_records (app_id);
+CREATE INDEX idx_edek_rotation_status  ON edek_records (rotation_status);
+CREATE INDEX idx_edek_kek_version      ON edek_records (kek_version);
+CREATE INDEX idx_edek_classification   ON edek_records (data_classification);
+CREATE INDEX idx_edek_created_at       ON edek_records (created_at);
+
+-- 2. App Registrations — which apps can encrypt/decrypt
+CREATE TABLE app_registrations (
+    app_id          VARCHAR(128)    PRIMARY KEY,
+    allowed_scopes  VARCHAR(512)    NOT NULL,   -- comma-separated: encrypt,decrypt,rotate
+    description     VARCHAR(512)    NOT NULL DEFAULT '',
+    active          BOOLEAN         NOT NULL DEFAULT TRUE
+);
+
+-- 3. App Decrypt Grants — cross-app decrypt permissions
+CREATE TABLE app_decrypt_grants (
+    grantee_app_id  VARCHAR(128)    NOT NULL,
+    owner_app_id    VARCHAR(128)    NOT NULL,
+    PRIMARY KEY (grantee_app_id, owner_app_id)
+);
+
+-- Seed at least one app registration so the service can accept requests
+INSERT INTO app_registrations (app_id, allowed_scopes, description, active)
+VALUES ('your-app-id', 'encrypt,decrypt', 'Production app', TRUE);
+Important: the app_registrations table must have at least one row seeded before any API call works — without it every request fails with Unknown or inactive app_id. In demo mode this seeding happens automatically; in production you do it manually via the INSERT above or via the admin API after startup.
+
+------------------------------------------------------
+
+
