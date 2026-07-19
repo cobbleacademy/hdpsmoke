@@ -48,6 +48,14 @@ print('EDEKRecord:', EDEKRecord.__table__.fullname)
 print('AppRegistration:', AppRegistration.__table__.fullname)
 print('AppDecryptGrant:', AppDecryptGrant.__table__.fullname)
 "
+
+python3 -c "
+from app.models.edek_record import EDEKRecord
+from app.auth.app_registry import AppRegistration, AppDecryptGrant
+print('EDEKRecord:', EDEKRecord.__table__.fullname)
+print('AppRegistration:', AppRegistration.__table__.fullname)
+print('AppDecryptGrant:', AppDecryptGrant.__table__.fullname)
+"
 ------------------------------------------------------
 
 What gets mocked:
