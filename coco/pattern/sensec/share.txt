@@ -35,6 +35,12 @@ First fails, second succeeds → proxy CA cert issue, issuer output shows which 
 Both fail → pure network/egress block, no route to login.microsoftonline.com at all
 
 ------------------------------------------------------
+python3 -c "
+import urllib.parse
+password = 'your-actual-password-here'
+print(urllib.parse.quote(password, safe=''))
+"
+------------------------------------------------------
 
 What gets mocked:
 
