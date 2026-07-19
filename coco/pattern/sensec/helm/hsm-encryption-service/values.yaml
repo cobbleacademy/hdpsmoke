@@ -157,6 +157,7 @@ networkPolicy:
 # `secrets` below) — never put a credential-shaped value here.
 config:
   demoMode: "false"
+  skipAkv: "false"   # true = mock KEK + real Postgres/JWT; temporary AKV bypass only
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
@@ -167,6 +168,11 @@ config:
   # would fail immediately under this chart's security settings.
   demoDatabaseUrl: "sqlite+aiosqlite:////tmp/demo_hsm.db"
 
+  # Managed identity / app registration client ID.
+  # Set this when the workload identity webhook does not auto-inject AZURE_CLIENT_ID
+  # (i.e. the service account annotation is absent). If the webhook handles it, leave empty.
+  azureClientId: ""    # managed identity client ID; auto-read from token JWT if empty
+  azureTenantId: ""    # Azure AD tenant ID; read from AZURE_TENANT_ID env var if empty
   azureKeyVaultUrl: "https://<your-vault>.managedhsm.azure.net/"
   azureKekName: "hsm-master-kek"
   azureKekVersion: ""
@@ -276,6 +282,15 @@ pbacIntegration:
     # {action} is also available if you need it in the template.
     encrypt: "hsm:encrypt:{data_classification}"
     decrypt: "hsm:decrypt:{data_classification}"
+
+# ── Corporate proxy CA ────────────────────────────────────────────────────────
+# Set enabled: true when the cluster sits behind a proxy that does SSL
+# inspection. The CA cert must be pre-created as a ConfigMap:
+#   kubectl create configmap corporate-ca --from-file=ca.crt=corporate-ca.crt
+corporateCa:
+  enabled: false
+  configMapName: "corporate-ca"
+  certFile: "ca.crt"
 
 podAnnotations: {}
 podLabels: {}
