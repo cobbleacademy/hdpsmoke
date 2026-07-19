@@ -72,7 +72,17 @@ async def init_dependencies(settings: Settings) -> None:
         _app_registry = AppRegistry(_session_factory)
         return
 
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    import ssl as _ssl
+    _connect_args = {}
+    if settings.db_ssl_enabled:
+        _ssl_ctx = _ssl.create_default_context()
+        if settings.db_ssl_ca_cert:
+            _ssl_ctx.load_verify_locations(settings.db_ssl_ca_cert)
+        else:
+            _ssl_ctx.check_hostname = False
+            _ssl_ctx.verify_mode = _ssl.CERT_NONE
+        _connect_args["ssl"] = _ssl_ctx
+    engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_args=_connect_args)
     _session_factory = async_sessionmaker(engine, expire_on_commit=False)
     _jwt_validator = JWTValidator(settings)
     _app_registry = AppRegistry(_session_factory)

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = ""
     demo_database_url: str = "sqlite+aiosqlite:///./demo_hsm.db"   # demo_mode only
+    # SSL for asyncpg — sslmode= in the URL is not supported; pass ssl context via connect_args.
+    db_ssl_enabled: bool = False
+    db_ssl_ca_cert: str = ""   # path to CA cert file; empty = skip verify (not for production)
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_public_key_pem: str = ""
