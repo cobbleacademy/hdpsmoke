@@ -7,6 +7,7 @@ survive restarts. An in-process LRU cache keeps the hot path fast.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from sqlalchemy import String
@@ -21,6 +22,7 @@ class _Base(DeclarativeBase):
 
 class AppRegistration(_Base):
     __tablename__ = "app_registrations"
+    __table_args__ = {"schema": os.environ.get("DB_SCHEMA") or None}
 
     app_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     allowed_scopes: Mapped[str] = mapped_column(String(512))   # comma-separated
@@ -35,6 +37,7 @@ class AppDecryptGrant(_Base):
     itself — cross-app decrypt is denied by default.
     """
     __tablename__ = "app_decrypt_grants"
+    __table_args__ = {"schema": os.environ.get("DB_SCHEMA") or None}
 
     grantee_app_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     owner_app_id: Mapped[str] = mapped_column(String(128), primary_key=True)
