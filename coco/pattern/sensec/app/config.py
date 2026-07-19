@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # SSL for asyncpg — sslmode= in the URL is not supported; pass ssl context via connect_args.
     db_ssl_enabled: bool = False
     db_ssl_ca_cert: str = ""   # path to CA cert file; empty = skip verify (not for production)
+    db_schema: str = ""        # Postgres schema (search_path); empty = use default "public"
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_public_key_pem: str = ""
