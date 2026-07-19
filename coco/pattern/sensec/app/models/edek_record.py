@@ -31,7 +31,7 @@ class EDEKRecord(Base):
     encoding: Mapped[str] = mapped_column(String(16), nullable=False, default="utf8")
     data_classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
     rotation_status: Mapped[RotationStatus] = mapped_column(
-        Enum(RotationStatus, schema=os.environ.get("DB_SCHEMA") or None),
+        Enum(RotationStatus, name="rotation_status", schema=os.environ.get("DB_SCHEMA") or None),
         nullable=False,
         default=RotationStatus.current,
     )
