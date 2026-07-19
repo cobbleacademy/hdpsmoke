@@ -54,8 +54,12 @@ class JWTValidator:
         except JWTError as exc:
             raise TokenValidationError(str(exc)) from exc
 
+        # Accept Azure AD's built-in "appid" claim as equivalent to "app_id"
         if "app_id" not in claims:
-            raise TokenValidationError("Missing required claim: app_id")
+            if "appid" in claims:
+                claims["app_id"] = claims["appid"]
+            else:
+                raise TokenValidationError("Missing required claim: app_id or appid")
 
         return claims
 
