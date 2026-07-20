@@ -18,10 +18,9 @@ without a round trip. This table stores only the required four.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, String, Text, Uuid
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -39,12 +38,12 @@ class ConsumerAccount(ConsumerBase):
     customer_name: Mapped[str] = mapped_column(String(128), nullable=False)
     email: Mapped[str] = mapped_column(String(256), nullable=False)
 
-    # Sensitive — account_number itself is NEVER stored. Only the ciphertext
-    # and the minimum metadata required to ask this service to decrypt it.
-    edek_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
-    iv_b64: Mapped[str] = mapped_column(String(64), nullable=False)
-    ciphertext_b64: Mapped[str] = mapped_column(Text, nullable=False)
-    tag_b64: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Sensitive — account_number itself is NEVER stored.
+    # The entire encrypt response is packed into one opaque token: store it,
+    # echo it back to decrypt. No field juggling, no mix-up risk.
+    # Format: "v1.<base64url(version|edek_id|iv|tag|ciphertext)>"
+    # Size:   ~128 chars for short fields like account numbers.
+    ciphertext_token: Mapped[str] = mapped_column(String(512), nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
