@@ -50,6 +50,7 @@ function showResult(el, obj, isError = false) {
 }
 
 const FIELD_EXPLAINERS = {
+  ciphertext_token: "Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side",
   edek_id: "Reference to the wrapped data key, stored server-side — never the key itself",
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
   iv_b64: "Random per call — same plaintext never produces the same ciphertext twice",
@@ -92,10 +93,7 @@ async function encrypt() {
     const data = await res.json();
     if (!res.ok) { showResult($("encryptResult"), data, true); return; }
     showFieldBreakdown($("encryptResult"), data);
-    $("edekId").value = data.edek_id;
-    $("iv").value = data.iv_b64;
-    $("ciphertext").value = data.ciphertext_b64;
-    $("tag").value = data.tag_b64;
+    $("ciphertextToken").value = data.ciphertext_token;
   } catch (e) {
     showResult($("encryptResult"), String(e), true);
   } finally {
@@ -105,17 +103,25 @@ async function encrypt() {
   }
 }
 
+function _edekIdFromToken(token) {
+  try {
+    const b64 = token.slice(3).replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64);
+    const hex = Array.from(bin.slice(1, 17))
+      .map(c => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  } catch { return null; }
+}
+
 async function decrypt() {
   const btn = $("decryptBtn");
   btn.disabled = true;
-  const edekId = $("edekId").value;
+  const token = $("ciphertextToken").value.trim();
+  const edekId = token ? _edekIdFromToken(token) : null;
   const isHit = edekId ? _demoCacheLookup(edekId) : false;
   try {
     const body = {
-      edek_id: edekId,
-      iv_b64: $("iv").value,
-      ciphertext_b64: $("ciphertext").value,
-      tag_b64: $("tag").value,
+      ciphertext_token: token,
       end_user_id: $("decryptEndUserId").value || null,
     };
     const res = await fetch(`${API}/decrypt`, {
@@ -231,10 +237,7 @@ async function refreshConsumerAccounts() {
       <td>${a.id}</td>
       <td>${a.customer_name}</td>
       <td>${a.email}</td>
-      <td><code class="account-cell">${a.account_number_ciphertext_preview}</code></td>
-      <td><code>${a.edek_id.slice(0, 8)}…</code></td>
-      <td><code>${a.iv_b64}</code></td>
-      <td><code>${a.tag_b64}</code></td>
+      <td><code class="account-cell token-cell">${a.ciphertext_token}</code></td>
       <td><button class="reveal-btn" data-id="${a.id}">Reveal</button></td>
     </tr>`).join("");
   tbody.querySelectorAll(".reveal-btn").forEach(btn => {
