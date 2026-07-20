@@ -14,19 +14,41 @@ const HSM_BASE = '/api/sensec/hsm/v1';
 // far less brittle, non-coordinate-based diagram source).
 const USE_MERMAID_FLOWS = true;
 
-const ALL_SCOPES = ['encrypt', 'decrypt', 'rotate', 'grant', 'manage_apps'];
+const ALL_SCOPES = ['encrypt', 'decrypt', 'rotate', 'grant'];
 
-const ENCRYPT_FIELD_EXPLAINERS = {
-  edek_id:      'Reference to the wrapped data key — never the key itself',
+// Field explainers shared by both the Encrypt and Decrypt breakdown panels —
+// matches the master source's FIELD_EXPLAINERS in hsm_project/app/static/app.js.
+const FIELD_EXPLAINERS = {
+  ciphertext_token: 'Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side',
+  edek_id:      'Reference to the wrapped data key, stored server-side — never the key itself',
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
-  algorithm:    'Cipher used — persisted per-record for future algorithm migrations',
-  encoding:     'utf8 vs base64 — tells the caller how to interpret plaintext later',
+  algorithm:    'Cipher used — persisted per-record so future algorithm migrations stay decryptable',
+  encoding:     'utf8 vs base64 — tells the caller how to interpret plaintext on the way back out',
   iv_b64:       'Random per call — same plaintext never produces the same ciphertext twice',
+  ciphertext_b64: 'The encrypted data',
   tag_b64:      "GCM auth tag — proves ciphertext and owner_app_id weren't tampered with",
   kek_version:  'Which HSM master key version wrapped this record',
+  plaintext:    'The recovered original data',
+  decrypted_as: 'The app that made this decrypt call — may differ from owner_app_id if a grant exists',
+  cache:        'Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60s',
 };
 
-const ENCRYPT_FIELD_ORDER = ['edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'tag_b64', 'kek_version'];
+// ciphertext_token leads — it's the only field a caller actually needs to
+// store; the rest is a breakdown of what the token bundles internally.
+const ENCRYPT_FIELD_ORDER = ['ciphertext_token', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version'];
+
+// Decodes the edek_id back out of a ciphertext_token, purely for this demo's
+// client-side "simulated cache" panel — ports hsm_project's own
+// _edekIdFromToken() so the simulated hit/miss keying matches the real
+// token format (3-char version prefix + base64url; bytes 1-16 are the UUID).
+function edekIdFromToken(token) {
+  try {
+    const b64 = token.slice(3).replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64);
+    const hex = Array.from(bin.slice(1, 17)).map((c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  } catch { return null; }
+}
 
 // ── Fetch helper — attaches Authorization + X-App-ID when an app is given ────
 async function callApi(path, { method = 'GET', body, app } = {}) {
@@ -297,16 +319,16 @@ function ArchitectureDiagram() {
         <text x="220" y="670" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT / DECRYPT PAYLOAD FLOW</text>
         <text x="36" y="690" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
         <rect x="36" y="698" width="365" height="60" rx="4" fill="#22263a" />
-        <text x="50" y="712" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, encoding, data_classification, end_user_id, context {'}'}</text>
+        <text x="50" y="712" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, data_classification, end_user_id, context {'}'}</text>
         <text x="50" y="726" fill="#555b7a" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
         <text x="50" y="740" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="752" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
-        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} edek_id, owner_app_id, algorithm, iv, ciphertext, tag {'}'}</text>
+        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext_token {'}'}  ← only field client stores</text>
         <text x="36" y="792" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
         <rect x="36" y="800" width="365" height="54" rx="4" fill="#22263a" />
-        <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} edek_id, iv, ciphertext, tag, end_user_id {'}'}</text>
+        <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} ciphertext_token, end_user_id {'}'}</text>
         <text x="50" y="828" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup → grant check → Redis HIT (skip KV) / MISS → unwrap → decrypt</text>
-        <text x="50" y="842" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext, owner_app_id {'}'}  DEK zeroed immediately</text>
+        <text x="50" y="842" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext {'}'}  ← only field client needs  ·  DEK zeroed immediately</text>
 
         <rect x="36" y="856" width="365" height="68" rx="4" fill="#0a1f1e" stroke="#14b8a6" strokeWidth="1" />
         <text x="50" y="870" fill="#14b8a6" fontSize="9" fontFamily="monospace">CEK Rotation (alpha/beta · no restart):</text>
@@ -468,7 +490,7 @@ const FLOWS = [
       'HSM Service inserts an edek_record (edek_id, blob, owner_app_id, algorithm, …) into the EDEK Store.',
       'EDEK Store returns the new edek_id (UUID).',
       'HSM Service writes an audit_log entry to Splunk/SIEM (app_id, end_user_id, edek_id, status).',
-      'HSM Service returns { edek_id, owner_app_id, iv, ciphertext, tag } to the client.',
+      'HSM Service returns a single opaque { ciphertext_token } to the client — the only field the caller needs to store; it bundles the edek_id, IV, ciphertext, and tag internally.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -488,15 +510,15 @@ const FLOWS = [
       { from: 'service', to: 'edek', label: 'INSERT edek_record (edek_id, blob, owner_app_id, algorithm…)', stepNum: 8 },
       { from: 'edek', to: 'service', dashed: true, label: 'edek_id (UUID)', stepNum: 9 },
       { from: 'service', to: 'service', self: true, label: 'audit_log → Splunk/SIEM (app_id, end_user_id, edek_id, status)', stepNum: 10 },
-      { from: 'service', to: 'client', dashed: true, label: '{ edek_id, owner_app_id, iv, ciphertext, tag }', stepNum: 11 },
+      { from: 'service', to: 'client', dashed: true, label: '{ ciphertext_token } — only field client stores', stepNum: 11 },
     ],
   },
   {
     title: '3. Decrypt Flow',
     color: '#f87171',
     steps: [
-      'Client calls POST /decrypt directly, presenting { edek_id, iv, ciphertext, tag, end_user_id }.',
-      'HSM Service looks up the edek_record by edek_id in the EDEK Store.',
+      'Client calls POST /decrypt directly, presenting { ciphertext_token, end_user_id } — the single opaque token from /encrypt, passed back as-is and never decoded client-side.',
+      'HSM Service looks up the edek_record by edek_id (extracted server-side from the token) in the EDEK Store.',
       'EDEK Store returns { edek_blob, kek_version, owner_app_id, data_class }.',
       'HSM Service checks: does the caller match the owner, or hold a grant? A governance SPN bypasses this check.',
       'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT. A DENY here blocks the operation immediately — no cache lookup, no unwrap, no audit_log write.',
@@ -507,7 +529,7 @@ const FLOWS = [
       '[MISS only] HSM Service writes the DEK back into Redis, CEK-encrypted, with a 60s TTL: SET {slot}:{kv_ver}:{edek_id}.',
       'HSM Service AES-256-GCM decrypts the ciphertext and zeroes the DEK immediately.',
       'HSM Service writes an audit_log entry to Splunk/SIEM (app_id, end_user_id, edek_id, status).',
-      'HSM Service returns { plaintext, owner_app_id } to the client — the DEK is zeroed in memory.',
+      'HSM Service returns { plaintext } to the client — the only field the caller needs; the DEK is zeroed in memory.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -518,7 +540,7 @@ const FLOWS = [
       { id: 'hsm', label: 'Azure Managed HSM' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt { edek_id, iv, ciphertext, tag, end_user_id }', stepNum: 12 },
+      { from: 'client', to: 'service', label: 'POST /decrypt { ciphertext_token, end_user_id }', stepNum: 12 },
       { from: 'service', to: 'edek', label: 'SELECT edek_record WHERE id = edek_id', stepNum: 13 },
       { from: 'edek', to: 'service', dashed: true, label: '{ edek_blob, kek_version, owner_app_id, data_class }', stepNum: 14 },
       { from: 'service', to: 'service', self: true, label: 'grant check: caller → owner? (governance SPN bypasses)', stepNum: 15 },
@@ -531,7 +553,7 @@ const FLOWS = [
       { from: 'service', to: 'redis', label: '[MISS] SET {slot}:{kv_ver}:{edek_id} CEK-encrypted EX 60s', stepNum: '16a' },
       { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt · zero DEK immediately', stepNum: 18 },
       { from: 'service', to: 'service', self: true, label: 'audit_log → Splunk/SIEM (app_id, end_user_id, edek_id, status)', stepNum: 19 },
-      { from: 'service', to: 'client', dashed: true, label: '{ plaintext, owner_app_id } — DEK zeroed in memory', stepNum: 20 },
+      { from: 'service', to: 'client', dashed: true, label: '{ plaintext } — DEK zeroed in memory', stepNum: 20 },
     ],
   },
   {
@@ -767,7 +789,7 @@ const OVERVIEW_MAIN_ROWS = [
   { from: 'service', to: 'hsm', label: '6. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
   { from: 'service', to: 'redis', label: '7. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
   { from: 'service', to: 'edek', label: '8. persist / lookup edek_record', color: '#38bdf8' },
-  { from: 'service', to: 'client', label: '9. Result: ciphertext / plaintext', color: '#a78bfa' },
+  { from: 'service', to: 'client', label: '9. Result: ciphertext_token / plaintext', color: '#a78bfa' },
 ];
 const OVERVIEW_ROTATION_ROWS = [
   { from: 'cekrotationsvc', to: 'kvsecrets', label: '10. write inactive slot, then flip current_key — Rotation SPN', color: '#eab308' },
@@ -978,7 +1000,6 @@ export default function HsmDemo() {
 
   const selectedApp = apps.find((a) => a.app_id === selectedAppId) || null;
   const grantApp     = apps.find((a) => a.scopes?.includes('grant')) || null;
-  const manageApp    = apps.find((a) => a.scopes?.includes('manage_apps')) || null;
 
   // ── Panel 2: Encrypt ─────────────────────────────────────────────────────────
   const [plaintext, setPlaintext]       = useState('');
@@ -1001,17 +1022,12 @@ export default function HsmDemo() {
     const res = await callApi('/encrypt', {
       method: 'POST',
       app: selectedApp,
-      body: { plaintext, encoding: 'utf8', data_classification: dataClass || null, end_user_id: encryptEndUserId.trim() || undefined },
+      body: { plaintext, data_classification: dataClass || null, end_user_id: encryptEndUserId.trim() || undefined, context: { source: 'demo-ui' } },
     });
     setEncrypting(false);
     if (res.ok) {
       setEncryptResult(res.data);
-      setDecryptForm({
-        edekId:        res.data.edek_id,
-        ivB64:         res.data.iv_b64,
-        ciphertextB64: res.data.ciphertext_b64,
-        tagB64:        res.data.tag_b64,
-      });
+      setDecryptForm({ ciphertextToken: res.data.ciphertext_token || '' });
       setDecryptResult(null);
       setDecryptError(null);
       loadEdekRecords();
@@ -1021,7 +1037,9 @@ export default function HsmDemo() {
   }
 
   // ── Panel 3: Decrypt ─────────────────────────────────────────────────────────
-  const [decryptForm, setDecryptForm] = useState({ edekId: '', ivB64: '', ciphertextB64: '', tagB64: '' });
+  // A single opaque ciphertext_token replaces the old edek_id/iv/ciphertext/tag
+  // quadruplet — the caller stores just this one token and passes it back as-is.
+  const [decryptForm, setDecryptForm] = useState({ ciphertextToken: '' });
   const [decryptResult, setDecryptResult] = useState(null);
   const [decryptError, setDecryptError]   = useState(null);
   const [decrypting, setDecrypting]       = useState(false);
@@ -1032,7 +1050,9 @@ export default function HsmDemo() {
   // the service side. cacheSeen is purely a local record of which edek_ids
   // have already been decrypted once in THIS browser session, used to render
   // a "simulated" hit/miss badge that illustrates the caching behavior without
-  // claiming to reflect the real service's internal cache state.
+  // claiming to reflect the real service's internal cache state. edek_id is
+  // decoded from the token client-side (edekIdFromToken) since /decrypt no
+  // longer takes or returns it directly.
   const [cacheSeen, setCacheSeen] = useState({}); // edek_id -> decrypt count this session
 
   // Independent of encryptEndUserId — a decrypt is frequently performed on
@@ -1045,23 +1065,21 @@ export default function HsmDemo() {
     if (!selectedApp) return;
     setDecrypting(true);
     setDecryptError(null);
-    const edekId = decryptForm.edekId;
+    const token = decryptForm.ciphertextToken.trim();
+    const edekId = edekIdFromToken(token);
     const res = await callApi('/decrypt', {
       method: 'POST',
       app: selectedApp,
       body: {
-        edek_id:        edekId,
-        iv_b64:         decryptForm.ivB64,
-        ciphertext_b64: decryptForm.ciphertextB64,
-        tag_b64:        decryptForm.tagB64,
-        end_user_id:    decryptEndUserId.trim() || undefined,
+        ciphertext_token: token,
+        end_user_id:      decryptEndUserId.trim() || undefined,
       },
     });
     setDecrypting(false);
     if (res.ok) {
-      const simulatedHit = !!cacheSeen[edekId];
+      const simulatedHit = !!(edekId && cacheSeen[edekId]);
       setDecryptResult({ ...res.data, decrypted_as: selectedApp.app_id, end_user_id_sent: decryptEndUserId.trim() || null, cache_hit_simulated: simulatedHit });
-      setCacheSeen((prev) => ({ ...prev, [edekId]: (prev[edekId] || 0) + 1 }));
+      if (edekId) setCacheSeen((prev) => ({ ...prev, [edekId]: (prev[edekId] || 0) + 1 }));
     } else {
       setDecryptError(errMessage(res, 'Decrypt failed'));
     }
@@ -1139,28 +1157,6 @@ export default function HsmDemo() {
     loadGrants();
   }
 
-  // ── Bonus panel: block / restore apps (manage_apps scope) ──────────────────
-  const [appActive, setAppActive]           = useState({}); // app_id -> bool, locally tracked
-  const [appStatusBusy, setAppStatusBusy]   = useState(null);
-  const [appStatusError, setAppStatusError] = useState(null);
-
-  async function handleToggleAppStatus(appId, nextActive) {
-    if (!manageApp) return;
-    setAppStatusBusy(appId);
-    setAppStatusError(null);
-    // Same pattern as Grants — always acts as whichever app holds "manage_apps".
-    const res = await callApi('/admin/apps/status', {
-      method: 'POST',
-      app: manageApp,
-      body: { app_id: appId, active: nextActive },
-    });
-    setAppStatusBusy(null);
-    if (res.ok) {
-      setAppActive((prev) => ({ ...prev, [appId]: res.data.active }));
-    } else {
-      setAppStatusError(errMessage(res, 'Could not update app status'));
-    }
-  }
 
   // ── Panel 6: Latest EDEK records ────────────────────────────────────────────
   const [edekRecords, setEdekRecords] = useState([]);
@@ -1177,6 +1173,7 @@ export default function HsmDemo() {
   const [accountsError, setAccountsError]         = useState(null);
   const [creatingAccount, setCreatingAccount]     = useState(false);
   const [revealAsId, setRevealAsId]               = useState(null);
+  const [revealEndUserId, setRevealEndUserId]     = useState('');
   const [revealed, setRevealed]                   = useState({});
   const [revealErrors, setRevealErrors]           = useState({});
   const [revealBusyId, setRevealBusyId]           = useState(null);
@@ -1215,7 +1212,7 @@ export default function HsmDemo() {
     setRevealErrors((prev) => ({ ...prev, [id]: null }));
     const res = await callApi(`/demo/consumer/accounts/${id}/reveal`, {
       method: 'POST',
-      body: { reveal_as: revealAsId },
+      body: { reveal_as: revealAsId, end_user_id: revealEndUserId.trim() || undefined },
     });
     setRevealBusyId(null);
     if (res.ok) {
@@ -1328,24 +1325,20 @@ export default function HsmDemo() {
                 rows={ENCRYPT_FIELD_ORDER.map((key) => ({
                   label: key,
                   value: encryptResult[key] ?? '—',
-                  explainer: ENCRYPT_FIELD_EXPLAINERS[key],
+                  explainer: FIELD_EXPLAINERS[key],
                 }))}
               />
             )}
           </Panel>
 
           {/* Panel 3: Decrypt */}
-          <Panel title="3. Decrypt" sub="edek_id/iv/ciphertext/tag auto-filled from the Encrypt response above. End User ID is independent of the Encrypt panel's — a decrypt is often performed on behalf of a different end-user than the one who originally encrypted the data (see Cross-App Decrypt Grants below).">
-            <div style={s.formGrid}>
-              <input style={s.input} placeholder="edek_id" value={decryptForm.edekId}
-                onChange={(e) => setDecryptForm((f) => ({ ...f, edekId: e.target.value }))} />
-              <input style={s.input} placeholder="iv_b64" value={decryptForm.ivB64}
-                onChange={(e) => setDecryptForm((f) => ({ ...f, ivB64: e.target.value }))} />
-              <input style={s.input} placeholder="ciphertext_b64" value={decryptForm.ciphertextB64}
-                onChange={(e) => setDecryptForm((f) => ({ ...f, ciphertextB64: e.target.value }))} />
-              <input style={s.input} placeholder="tag_b64" value={decryptForm.tagB64}
-                onChange={(e) => setDecryptForm((f) => ({ ...f, tagB64: e.target.value }))} />
-            </div>
+          <Panel title="3. Decrypt" sub="ciphertext_token auto-filled from the Encrypt response above — a single opaque token, never decoded client-side. End User ID is independent of the Encrypt panel's — a decrypt is often performed on behalf of a different end-user than the one who originally encrypted the data (see Cross-App Decrypt Grants below).">
+            <textarea
+              style={s.textarea}
+              placeholder="ciphertext_token…  (auto-filled after Encrypt above)"
+              value={decryptForm.ciphertextToken}
+              onChange={(e) => setDecryptForm({ ciphertextToken: e.target.value })}
+            />
             <div style={s.formRow}>
               <label style={s.label}>End User ID</label>
               <input
@@ -1355,7 +1348,7 @@ export default function HsmDemo() {
                 onChange={(e) => setDecryptEndUserId(e.target.value)}
               />
             </div>
-            <button style={s.primaryBtn} onClick={handleDecrypt} disabled={decrypting || !decryptForm.edekId}>
+            <button style={s.primaryBtn} onClick={handleDecrypt} disabled={decrypting || !decryptForm.ciphertextToken.trim()}>
               {decrypting ? 'Decrypting…' : 'Decrypt'}
             </button>
             {decryptError && <div style={s.errorBanner}>{decryptError}</div>}
@@ -1473,42 +1466,6 @@ export default function HsmDemo() {
             )}
           </Panel>
 
-          {/* Bonus panel: block/restore apps — same pattern as Grants */}
-          <Panel title="App Access Control" sub="Always managed by whichever app holds the manage_apps scope. Blocking never affects existing grant checks.">
-            {!manageApp ? (
-              <p style={s.muted}>No demo app holds the "manage_apps" scope.</p>
-            ) : (
-              <>
-                {appStatusError && <div style={s.errorBanner}>{appStatusError}</div>}
-                <table style={s.table}>
-                  <thead>
-                    <tr><th style={s.th}>App</th><th style={s.th}>Status</th><th style={s.th}></th></tr>
-                  </thead>
-                  <tbody>
-                    {apps.map((a) => {
-                      const active = appActive[a.app_id] !== false;
-                      return (
-                        <tr key={a.app_id}>
-                          <td style={s.td}>{a.app_id}</td>
-                          <td style={s.td}>{active ? '🟢 active' : '🔴 blocked'}</td>
-                          <td style={s.td}>
-                            <button
-                              style={active ? s.dangerBtn : s.primaryBtnSmall}
-                              disabled={appStatusBusy === a.app_id}
-                              onClick={() => handleToggleAppStatus(a.app_id, !active)}
-                            >
-                              {appStatusBusy === a.app_id ? '…' : active ? 'Block' : 'Restore'}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </>
-            )}
-          </Panel>
-
           {/* Panel 6: Latest EDEK records */}
           <Panel title="6. Latest EDEK Records">
             <table style={s.table}>
@@ -1538,13 +1495,10 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 7: Consumer application table */}
-          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store.">
+          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext_token column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required.">
             <div style={s.legend}>
               <span>customer_name / email — <code>VARCHAR</code> (non-sensitive)</span>
-              <span>edek_id — <code>UUID</code></span>
-              <span>iv_b64 — <code>CHAR(16)</code> (always exactly 16 chars)</span>
-              <span>tag_b64 — <code>CHAR(24)</code> (always exactly 24 chars)</span>
-              <span>ciphertext_b64 — <code>TEXT</code> (unbounded — scales with plaintext)</span>
+              <span>ciphertext_token — <code>VARCHAR(512)</code> (single opaque token — bundles EDEK ID, IV, tag, and ciphertext)</span>
             </div>
 
             <div style={s.formGrid}>
@@ -1562,14 +1516,20 @@ export default function HsmDemo() {
               <select style={s.select} value={revealAsId || ''} onChange={(e) => setRevealAsId(e.target.value)}>
                 {apps.map((a) => <option key={a.app_id} value={a.app_id}>{a.app_id}</option>)}
               </select>
+              <label style={s.label}>End User ID</label>
+              <input
+                style={s.input}
+                placeholder="end_user_id (optional)"
+                value={revealEndUserId}
+                onChange={(e) => setRevealEndUserId(e.target.value)}
+              />
             </div>
 
             <table style={s.table}>
               <thead>
                 <tr>
                   <th style={s.th}>ID</th><th style={s.th}>Customer</th><th style={s.th}>Email</th>
-                  <th style={s.th}>Account Number</th><th style={s.th}>edek_id</th>
-                  <th style={s.th}>iv_b64</th><th style={s.th}>tag_b64</th><th style={s.th}></th>
+                  <th style={s.th}>ciphertext_token</th><th style={s.th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -1579,11 +1539,8 @@ export default function HsmDemo() {
                     <td style={s.td}>{acc.customer_name}</td>
                     <td style={s.td}>{acc.email}</td>
                     <td style={s.tdMono}>
-                      {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.account_number_ciphertext_preview, 18)}
+                      {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.ciphertext_token, 18)}
                     </td>
-                    <td style={s.tdMono}>{truncate(acc.edek_id, 12)}</td>
-                    <td style={s.tdMono}>{acc.iv_b64}</td>
-                    <td style={s.tdMono}>{acc.tag_b64}</td>
                     <td style={s.td}>
                       <button style={s.primaryBtnSmall} disabled={revealBusyId === acc.id} onClick={() => handleReveal(acc.id)}>
                         {revealBusyId === acc.id ? '…' : 'Reveal'}
