@@ -39,6 +39,10 @@ class EDEKRecord(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
     rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # First 8 bytes of SHA-256(iv || tag) encoded as 16 hex chars.
+    # Nullable so pre-existing records (written before this column existed) still decrypt.
+    # Lets pre-flight catch element mix-ups before AES-GCM even runs.
+    fingerprint: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     __table_args__ = (
         Index("idx_edek_app_id", "app_id"),
