@@ -6,7 +6,6 @@ without requiring a real SIEM connection.
 
 from __future__ import annotations
 
-import base64
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -127,15 +126,11 @@ async def create_consumer_account(
         session=session,
     )
 
-    # Exactly the four fields a DecryptRequest needs — nothing more, and
-    # critically, never the plaintext account_number itself.
+    # One token column — store and echo back, never decode client-side.
     record = ConsumerAccount(
         customer_name=body.customer_name,
         email=body.email,
-        edek_id=enc.edek_id,
-        iv_b64=enc.iv_b64,
-        ciphertext_b64=enc.ciphertext_b64,
-        tag_b64=enc.tag_b64,
+        ciphertext_token=enc.ciphertext_token,
     )
     session.add(record)
     await session.commit()
@@ -144,10 +139,7 @@ async def create_consumer_account(
         id=record.id,
         customer_name=record.customer_name,
         email=record.email,
-        account_number_ciphertext_preview=record.ciphertext_b64[:20] + "…",
-        edek_id=record.edek_id,
-        iv_b64=record.iv_b64,
-        tag_b64=record.tag_b64,
+        ciphertext_token=record.ciphertext_token,
         created_at=record.created_at.isoformat(),
     )
 
@@ -165,10 +157,7 @@ async def list_consumer_accounts(session: Annotated[AsyncSession, Depends(get_db
                 id=r.id,
                 customer_name=r.customer_name,
                 email=r.email,
-                account_number_ciphertext_preview=r.ciphertext_b64[:20] + "…",
-                edek_id=r.edek_id,
-                iv_b64=r.iv_b64,
-                tag_b64=r.tag_b64,
+                ciphertext_token=r.ciphertext_token,
                 created_at=r.created_at.isoformat() if r.created_at else "",
             )
             for r in rows
@@ -193,10 +182,7 @@ async def reveal_consumer_account(
     reveal_scopes = await app_registry.get_scopes(body.reveal_as)
     dec = await decryption_service.decrypt(
         request=DecryptRequest(
-            edek_id=record.edek_id,
-            iv_b64=record.iv_b64,
-            ciphertext_b64=record.ciphertext_b64,
-            tag_b64=record.tag_b64,
+            ciphertext_token=record.ciphertext_token,
             end_user_id=body.end_user_id,
         ),
         app_id=body.reveal_as,
