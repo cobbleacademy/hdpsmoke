@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit.logger import audit_log
 from app.auth.pbac_client import NullPBACClient, PBACClient
 from app.crypto import dek_manager
+from app.crypto.dek_manager import make_fingerprint, pack_token
 from app.crypto.kek_client import KEKClient
 from app.models.edek_record import EDEKRecord, RotationStatus
 from app.models.schemas import EncryptRequest, EncryptResponse
@@ -58,6 +59,7 @@ async def encrypt(
         encoding=request.encoding,
         data_classification=request.data_classification,
         rotation_status=RotationStatus.current,
+        fingerprint=make_fingerprint(result.iv, result.tag),
     )
     session.add(record)
     await session.commit()
@@ -76,12 +78,14 @@ async def encrypt(
     )
 
     return EncryptResponse(
+        ciphertext_token=pack_token(record.edek_id, result.iv, result.tag, result.ciphertext),
         edek_id=record.edek_id,
         owner_app_id=app_id,
         algorithm=dek_manager.ALGORITHM,
         encoding=request.encoding,
+        kek_version=kek_version,
+        # deprecated individual fields — kept for backward compatibility
         iv_b64=base64.b64encode(result.iv).decode(),
         ciphertext_b64=base64.b64encode(result.ciphertext).decode(),
         tag_b64=base64.b64encode(result.tag).decode(),
-        kek_version=kek_version,
     )

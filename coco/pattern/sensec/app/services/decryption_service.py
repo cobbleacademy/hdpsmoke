@@ -11,6 +11,7 @@ from app.auth.app_registry import AppRegistry
 from app.auth.pbac_client import NullPBACClient, PBACClient
 from app.crypto import dek_manager
 from app.crypto.dek_cache import DEKCache, NullDEKCache
+from app.crypto.dek_manager import IV_LENGTH, TAG_LENGTH, make_fingerprint, unpack_token
 from app.crypto.kek_client import KEKClient
 from app.models.edek_record import EDEKRecord
 from app.models.schemas import DecryptRequest, DecryptResponse
@@ -28,10 +29,29 @@ async def decrypt(
     dek_cache: DEKCache | NullDEKCache | None = None,
     pbac_client: PBACClient | NullPBACClient | None = None,
 ) -> DecryptResponse:
-    record: EDEKRecord | None = await session.get(EDEKRecord, request.edek_id)
+    # ── Resolve inputs: token path (preferred) or legacy individual fields ────
+    if request.ciphertext_token is not None:
+        try:
+            unpacked = unpack_token(request.ciphertext_token)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+        resolved_edek_id = unpacked.edek_id
+        resolved_iv  = unpacked.iv
+        resolved_tag = unpacked.tag
+        resolved_ct  = unpacked.ciphertext
+    else:
+        # Legacy path — all four fields are guaranteed present by schema validator
+        resolved_edek_id = request.edek_id          # type: ignore[assignment]
+        resolved_iv  = base64.b64decode(request.iv_b64)           # type: ignore[arg-type]
+        resolved_tag = base64.b64decode(request.tag_b64)          # type: ignore[arg-type]
+        resolved_ct  = base64.b64decode(request.ciphertext_b64)   # type: ignore[arg-type]
+
+    record: EDEKRecord | None = await session.get(EDEKRecord, resolved_edek_id)
+
+    edek_id_str = str(resolved_edek_id)
 
     if record is None:
-        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "edek_not_found",
+        _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip, "edek_not_found",
                     end_user_id=request.end_user_id)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "EDEK not found")
 
@@ -40,8 +60,7 @@ async def decrypt(
     # for audit purposes. All other callers must have an explicit grant.
     if "governance" not in caller_scopes:
         if not await app_registry.is_granted(grantee_app_id=app_id, owner_app_id=owner_app_id):
-            # Do not reveal whether the EDEK exists for a different app
-            _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
+            _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip,
                          "no_grant_for_owner", owner_app_id=owner_app_id, end_user_id=request.end_user_id)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
 
@@ -53,11 +72,51 @@ async def decrypt(
             context={"app_id": app_id, "owner_app_id": owner_app_id, "caller_ip": caller_ip},
         )
         if not permitted:
-            _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip,
+            _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip,
                         "pbac_denied", end_user_id=request.end_user_id)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied by policy")
 
-    edek_id_str = str(request.edek_id)
+    # ── Pre-flight: fixed-size parameter checks (legacy path only) ────────────
+    # Token path: iv/tag sizes are guaranteed by pack_token — no check needed.
+    # Legacy path: client-supplied base64 fields must be validated.
+    iv_bytes  = resolved_iv
+    tag_bytes = resolved_tag
+    ct_bytes  = resolved_ct
+
+    if request.ciphertext_token is None:
+        # Legacy path: validate sizes that pack_token guarantees structurally
+        if len(iv_bytes) != IV_LENGTH:
+            _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip,
+                        "invalid_iv_length", end_user_id=request.end_user_id)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"iv_b64 is invalid: decoded to {len(iv_bytes)} bytes, "
+                f"AES-GCM requires exactly {IV_LENGTH} bytes (96-bit nonce)",
+            )
+        if len(tag_bytes) != TAG_LENGTH:
+            _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip,
+                        "invalid_tag_length", end_user_id=request.end_user_id)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"tag_b64 is invalid: decoded to {len(tag_bytes)} bytes, "
+                f"AES-GCM requires exactly {TAG_LENGTH} bytes (128-bit tag)",
+            )
+
+    # ── Pre-flight: fingerprint cross-check ──────────────────────────────────
+    # Only runs when the record has a fingerprint (records written before this
+    # feature was added have fingerprint=None and skip this check).
+    if record.fingerprint is not None:
+        expected = make_fingerprint(iv_bytes, tag_bytes)
+        if expected != record.fingerprint:
+            _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip,
+                        "element_mismatch", end_user_id=request.end_user_id)
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "iv_b64, ciphertext_b64, or tag_b64 do not belong to this edek_id. "
+                "These fields must all come from the same encrypt response — "
+                "mixing elements across different responses is not permitted.",
+            )
+
     edek_bytes = base64.b64decode(record.edek_blob)
 
     cached_dek = await dek_cache.get(edek_id_str) if dek_cache else None
@@ -71,16 +130,19 @@ async def decrypt(
 
     try:
         plaintext = dek_manager.decrypt(
-            ciphertext=base64.b64decode(request.ciphertext_b64),
-            tag=base64.b64decode(request.tag_b64),
-            iv=base64.b64decode(request.iv_b64),
+            ciphertext=ct_bytes,
+            tag=tag_bytes,
+            iv=iv_bytes,
             dek=dek,
             app_id=owner_app_id,   # AAD must match what the owner used at encrypt time
         )
     except InvalidTag:
-        _audit_fail("decrypt", app_id, caller_sub, str(request.edek_id), caller_ip, "tag_verification_failed",
+        _audit_fail("decrypt", app_id, caller_sub, edek_id_str, caller_ip, "tag_verification_failed",
                     end_user_id=request.end_user_id)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Ciphertext authentication failed")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Ciphertext authentication failed: the data may be corrupt or tampered with",
+        )
     finally:
         dek_manager.zero_dek(dek)
 
@@ -90,7 +152,7 @@ async def decrypt(
         owner_app_id=owner_app_id,
         sub=caller_sub,
         end_user_id=request.end_user_id,
-        edek_id=str(request.edek_id),
+        edek_id=edek_id_str,
         kek_version=record.kek_version,
         caller_ip=caller_ip,
         status="success",
