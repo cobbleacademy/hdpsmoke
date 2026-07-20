@@ -57,7 +57,102 @@ print('AppRegistration:', AppRegistration.__table__.fullname)
 print('AppDecryptGrant:', AppDecryptGrant.__table__.fullname)
 "
 ------------------------------------------------------
+ENCRYPT call
+curl -s -X POST http://localhost:8000/api/sensec/hsm/v1/encrypt \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plaintext": "4111111111111111",
+    "encoding": "utf8",
+    "data_classification": "pci",
+    "end_user_id": "user-uuid-here"
+  }'
+Response (only field the client stores):
 
+{
+  "ciphertext_token": "v1.AQH...<base64url>"
+}
+DECRYPT call
+curl -s -X POST http://localhost:8000/api/sensec/hsm/v1/decrypt \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ciphertext_token": "v1.AQH...<base64url>",
+    "end_user_id": "user-uuid-here"
+  }'
+Response (only field the client needs):
+
+{
+  "plaintext": "4111111111111111"
+}
+
+------------------------------------------------------
+-- ── Prerequisites ────────────────────────────────────────────────────────────
+CREATE SCHEMA IF NOT EXISTS hsm;
+SET search_path = hsm;
+
+-- ── Enum ─────────────────────────────────────────────────────────────────────
+CREATE TYPE hsm.rotation_status AS ENUM ('current', 'pending', 'rotated');
+
+-- ── EDEK store (core HSM service) ────────────────────────────────────────────
+CREATE TABLE hsm.edek_records (
+    edek_id             UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+    app_id              VARCHAR(128)    NOT NULL,
+    edek_blob           TEXT            NOT NULL,          -- base64 RSA-wrapped DEK
+    kek_version         VARCHAR(64)     NOT NULL,
+    algorithm           VARCHAR(32)     NOT NULL DEFAULT 'AES-256-GCM',
+    encoding            VARCHAR(16)     NOT NULL DEFAULT 'utf8',
+    data_classification VARCHAR(32)     NULL,
+    rotation_status     hsm.rotation_status NOT NULL DEFAULT 'current',
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    rotated_at          TIMESTAMPTZ     NULL,
+    fingerprint         VARCHAR(16)     NULL       -- SHA-256(iv||tag)[0:8] as hex; NULL = pre-migration row, skip check
+);
+
+CREATE INDEX idx_edek_app_id          ON hsm.edek_records (app_id);
+CREATE INDEX idx_edek_rotation_status ON hsm.edek_records (rotation_status);
+CREATE INDEX idx_edek_kek_version     ON hsm.edek_records (kek_version);
+CREATE INDEX idx_edek_classification  ON hsm.edek_records (data_classification);
+CREATE INDEX idx_edek_created_at      ON hsm.edek_records (created_at);
+
+-- ── App registry ─────────────────────────────────────────────────────────────
+CREATE TABLE hsm.app_registrations (
+    app_id          VARCHAR(128)    PRIMARY KEY,
+    allowed_scopes  VARCHAR(512)    NOT NULL,   -- comma-separated: "encrypt,decrypt"
+    description     VARCHAR(512)    NOT NULL DEFAULT '',
+    active          BOOLEAN         NOT NULL DEFAULT TRUE
+);
+
+-- ── Cross-app decrypt grants (default-deny; own app always allowed) ───────────
+CREATE TABLE hsm.app_decrypt_grants (
+    grantee_app_id  VARCHAR(128)    NOT NULL,
+    owner_app_id    VARCHAR(128)    NOT NULL,
+    PRIMARY KEY (grantee_app_id, owner_app_id)
+);
+
+-- ── Alembic version tracking ──────────────────────────────────────────────────
+CREATE TABLE hsm.alembic_version (
+    version_num VARCHAR(32) NOT NULL PRIMARY KEY
+);
+INSERT INTO hsm.alembic_version (version_num) VALUES ('0002');
+
+-- ── CONSUMING APP schema (payments-svc example — lives in payments-svc DB) ────
+-- These tables are NOT in the HSM service database.
+-- Shown here so payments-svc knows what to run on their side.
+CREATE SCHEMA IF NOT EXISTS payments;
+
+CREATE TABLE payments.customer_accounts (
+    id               SERIAL          PRIMARY KEY,
+    customer_name    VARCHAR(128)    NOT NULL,
+    email            VARCHAR(256)    NOT NULL,
+    ciphertext_token VARCHAR(512)    NOT NULL,   -- opaque; store and echo back to POST /decrypt
+    created_at       TIMESTAMPTZ     NOT NULL DEFAULT now()
+);
+
+
+-------------------------------------------------------------------------
+PREVIOUS
+-------------------------------------------------------------------------
 What gets mocked:
 
 Component	Mock behaviour
@@ -80,7 +175,7 @@ curl -X POST http://<service>/api/sensec/hsm/v1/decrypt \
   -d '{"edek_id": "<id-from-above>", "app_id": "app-demo"}'
 
 
-------------------------------------------------------
+--------------------------------------------------------------------------------------------
 
 No create_all is called in production mode. Tables must exist before the pod starts — the app will crash on first DB operation if they don't.
 
