@@ -156,6 +156,11 @@ services:
       RANGER_GITHUB_BRANCH: ${RANGER_GITHUB_BRANCH:-main}
       RANGER_GITHUB_REGO_PATH: ${RANGER_GITHUB_REGO_PATH:-}
       RANGER_GITHUB_FETCH_MODE: ${RANGER_GITHUB_FETCH_MODE:-api}
+      # ── Token Vault (multi-set bearer token provisioning) ─────────────────────
+      # Reuses PAYLOAD_ENCRYPTION_KEY / PAYLOAD_WRITE_AUTH_ENABLED / PAYLOAD_ADMIN_TOKEN
+      # above — no new secrets. See docs/adr/0019-token-vault.md.
+      TOKEN_VAULT_ENVS: ${TOKEN_VAULT_ENVS:-DEV,NPE,PROD}
+      TOKEN_VAULT_STORAGE_PATH: /app/data/token-vault
       # ── Group Permission Evaluation ───────────────────────────────────────────
       # USE_LLM=true uses the shared OpenAI client (OPENAI_API_KEY/OPENAI_BASE_URL
       # above) for structured-output prompt parsing; false uses the regex parser.
