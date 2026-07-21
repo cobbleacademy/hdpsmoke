@@ -279,6 +279,12 @@ spec:
             # ── Pattern Templates ─────────────────────────────────────────────────
             - name: PATTERN_TEMPLATES_STORAGE_PATH
               value: {{ .Values.backend.env.PATTERN_TEMPLATES_STORAGE_PATH | default "/app/data/pattern-templates" | quote }}
+
+            # ── Token Vault ───────────────────────────────────────────────────────
+            - name: TOKEN_VAULT_ENVS
+              value: {{ .Values.backend.env.TOKEN_VAULT_ENVS | default "DEV,NPE,PROD" | quote }}
+            - name: TOKEN_VAULT_STORAGE_PATH
+              value: {{ .Values.backend.env.TOKEN_VAULT_STORAGE_PATH | default "/app/data/token-vault" | quote }}
             {{- if .Values.backend.env.RANGER_GITHUB_OWNER }}
             - name: RANGER_GITHUB_OWNER
               value: {{ .Values.backend.env.RANGER_GITHUB_OWNER | quote }}
