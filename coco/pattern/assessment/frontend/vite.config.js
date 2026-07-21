@@ -98,6 +98,18 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/pattern/assessment/token-vault-config': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/token-vault-manifest': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/api/pattern/assessment/token-vault-generate': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
       // ── Sensec HSM encryption service — LOCAL DEV ONLY ──────────────────────
       // In any real environment Istio routes /api/sensec/hsm/v1/* directly to
       // that service's own pod, independent of this app's /api/pattern/assessment
