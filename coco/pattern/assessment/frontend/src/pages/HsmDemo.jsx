@@ -200,7 +200,7 @@ function ArchitectureDiagram() {
         <line x1="390" y1="290" x2="440" y2="290" stroke="#f59e0b" strokeWidth="1.5" markerEnd="url(#arr-amber)" />
 
         {/* ── ENCRYPTION SERVICE ── */}
-        <rect x="440" y="180" width="200" height="290" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <rect x="440" y="180" width="200" height="300" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
         <text x="540" y="202" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
         <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
         <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
@@ -243,7 +243,7 @@ function ArchitectureDiagram() {
         <text x="785" y="270" textAnchor="middle" fill="#14b8a6" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS DEK CACHE</text>
         <text x="785" y="283" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Azure Cache for Redis · TLS</text>
         <rect x="705" y="290" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="305" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}</text>
+        <text x="785" y="305" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}</text>
         <rect x="705" y="318" width="160" height="22" rx="4" fill="#22263a" />
         <text x="785" y="333" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">value: CEK-encrypted DEK</text>
         <rect x="705" y="346" width="160" height="18" rx="3" fill="#1e3a2f" stroke="#14b8a6" strokeWidth="1" />
@@ -292,7 +292,7 @@ function ArchitectureDiagram() {
         <rect x="455" y="715" width="170" height="20" rx="4" fill="#22263a" />
         <text x="540" y="729" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">1. gen new 32-byte CEK → write slot</text>
         <rect x="455" y="741" width="170" height="20" rx="4" fill="#22263a" />
-        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">2. update current_key → "slot:version"</text>
+        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">2. update current_key → "slot:version"</text>
 
         {/* Rotation SPN write path — routed through the gap between the
             subscription boundary (right edge x=900) and the Auditor panel
@@ -300,7 +300,12 @@ function ArchitectureDiagram() {
             Rotation and Redis DEK Cache, which a literal port of the
             source diagram's own path would cross. */}
         <path d="M 640,700 L 920,700 L 920,200 L 880,200" fill="none" stroke="#eab308" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-yellow)" />
-        <text x="780" y="694" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
+        {/* Label sits below the path's horizontal segment (y=700), not
+            above it — GRANTS + ROTATION's box bottom edge is y=692, and a
+            label above the path (the usual convention elsewhere in this
+            diagram) would land inside that box's y-range and get painted
+            over, since GRANTS + ROTATION is drawn after this arrow. */}
+        <text x="780" y="714" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
 
         {/* ── GRANTS + ROTATION ── */}
         <rect x="690" y="582" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
@@ -327,13 +332,13 @@ function ArchitectureDiagram() {
         <text x="36" y="792" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
         <rect x="36" y="800" width="365" height="54" rx="4" fill="#22263a" />
         <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} ciphertext_token, end_user_id {'}'}</text>
-        <text x="50" y="828" fill="#555b7a" fontSize="9" fontFamily="monospace">Lookup → grant check → Redis HIT (skip KV) / MISS → unwrap → decrypt</text>
-        <text x="50" y="842" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext {'}'}  ← only field client needs  ·  DEK zeroed immediately</text>
+        <text x="50" y="828" fill="#555b7a" fontSize="9" fontFamily="monospace">grant check → Redis HIT (skip KV) / MISS → KV unwrap → AES-GCM</text>
+        <text x="50" y="842" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext {'}'}  ← only field client needs</text>
 
         <rect x="36" y="856" width="365" height="68" rx="4" fill="#0a1f1e" stroke="#14b8a6" strokeWidth="1" />
         <text x="50" y="870" fill="#14b8a6" fontSize="9" fontFamily="monospace">CEK Rotation (alpha/beta · no restart):</text>
-        <text x="50" y="883" fill="#555b7a" fontSize="8" fontFamily="monospace">Rotation SVC: gen bytes → write inactive slot → update current_key to "slot:version"</text>
-        <text x="50" y="895" fill="#555b7a" fontSize="8" fontFamily="monospace">Pods poll 30s: detect current_key's "slot:version" change → rotate(cek, slot, ver)</text>
+        <text x="50" y="883" fill="#555b7a" fontSize="8" fontFamily="monospace">Rotation SVC: gen bytes → write inactive slot → update current_key</text>
+        <text x="50" y="895" fill="#555b7a" fontSize="8" fontFamily="monospace">Pods poll 30s: detect slot or kv_version change → rotate(cek, slot, ver)</text>
         <text x="50" y="907" fill="#555b7a" fontSize="8" fontFamily="monospace">Redis key: {'{'}slot{'}'}:{'{'}kv_ver{'}'}:{'{'}edek_id{'}'} · prev slot readable via fallback</text>
         <text x="50" y="919" fill="#555b7a" fontSize="8" fontFamily="monospace">Old {'{'}slot{'}'}:{'{'}old_ver{'}'}:* entries expire via 60s TTL — no flush needed</text>
 
