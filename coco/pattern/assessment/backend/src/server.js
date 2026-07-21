@@ -7,6 +7,7 @@ const rangerRoutes        = require('./routes/ranger');
 const identityAuditRoutes = require('./routes/identityAudit');
 const governanceLifecycleRoutes = require('./routes/governanceLifecycle');
 const patternTemplatesRoutes = require('./routes/patternTemplates');
+const tokenVaultRoutes    = require('./routes/tokenVault');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,7 @@ app.use('/api/pattern/assessment', rangerRoutes);
 app.use('/api/pattern/assessment', identityAuditRoutes);
 app.use('/api/pattern/assessment', governanceLifecycleRoutes);
 app.use('/api/pattern/assessment', patternTemplatesRoutes);
+app.use('/api/pattern/assessment', tokenVaultRoutes);
 
 // Access Control (end-user app) — same identityAuditRoutes router mounted a
 // second time at a distinct root. Not a copy: Express dispatches the exact
