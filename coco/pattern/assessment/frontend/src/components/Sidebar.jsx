@@ -86,6 +86,13 @@ const NAV_ITEMS = [
     description: 'Mermaid diagram library',
     alwaysOn: true,
   },
+  {
+    id: 'tokenVault',
+    label: 'Token Vault',
+    icon: '🔑',
+    description: 'Multi-set bearer token provisioning',
+    alwaysOn: true,
+  },
 ];
 
 const THEMES = [
