@@ -211,6 +211,10 @@ backend:
     MAIN_APP_SHOW_IDENTITY_AUDIT: "false"
     # ── Pattern Templates — runtime-editable Mermaid diagram library ─────────
     PATTERN_TEMPLATES_STORAGE_PATH: "/app/data/pattern-templates"
+    # ── Token Vault — multi-set bearer token provisioning (Entra ID, ForgeRock,
+    # or any OAuth2 client-credentials vendor) ────────────────────────────────
+    TOKEN_VAULT_ENVS: "DEV,NPE,PROD"      # tab strip; "" = single Default env
+    TOKEN_VAULT_STORAGE_PATH: "/app/data/token-vault"
     RANGER_GITHUB_OWNER: ""
     RANGER_GITHUB_REPO: ""
     RANGER_GITHUB_REGO_PATH: ""
@@ -294,6 +298,7 @@ backend:
 #   - /app/data/ranger-policies/      (Ranger Library, encrypted)
 #   - /app/data/governance-lifecycle/ (Governance Lifecycle, plain)
 #   - /app/data/pattern-templates/    (Pattern Templates — Mermaid text or raw SVG, plain)
+#   - /app/data/token-vault/          (Token Vault, encrypted)
 # PATTERN_TEMPLATES_STORAGE_PATH (backend.env, below) already defaults to
 # /app/data/pattern-templates — enabling dataStorage here is the only step
 # needed for Pattern Templates content to survive pod restarts/reschedules;
