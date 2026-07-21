@@ -13,6 +13,7 @@ import GroupPermissionChecker from './pages/GroupPermissionChecker';
 import IdentityAudit from './pages/IdentityAudit';
 import GovernanceLifecycle from './pages/GovernanceLifecycle';
 import PatternTemplates from './pages/PatternTemplates';
+import TokenVault from './pages/TokenVault';
 
 // Detect mobile on mount and re-check on resize
 function useIsMobile() {
@@ -44,6 +45,7 @@ const VIEW_PATHS = {
   identityAudit:   `${APP_BASE}/identity-audit`,
   governanceLifecycle: `${APP_BASE}/governance-lifecycle`,
   patternTemplates: `${APP_BASE}/pattern-templates`,
+  tokenVault:       `${APP_BASE}/token-vault`,
 };
 
 const PATH_TO_VIEW = Object.fromEntries(
@@ -386,6 +388,9 @@ export default function App() {
 
         {/* ── Pattern Templates view ── */}
         {currentView === 'patternTemplates' && <PatternTemplates />}
+
+        {/* ── Token Vault view ── */}
+        {currentView === 'tokenVault' && <TokenVault />}
       </main>
     </div>
   );
