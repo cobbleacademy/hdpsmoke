@@ -54,8 +54,13 @@ ingress:
     secretName: pattern-prod-tls
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Must be >= frontend nginx's own ranger-generate timeout (300s, see
+    # frontend/nginx.conf's `^~ /api/pattern/assessment/ranger-` block) —
+    # the Ingress sits in front of nginx, so if its timeout is shorter it
+    # aborts the connection first and returns a bare 504 with no body,
+    # regardless of how generous nginx's own timeout is set.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 
 secrets:
   provider: azure-keyvault             # Key Vault CSI driver on production

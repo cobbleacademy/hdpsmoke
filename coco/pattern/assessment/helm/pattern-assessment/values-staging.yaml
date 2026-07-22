@@ -33,6 +33,11 @@ ingress:
     secretName: pattern-staging-tls
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
+    # See values-prod.yaml for why this must be >= frontend nginx's 300s
+    # ranger-generate timeout — without it, the nginx-ingress-controller's
+    # own 60s default silently overrides nginx's more generous setting.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 
 dataStorage:
   enabled: true
