@@ -76,6 +76,10 @@ spec:
             - name: LLM_{{ $env }}_OPENAI_MAX_TOKENS_PARAM
               value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_MAX_TOKENS_PARAM" $env) | quote }}
             {{- end }}
+            {{- if index $.Values.backend.env (printf "LLM_%s_OPENAI_REASONING_EFFORT" $env) }}
+            - name: LLM_{{ $env }}_OPENAI_REASONING_EFFORT
+              value: {{ index $.Values.backend.env (printf "LLM_%s_OPENAI_REASONING_EFFORT" $env) | quote }}
+            {{- end }}
             {{- end }}
 
             {{- if .Values.backend.env.NODE_EXTRA_CA_CERTS }}
