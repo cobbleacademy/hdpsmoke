@@ -82,8 +82,9 @@ async def init_dependencies(settings: Settings) -> None:
             _ssl_ctx.check_hostname = False
             _ssl_ctx.verify_mode = _ssl.CERT_NONE
         _connect_args["ssl"] = _ssl_ctx
-    if settings.db_schema:
-        _connect_args["server_settings"] = {"search_path": settings.db_schema}
+    _schemas = ",".join(s for s in [settings.crypto_schema, settings.access_schema] if s)
+    if _schemas:
+        _connect_args["server_settings"] = {"search_path": _schemas}
     engine = create_async_engine(settings.database_url, pool_pre_ping=True, connect_args=_connect_args)
     _session_factory = async_sessionmaker(engine, expire_on_commit=False)
     _jwt_validator = JWTValidator(settings)
