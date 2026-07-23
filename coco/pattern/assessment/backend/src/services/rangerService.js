@@ -125,6 +125,20 @@ hbase: read, write, create, admin
 - dataMaskPolicyItems must include dataMaskInfo.dataMaskType (e.g. "MASK", "MASK_NULL", "CUSTOM"); if
   dataMaskType is "CUSTOM", dataMaskInfo.valueExpr must be a valid SQL expression (e.g. a SQL CASE
   statement or masking function call), NEVER Rego syntax — same translation rule as filterExpr above.
+- NEVER put group/user membership checks inside filterExpr or valueExpr (e.g. never write something
+  like "'analysts-east' IN input.groups" or "'x' IN groups" into the SQL string — that is Rego logic
+  leaking into SQL text, and it is not valid SQL either way). Group/user scoping belongs ONLY in that
+  policy item's own "groups"/"users" array, exactly like denyPolicyItems already does elsewhere in
+  this same schema. If the Rego's row-filter or column-mask condition differs by group (e.g. one
+  filter for "analysts-east", a different filter for "analysts-west"), emit ONE separate
+  rowFilterPolicyItems/dataMaskPolicyItems array entry PER group — each with its own
+  "groups": ["that-group"] and a filterExpr/valueExpr containing ONLY the plain SQL condition for
+  that group, with no group-membership logic inside the SQL string at all. Every policy item in the
+  output — policyItems, denyPolicyItems, rowFilterPolicyItems, and dataMaskPolicyItems alike — must
+  specify at least one of "groups" or "users"; never emit an item with neither.
+- Every policyItems/denyPolicyItems/rowFilterPolicyItems/dataMaskPolicyItems entry must ALSO include
+  its own "accesses": [{ "type": "<access-type>", "isAllowed": true }] — e.g. "select" for a hive
+  row-filter or column-mask read — never omit "accesses" on any item, even a row-filter or mask item.
 - "service" value should follow the pattern "<serviceType>_<env>" (e.g. "hive_dev") — infer env from package name or default to "dev".
 ${extraHint ? `\n── ADDITIONAL INSTRUCTIONS ──────────────────────────────────────────────────────\n${extraHint}\n` : ''}
 ── OPA REGO INPUT ───────────────────────────────────────────────────────────────
