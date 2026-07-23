@@ -117,8 +117,14 @@ hbase: read, write, create, admin
 - Output valid JSON ONLY. No explanation, no markdown fences, no prose outside the JSON.
 - Use the actual group/user/resource values from the Rego — do not invent placeholders.
 - Groups appearing with "not X in input.groups" are DENIED — put them in denyPolicyItems, not policyItems.
-- rowFilterPolicyItems must include rowFilterInfo.filterExpr with the row condition expression.
-- dataMaskPolicyItems must include dataMaskInfo.dataMaskType (e.g. "MASK", "MASK_NULL", "CUSTOM").
+- rowFilterPolicyItems must include rowFilterInfo.filterExpr — this is evaluated by the underlying
+  engine (Hive/Spark SQL) as a literal SQL boolean expression appended to the query's WHERE clause.
+  It must be valid SQL referencing actual column names (e.g. "region = 'US'" or "region IN ('US','CA')"),
+  NEVER Rego syntax, Rego function calls, or references like "input.row[...]" — translate the Rego
+  condition's MEANING into SQL, do not copy Rego expressions verbatim.
+- dataMaskPolicyItems must include dataMaskInfo.dataMaskType (e.g. "MASK", "MASK_NULL", "CUSTOM"); if
+  dataMaskType is "CUSTOM", dataMaskInfo.valueExpr must be a valid SQL expression (e.g. a SQL CASE
+  statement or masking function call), NEVER Rego syntax — same translation rule as filterExpr above.
 - "service" value should follow the pattern "<serviceType>_<env>" (e.g. "hive_dev") — infer env from package name or default to "dev".
 ${extraHint ? `\n── ADDITIONAL INSTRUCTIONS ──────────────────────────────────────────────────────\n${extraHint}\n` : ''}
 ── OPA REGO INPUT ───────────────────────────────────────────────────────────────
