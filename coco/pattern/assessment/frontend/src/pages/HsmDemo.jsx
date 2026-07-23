@@ -139,7 +139,7 @@ function ArchitectureDiagram() {
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 1320 960" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Encryption Service Architecture — replicated from hsm_project/app/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Encryption Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets and the EDEK Store directly with read-only access — it never routes through the Encryption Service.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Encryption Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Encryption Service.</desc>
 
         <rect width="1320" height="960" fill="#0f1117" />
 
@@ -227,7 +227,7 @@ function ArchitectureDiagram() {
         <text x="785" y="197" textAnchor="middle" fill="#14b8a6" fontSize="9" letterSpacing="1" fontFamily="monospace">AZURE KV SECRETS</text>
         <text x="785" y="210" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">vault.azure.net · Secrets API</text>
         <text x="785" y="222" textAnchor="middle" fill="#14b8a6" fontSize="7" fontFamily="monospace">cek-alpha · cek-beta (CEK bytes)</text>
-        <text x="785" y="234" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">current_key → "alpha:12" | "beta:7"</text>
+        <text x="785" y="234" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">current_key → "alpha" | "beta"</text>
         <text x="785" y="240" textAnchor="middle" fill="#555b7a" fontSize="6" fontFamily="monospace">Service SPN: read · Rotation SPN: write</text>
         <line x1="640" y1="210" x2="690" y2="210" stroke="#14b8a6" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-teal)" />
         <text x="665" y="205" textAnchor="middle" fill="#14b8a6" fontSize="7" fontFamily="monospace">read · 30s poll</text>
@@ -271,7 +271,7 @@ function ArchitectureDiagram() {
         {/* ── EDEK STORE ── */}
         <rect x="440" y="510" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
         <text x="540" y="532" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
-        <text x="540" y="546" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">PostgreSQL</text>
+        <text x="540" y="546" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">schema: hsm_crypto · PostgreSQL</text>
         <rect x="455" y="554" width="170" height="22" rx="4" fill="#22263a" />
         <text x="540" y="569" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
         <rect x="455" y="582" width="170" height="22" rx="4" fill="#22263a" />
@@ -286,38 +286,35 @@ function ArchitectureDiagram() {
             diagram. ── */}
         <rect x="440" y="650" width="200" height="116" rx="8" fill="#1a1d27" stroke="#eab308" strokeWidth="1.5" strokeDasharray="5,3" />
         <text x="540" y="669" textAnchor="middle" fill="#eab308" fontSize="10" letterSpacing="1" fontFamily="monospace">CEK ROTATION SVC</text>
-        <text x="540" y="682" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Separate K8S service · Rotation SPN</text>
+        <text x="540" y="682" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Separate K8S service · HSM Service SPN</text>
         <rect x="455" y="689" width="170" height="20" rx="4" fill="#22263a" stroke="#eab308" strokeWidth="1" />
         <text x="540" y="703" textAnchor="middle" fill="#eab308" fontSize="8" fontFamily="monospace">every 4h · immediate on recovery</text>
         <rect x="455" y="715" width="170" height="20" rx="4" fill="#22263a" />
         <text x="540" y="729" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">1. gen new 32-byte CEK → write slot</text>
         <rect x="455" y="741" width="170" height="20" rx="4" fill="#22263a" />
-        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="7" fontFamily="monospace">2. update current_key → "slot:version"</text>
+        <text x="540" y="755" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">2. update current_key pointer</text>
 
-        {/* Rotation SPN write path — routed through the gap between the
-            subscription boundary (right edge x=900) and the Auditor panel
-            (left edge x=960) rather than straight up through Grants +
-            Rotation and Redis DEK Cache, which a literal port of the
-            source diagram's own path would cross. */}
-        <path d="M 640,700 L 920,700 L 920,200 L 880,200" fill="none" stroke="#eab308" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-yellow)" />
-        {/* Label sits below the path's horizontal segment (y=700), not
-            above it — GRANTS + ROTATION's box bottom edge is y=692, and a
-            label above the path (the usual convention elsewhere in this
-            diagram) would land inside that box's y-range and get painted
-            over, since GRANTS + ROTATION is drawn after this arrow. */}
-        <text x="780" y="714" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
+        {/* Rotation SPN write path — mirrors master's own route exactly:
+            straight up the gap between ACCESS STORE (right edge x=880) and
+            the Auditor panel (left edge x=960), clearing ACCESS STORE's
+            taller bottom edge (y=702). */}
+        <path d="M 640,700 L 640,718 L 888,718 L 888,212 L 880,212" fill="none" stroke="#eab308" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-yellow)" />
+        <text x="764" y="730" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
 
-        {/* ── GRANTS + ROTATION ── */}
-        <rect x="690" y="582" width="190" height="110" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
-        <text x="785" y="602" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">GRANTS + ROTATION</text>
-        <rect x="705" y="610" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="625" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">grantee → owner pairs</text>
-        <rect x="705" y="638" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="653" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">default-deny, audited</text>
-        <rect x="705" y="666" width="160" height="20" rx="4" fill="#22263a" />
-        <text x="785" y="680" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">monthly KEK re-wrap job</text>
-        <line x1="785" y1="582" x2="785" y2="576" stroke="#fb923c" strokeWidth="1.5" markerEnd="url(#arr-orange)" />
-        <line x1="690" y1="637" x2="640" y2="569" stroke="#fb923c" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-orange)" />
+        {/* ── ACCESS STORE (hsm_access schema) — replaces the earlier
+            "Grants + Rotation" box; master now documents the actual
+            underlying tables. ── */}
+        <rect x="690" y="582" width="190" height="120" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
+        <text x="785" y="600" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">ACCESS STORE</text>
+        <text x="785" y="613" textAnchor="middle" fill="#fb923c" fontSize="7" fontFamily="monospace">schema: hsm_access · Managed Access team</text>
+        <rect x="705" y="619" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="632" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_registrations</text>
+        <text x="785" y="643" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">app_id · allowed_scopes · active</text>
+        <rect x="705" y="649" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="662" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_decrypt_grants</text>
+        <text x="785" y="673" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">grantee → owner pairs · default-deny</text>
+        <rect x="705" y="677" width="160" height="14" rx="3" fill="#22263a" />
+        <text x="785" y="688" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">HSM SPN: grant check (decrypt path)</text>
 
         {/* ── ENCRYPT / DECRYPT PAYLOAD FLOW ── */}
         <rect x="20" y="650" width="400" height="280" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
@@ -354,7 +351,8 @@ function ArchitectureDiagram() {
         <text x="1130" y="114" textAnchor="middle" fill="#f87171" fontSize="9" fontFamily="monospace">Azure KV: list / get keys (read-only)</text>
         <text x="1130" y="128" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">no wrap · no unwrap RBAC</text>
         <rect x="990" y="136" width="280" height="24" rx="4" fill="#22263a" />
-        <text x="1130" y="152" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">DB: read edek_records (read-only role)</text>
+        <text x="1130" y="148" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">hsm_crypto: read edek_records</text>
+        <text x="1130" y="160" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">hsm_access: read grants + registrations</text>
         <rect x="990" y="168" width="280" height="24" rx="4" fill="#22263a" />
         <text x="1130" y="184" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Bypasses HSM service entirely</text>
         <rect x="990" y="200" width="280" height="20" rx="3" fill="#3a1a1a" stroke="#ef4444" strokeWidth="1" />
@@ -365,8 +363,10 @@ function ArchitectureDiagram() {
 
         <line x1="975" y1="200" x2="900" y2="453" stroke="#f87171" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
         <text x="948" y="320" fill="#f87171" fontSize="7" fontFamily="monospace" transform="rotate(-70 948 320)">read-only access across boundary</text>
-        <line x1="975" y1="220" x2="642" y2="558" stroke="#f87171" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
-        <text x="830" y="380" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace">read edek_records</text>
+        <line x1="975" y1="220" x2="642" y2="568" stroke="#f87171" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="820" y="375" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace">read-only · hsm_crypto</text>
+        <line x1="975" y1="240" x2="882" y2="568" stroke="#f87171" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
+        <text x="940" y="430" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace">read-only · hsm_access</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
@@ -525,7 +525,8 @@ const FLOWS = [
       'Client calls POST /decrypt directly, presenting { ciphertext_token, end_user_id } — the single opaque token from /encrypt, passed back as-is and never decoded client-side.',
       'HSM Service looks up the edek_record by edek_id (extracted server-side from the token) in the EDEK Store.',
       'EDEK Store returns { edek_blob, kek_version, owner_app_id, data_class }.',
-      'HSM Service checks: does the caller match the owner, or hold a grant? A governance SPN bypasses this check.',
+      'HSM Service asks the Access Store (schema hsm_access, table app_decrypt_grants): does the caller match the owner, or hold a grant?',
+      'Access Store returns granted or denied.',
       'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT. A DENY here blocks the operation immediately — no cache lookup, no unwrap, no audit_log write.',
       'HSM Service checks Redis for the current slot\'s cached DEK first, falling back to the previous slot: GET {slot}:{kv_ver}:{edek_id}.',
       'HIT: the cached DEK bytes are used directly — the unwrap and re-cache steps below are skipped entirely, jumping straight to the final decrypt step. MISS: continue to the Managed HSM unwrap below.',
@@ -541,6 +542,7 @@ const FLOWS = [
       { id: 'service', label: 'HSM Service' },
       { id: 'plainid', label: 'PlainID' },
       { id: 'edek', label: 'EDEK Store' },
+      { id: 'accessstore', label: 'Access Store' },
       { id: 'redis', label: 'Redis Cache' },
       { id: 'hsm', label: 'Azure Managed HSM' },
     ],
@@ -548,7 +550,8 @@ const FLOWS = [
       { from: 'client', to: 'service', label: 'POST /decrypt { ciphertext_token, end_user_id }', stepNum: 12 },
       { from: 'service', to: 'edek', label: 'SELECT edek_record WHERE id = edek_id', stepNum: 13 },
       { from: 'edek', to: 'service', dashed: true, label: '{ edek_blob, kek_version, owner_app_id, data_class }', stepNum: 14 },
-      { from: 'service', to: 'service', self: true, label: 'grant check: caller → owner? (governance SPN bypasses)', stepNum: 15 },
+      { from: 'service', to: 'accessstore', label: 'grant check: caller → owner? [hsm_access.app_decrypt_grants]', stepNum: 15 },
+      { from: 'accessstore', to: 'service', dashed: true, label: 'granted / denied', stepNum: 15 },
       { from: 'service', to: 'plainid', label: '[optional] PBAC check (app_id + end_user_id + scope=decrypt) — Service\'s own identity', stepNum: '15b' },
       { from: 'plainid', to: 'service', dashed: true, label: '[optional] PERMIT/DENY — DENY blocks before cache/unwrap/audit calls', stepNum: '15b' },
       { from: 'service', to: 'redis', label: 'GET {slot}:{kv_ver}:{edek_id} (current slot first, prev slot fallback)', stepNum: '15a' },
@@ -592,8 +595,8 @@ const FLOWS = [
     steps: [
       'Auditor SPN reads the secrets cek-alpha and cek-beta directly from Azure KV Secrets — read-only, no Managed HSM access, crossing the subscription boundary.',
       'Azure KV Secrets returns secret metadata (kv_version, content_type, attributes) — never key bytes to any wrap/unwrap-capable identity, since the Auditor SPN has no Managed HSM RBAC at all.',
-      'Auditor SPN runs a read-only DB scan directly against the EDEK Store: SELECT * FROM edek_records — again bypassing the HSM service entirely.',
-      'EDEK Store returns edek records — wrapped blobs only. The Auditor SPN has no write access to any DB table, cannot reach the Redis cache, and never routes through the /decrypt endpoint; its own audit trail (Azure KV Diagnostic Logs + Splunk) is a separate pipeline from the HSM service\'s own audit_log.',
+      'Auditor SPN runs a read-only DB scan directly against both schemas — hsm_crypto (EDEK Store) and hsm_access (Access Store) — again bypassing the HSM service entirely.',
+      'The stores return edek records (wrapped blobs only) plus grants and app registrations. The Auditor SPN has no write access to any DB table, cannot reach the Redis cache, and never routes through the /decrypt endpoint; its own audit trail (Azure KV Diagnostic Logs + Splunk) is a separate pipeline from the HSM service\'s own audit_log.',
     ],
     actors: [
       { id: 'auditor', label: 'Auditor SPN' },
@@ -603,7 +606,7 @@ const FLOWS = [
     messages: [
       { from: 'auditor', to: 'kvsecrets', dashed: true, label: 'get secrets: cek-alpha, cek-beta [read-only · crosses subscription boundary]', stepNum: 21 },
       { from: 'kvsecrets', to: 'auditor', dashed: true, label: 'secret metadata (kv_version, content_type, attributes)', stepNum: 22 },
-      { from: 'auditor', to: 'edek', dashed: true, label: 'SELECT * FROM edek_records [read-only DB role · outside subscription]', stepNum: 23 },
+      { from: 'auditor', to: 'edek', dashed: true, label: 'SELECT * FROM hsm_crypto + hsm_access [read-only · outside subscription]', stepNum: 23 },
       { from: 'edek', to: 'auditor', dashed: true, label: 'edek records (wrapped blobs only)', stepNum: 24 },
     ],
   },
