@@ -171,18 +171,53 @@ export default function RangerPolicyEditor({
     const body = { regoCode: regoToSend, envId: envId || undefined };
     if (useCustomPrompt && promptEdited) body.customPrompt = promptText;
 
+    const startedAt = Date.now();
     try {
       const resp = await fetch(`${BASE}ranger-generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = await resp.json();
+      const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+
       if (!resp.ok) {
-        setError(data.error || 'Generation failed');
+        // Gateway/proxy timeouts (504, and often 502/503) come back with an
+        // empty body — resp.json() would throw and get misreported below as
+        // a generic "network error", masking the real cause. Read as text
+        // first and only parse JSON if there's something to parse.
+        const raw = await resp.text().catch(() => '');
+        let parsed = null;
+        try { parsed = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+
+        if (resp.status === 504) {
+          setError(
+            `Gateway timeout (504) after ${elapsedSec}s — the request reached the backend's ` +
+            `proxy chain (Ingress/Envoy/nginx) but no upstream in that chain responded in time. ` +
+            `This is not the backend being down; it means some layer's timeout is shorter than ` +
+            `how long this policy took to generate. Larger Rego (imports, UDFs, multiple ` +
+            `policyType rules like column_masked) takes longer, so it's expected to surface ` +
+            `here more often. If a timeout increase was applied by hand (e.g. kubectl edit on a ` +
+            `Deployment/VirtualService) rather than committed to the deployment config, a fresh ` +
+            `deployment resets it — that would explain it working once and then failing again ` +
+            `after a redeploy.`
+          );
+        } else if (resp.status === 502 || resp.status === 503) {
+          setError(
+            `Upstream unavailable (${resp.status}) after ${elapsedSec}s — a proxy in front of the ` +
+            `backend couldn't reach it (pod restarting, crashed, or still starting up). ` +
+            (parsed?.error ? `Detail: ${parsed.error}` : 'Retry in a few seconds.')
+          );
+        } else {
+          setError(
+            (parsed?.error || `Generation failed — HTTP ${resp.status}`) +
+            ` (after ${elapsedSec}s)`
+          );
+        }
         setStatus('error');
         return;
       }
+
+      const data = await resp.json();
       // rangerPolicies is an array; normalise legacy single-object responses
       const policies = Array.isArray(data.rangerPolicies)
         ? data.rangerPolicies
@@ -197,8 +232,14 @@ export default function RangerPolicyEditor({
       if (data.normalisedRego) setRegoCode(data.normalisedRego);
       setPromptOpen(true);   // auto-expand so the prompt is immediately visible
       setStatus('ready');
-    } catch {
-      setError('Network error — make sure the backend is running.');
+    } catch (err) {
+      const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(1);
+      setError(
+        `Network error after ${elapsedSec}s — the request never got a response at all ` +
+        `(connection reset, CORS block, or the browser gave up). ${err?.message || ''} ` +
+        `If this consistently happens after a long wait, check the browser's Network tab ` +
+        `for the actual failed request rather than assuming the backend is down.`
+      );
       setStatus('error');
     }
   }
@@ -712,7 +753,7 @@ const s = {
   errorBanner: {
     marginTop: '0.6rem', padding: '0.55rem 0.8rem', borderRadius: 7,
     background: '#fef2f2', border: '1px solid #fecaca',
-    color: 'var(--error, #b91c1c)', fontSize: '0.8rem',
+    color: 'var(--error, #b91c1c)', fontSize: '0.8rem', lineHeight: 1.45,
   },
   warnBanner: {
     marginTop: '0.6rem', padding: '0.55rem 0.8rem', borderRadius: 7,
