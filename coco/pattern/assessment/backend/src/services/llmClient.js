@@ -116,6 +116,15 @@ function getClient({ envId, model } = {}) {
  *   LLM_{ENV}_OPENAI_OMIT_TEMPERATURE=true   — drop `temperature` entirely
  *   LLM_{ENV}_OPENAI_MAX_TOKENS_PARAM=max_completion_tokens  — rename the
  *     token-limit key (default "max_tokens")
+ *   LLM_{ENV}_OPENAI_REASONING_EFFORT=low  — set `reasoning_effort` on
+ *     reasoning-class models (o1/o3/gpt-5-family only; classic models reject
+ *     this param, so it's opt-in and omitted unless configured). A
+ *     mechanical transform like Rego→Ranger JSON doesn't need deep
+ *     reasoning — "low"/"minimal" can cut latency substantially, which
+ *     matters directly for 504s: reasoning tokens eat into response time
+ *     before any output appears, and both OpenAI's own edge and any gateway
+ *     in front of it can time out a request that takes too long to reason
+ *     through, independent of how large the final JSON is.
  */
 function resolveCompletionParams({ envId, maxTokens, temperature } = {}) {
   const prefix = envPrefix(envId);
@@ -128,8 +137,14 @@ function resolveCompletionParams({ envId, maxTokens, temperature } = {}) {
     process.env.OPENAI_MAX_TOKENS_PARAM ||
     'max_tokens';
 
+  const reasoningEffort =
+    (prefix && process.env[`${prefix}OPENAI_REASONING_EFFORT`]) ||
+    process.env.OPENAI_REASONING_EFFORT ||
+    '';
+
   const extras = { [tokenParamName]: maxTokens };
   if (!omitTemperature) extras.temperature = temperature;
+  if (reasoningEffort) extras.reasoning_effort = reasoningEffort;
   return extras;
 }
 

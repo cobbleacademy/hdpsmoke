@@ -295,13 +295,30 @@ async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {
     };
   }
 
-  const response = await getClient({ envId, model: resolvedModel }).chat.completions.create({
+  // Streamed rather than a single blocking call: larger Rego (imports, UDFs,
+  // multiple policyType rules) pushes completion time up, and any proxy
+  // between here and the LLM endpoint (corporate gateway, APIM, etc.) that
+  // times out on read-idle rather than total duration will kill a silent
+  // non-streaming request long before the model finishes. Streaming keeps
+  // bytes flowing continuously so that class of timeout doesn't fire — it
+  // does nothing for a proxy with a hard total-duration cap, but costs
+  // nothing either, since the assembled text is parsed identically below.
+  const stream = await getClient({ envId, model: resolvedModel }).chat.completions.create({
     model: resolvedModel,
     messages: [{ role: 'user', content: prompt }],
+    stream: true,
+    stream_options: { include_usage: true },
     ...resolveCompletionParams({ envId, maxTokens: 3000, temperature: 0.1 }),
   });
 
-  const raw = response.choices[0].message.content.trim();
+  let raw = '';
+  let usage = null;
+  for await (const chunk of stream) {
+    const delta = chunk.choices?.[0]?.delta?.content;
+    if (delta) raw += delta;
+    if (chunk.usage) usage = chunk.usage;
+  }
+  raw = raw.trim();
   const jsonText = stripJsonFences(raw);
 
   let rangerPolicies;
@@ -319,8 +336,8 @@ async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {
     rangerPolicies,
     builtPrompt: prompt,
     tokenUsage: {
-      promptTokens:      response.usage?.prompt_tokens     ?? 0,
-      completionTokens:  response.usage?.completion_tokens ?? 0,
+      promptTokens:      usage?.prompt_tokens     ?? 0,
+      completionTokens:  usage?.completion_tokens ?? 0,
     },
     mock: false,
   };
