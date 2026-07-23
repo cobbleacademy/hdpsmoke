@@ -50,30 +50,37 @@ backend:
     # gateway requires on every request (e.g. tenant/auth headers), applied
     # via the OpenAI SDK's defaultHeaders — no per-call-site header code needed.
     #
-    # LLM_{ENV}_OPENAI_OMIT_TEMPERATURE / LLM_{ENV}_OPENAI_MAX_TOKENS_PARAM:
+    # LLM_{ENV}_OPENAI_OMIT_TEMPERATURE / LLM_{ENV}_OPENAI_MAX_TOKENS_PARAM /
+    # LLM_{ENV}_OPENAI_REASONING_EFFORT:
     # OPA Generator and Ranger Library send temperature + a token-limit param
     # on every call. Reasoning-class models (o1/o3/gpt-5-style) reject
     # temperature outright and require max_completion_tokens instead of
     # max_tokens — set these per env if that env's gateway/model is
     # reasoning-class; leave blank for classic chat-completions models.
+    # REASONING_EFFORT ("minimal"|"low"|"medium"|"high") only applies to
+    # reasoning-class models — lower effort cuts response time for a mostly
+    # mechanical transform, reducing exposure to gateway/edge 504s.
     LLM_DEV_OPENAI_BASE_URL: ""
     LLM_DEV_OPENAI_API_KEY: ""
     LLM_DEV_OPENAI_MODEL: ""
     LLM_DEV_OPENAI_EXTRA_HEADERS: ""
     LLM_DEV_OPENAI_OMIT_TEMPERATURE: ""
     LLM_DEV_OPENAI_MAX_TOKENS_PARAM: ""
+    LLM_DEV_OPENAI_REASONING_EFFORT: ""
     LLM_NPE_OPENAI_BASE_URL: ""
     LLM_NPE_OPENAI_API_KEY: ""
     LLM_NPE_OPENAI_MODEL: ""
     LLM_NPE_OPENAI_EXTRA_HEADERS: ""
     LLM_NPE_OPENAI_OMIT_TEMPERATURE: ""
     LLM_NPE_OPENAI_MAX_TOKENS_PARAM: ""
+    LLM_NPE_OPENAI_REASONING_EFFORT: ""
     LLM_PROD_OPENAI_BASE_URL: ""
     LLM_PROD_OPENAI_API_KEY: ""
     LLM_PROD_OPENAI_MODEL: ""
     LLM_PROD_OPENAI_EXTRA_HEADERS: ""
     LLM_PROD_OPENAI_OMIT_TEMPERATURE: ""
     LLM_PROD_OPENAI_MAX_TOKENS_PARAM: ""
+    LLM_PROD_OPENAI_REASONING_EFFORT: ""
 
     FRONTEND_URL: "http://localhost"   # overridden per environment
 
