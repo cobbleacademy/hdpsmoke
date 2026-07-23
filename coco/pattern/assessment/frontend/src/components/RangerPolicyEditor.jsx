@@ -256,7 +256,20 @@ export default function RangerPolicyEditor({
 
   function handleDownload() {
     const name = policyEntry?.name || policyEntry?.policyKey || 'ranger-policy';
-    const blob = new Blob([rangerJson], { type: 'application/json' });
+    // Apache Ranger's own Import feature (Access Manager → service → Import)
+    // expects a top-level { "policies": [...] } envelope, not a bare array —
+    // uploading a bare array (what we store/edit internally, and what the
+    // programmatic POST /service/public/v2/api/policy/importPoliciesFromFile
+    // body also wraps this same way per docs/RANGER_LIBRARY.md) fails with a
+    // generic "Error parsing or processing the JSON file" 400 from Ranger.
+    // Only the downloaded file gets wrapped — rangerJson itself (used for
+    // Save/editing) stays a bare array, matching this app's own storage
+    // format and PUT /ranger-policy's expected request body shape.
+    let policies;
+    try { policies = JSON.parse(rangerJson); } catch { policies = rangerJson; }
+    if (!Array.isArray(policies)) policies = [policies];
+    const envelope = JSON.stringify({ policies }, null, 2);
+    const blob = new Blob([envelope], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url; a.download = `${name}.json`; a.click();
