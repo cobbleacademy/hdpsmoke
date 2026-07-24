@@ -4,7 +4,7 @@ const BASE = import.meta.env.BASE_URL;
 
 // ── Service type icon ─────────────────────────────────────────────────────────
 function serviceIcon(type) {
-  const map = { hive: '🐝', hdfs: '📂', hbase: '🗄️', tag: '🏷️' };
+  const map = { hive: '🐝', hdfs: '📂', hbase: '🗄️', tag: '🏷️', spark: '⚡' };
   return map[(type || '').toLowerCase()] || '📋';
 }
 
@@ -14,6 +14,7 @@ function serviceTypeColor(type) {
     hdfs:  { background: '#e0f2fe', color: '#0369a1' },
     hbase: { background: '#dcfce7', color: '#15803d' },
     tag:   { background: '#fef9c3', color: '#854d0e' },
+    spark: { background: '#fee2e2', color: '#b91c1c' },
   };
   return map[(type || '').toLowerCase()] || { background: 'var(--accent-light)', color: 'var(--accent)' };
 }

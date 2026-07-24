@@ -170,6 +170,13 @@ export default function RangerPolicyEditor({
 
     const body = { regoCode: regoToSend, envId: envId || undefined };
     if (useCustomPrompt && promptEdited) body.customPrompt = promptText;
+    // Use the service/serviceType entered on this policy at Add-Policy time —
+    // an operator-provided value for exactly this one policy, not a guessed
+    // per-env default — so the generated (and downloaded) JSON matches what's
+    // shown in the header/gets saved as metadata, instead of the LLM's own
+    // best-guess inference from the Rego's content.
+    if (policyEntry?.serviceType) body.serviceType = policyEntry.serviceType;
+    if (policyEntry?.service)     body.service     = policyEntry.service;
 
     const startedAt = Date.now();
     try {
@@ -567,6 +574,35 @@ export default function RangerPolicyEditor({
             </div>
           </div>
 
+          {hasResult && (
+            <div style={s.warnBanner}>
+              ⚠ Before importing, verify against the target Ranger instance:
+              {policyEntry?.serviceType || policyEntry?.service ? (
+                <>
+                  <br />• "service"/"serviceType" on every policy object were set from this
+                  policy's own Service type/Service fields ({policyEntry.serviceType || '?'}
+                  {policyEntry.service ? ` · ${policyEntry.service}` : ''}) — double-check that
+                  value is itself an already-registered service name in Ranger, not just a
+                  reasonable-looking string.
+                </>
+              ) : (
+                <>
+                  <br />• "service"/"serviceType" on every policy object match an already-registered
+                  service exactly — generated from the Rego's own content and package name (no
+                  Service type/Service were set on this policy), so they're a best guess, not a
+                  lookup against your real services.
+                </>
+              )}
+              <br />• every group/user name in "groups"/"users" (policyItems, denyPolicyItems,
+              rowFilterPolicyItems, dataMaskPolicyItems) already exists in Ranger's synced
+              users/groups (from AD/LDAP/UNIX sync) — they come straight from the Rego's own
+              literal strings, which may not exist in this system at all. Ranger's import can reject
+              an otherwise well-formed policy referencing an unknown principal, and that failure
+              often surfaces as a generic "invalid JSON" error rather than naming the missing
+              group/user — don't assume the JSON itself is malformed if you see that message.
+            </div>
+          )}
+
           <textarea
             style={{ ...s.codeArea, minHeight: 300 }}
             value={rangerJson}
@@ -581,7 +617,7 @@ export default function RangerPolicyEditor({
                 <button style={s.toolBtn} onClick={handleCopy}>
                   {copied ? '✓ Copied' : '📋 Copy'}
                 </button>
-                <button style={s.toolBtn} onClick={handleDownload}>⬇ Download .json</button>
+                <button style={s.toolBtn} onClick={handleDownload} title="Verify service/serviceType above before importing the downloaded file">⬇ Download .json</button>
                 <button style={s.toolBtn} onClick={() => handleGenerate(false)} disabled={isRunning}>
                   ↺ Regenerate
                 </button>
@@ -756,9 +792,9 @@ const s = {
     color: 'var(--error, #b91c1c)', fontSize: '0.8rem', lineHeight: 1.45,
   },
   warnBanner: {
-    marginTop: '0.6rem', padding: '0.55rem 0.8rem', borderRadius: 7,
+    marginTop: '0.6rem', marginBottom: '0.6rem', padding: '0.55rem 0.8rem', borderRadius: 7,
     background: '#fffbeb', border: '1px solid #fde68a',
-    color: '#92400e', fontSize: '0.78rem',
+    color: '#92400e', fontSize: '0.78rem', lineHeight: 1.45,
   },
   errorText: { fontSize: '0.78rem', color: 'var(--error, #b91c1c)', marginTop: '0.3rem' },
   metaText:  { fontSize: '0.68rem', color: 'var(--text-secondary)' },

@@ -101,7 +101,7 @@ function AddPolicyModal({ onAdd, onClose }) {
             value={serviceType}
             onChange={(e) => setServiceType(e.target.value)}
           >
-            {['hive', 'hdfs', 'hbase', 'tag'].map((t) => (
+            {['hive', 'hdfs', 'hbase', 'tag', 'spark'].map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
