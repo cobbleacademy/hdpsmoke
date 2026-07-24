@@ -73,7 +73,7 @@ router.post('/ranger-fetch', async (req, res) => {
 // ── POST /ranger-generate ─────────────────────────────────────────────────────
 // Clean Rego input, call LLM, return Ranger policy JSON + prompt.
 router.post('/ranger-generate', async (req, res) => {
-  const { regoCode, customPrompt, envId } = req.body;
+  const { regoCode, customPrompt, envId, serviceType, service } = req.body;
 
   if (!regoCode || typeof regoCode !== 'string') {
     return res.status(400).json({ error: 'regoCode is required and must be a string' });
@@ -88,7 +88,7 @@ router.post('/ranger-generate', async (req, res) => {
   }
 
   try {
-    const result = await generateRangerPolicy(normalised, { customPrompt, envId });
+    const result = await generateRangerPolicy(normalised, { customPrompt, envId, serviceType, service });
     res.json({
       rangerPolicies: result.rangerPolicies,
       builtPrompt:    result.builtPrompt,
