@@ -53,9 +53,17 @@ function normaliseRego(raw) {
  *
  * @param {string} regoCode  Normalised Rego content
  * @param {string} [extraHint]  Optional additional instruction (from customPrompt flow)
+ * @param {{ serviceType?: string, service?: string }} [serviceOverride]  Operator-entered
+ *   values from this specific policy's Add-Policy modal — a per-policy hint, not a guessed
+ *   per-env default, since the operator already knows which real service this one policy targets.
  */
-function buildRangerPrompt(regoCode, extraHint = '') {
+function buildRangerPrompt(regoCode, extraHint = '', serviceOverride = null) {
+  const { serviceType, service } = serviceOverride || {};
+  const serviceConstraint = (serviceType || service)
+    ? `\n── TARGET SERVICE (operator-specified for this policy) ──────────────────────────\n${service ? `Use "${service}" as the "service" value on every output object.\n` : ''}${serviceType ? `Use "${serviceType}" as the "serviceType" value on every output object.\n` : ''}`
+    : '';
   return `You are an Apache Ranger policy expert. Convert the OPA Rego policy below into one or more valid Apache Ranger policy JSON objects that can be imported via the Ranger REST Import API (POST /service/public/v2/api/policy/importPoliciesFromFile).
+${serviceConstraint}
 
 ── ANALYSIS STEPS ───────────────────────────────────────────────────────────────
 1. Parse every Rego rule: identify allow/deny logic, conditions on input.groups,
@@ -96,7 +104,7 @@ Each element of the output array must follow this shape:
   "resources": {
     "database": { "values": ["<db>"], "isExcludes": false, "isRecursive": false },
     "table":    { "values": ["*"],    "isExcludes": false, "isRecursive": false },
-    "column":   { "values": ["*"],    "isExcludes": false, "isRecursive": false }
+    "column":   { "values": ["*"],    "isExcludes": false, "isRecursive": false }  // OMIT entirely when policyType is 2 (rowFilter) — see rule below
   },
   "policyItems": [],
   "denyPolicyItems": [],
@@ -139,6 +147,13 @@ hbase: read, write, create, admin
 - Every policyItems/denyPolicyItems/rowFilterPolicyItems/dataMaskPolicyItems entry must ALSO include
   its own "accesses": [{ "type": "<access-type>", "isAllowed": true }] — e.g. "select" for a hive
   row-filter or column-mask read — never omit "accesses" on any item, even a row-filter or mask item.
+- For any object with "policyType": 2 (rowFilter), the top-level "resources" block must contain ONLY
+  "database" and "table" — do NOT include a "column" key at all. Ranger's row-filter resource
+  definition for hive/hdfs/hbase services does not accept "column"; row filters apply to whole rows,
+  not individual columns, and including it makes the import fail.
+- For "policyType": 1 (dataMask) objects, "column" IS required in "resources" and should list the
+  actual column(s) being masked (e.g. from a has_tag_value/column reference in the Rego) rather than
+  "*", unless the Rego genuinely masks every column.
 - "service" value should follow the pattern "<serviceType>_<env>" (e.g. "hive_dev") — infer env from package name or default to "dev".
 ${extraHint ? `\n── ADDITIONAL INSTRUCTIONS ──────────────────────────────────────────────────────\n${extraHint}\n` : ''}
 ── OPA REGO INPUT ───────────────────────────────────────────────────────────────
@@ -279,6 +294,36 @@ function stripJsonFences(text) {
     .trim();
 }
 
+/**
+ * Deterministic correctness pass applied to every generated policy array —
+ * mock and LLM output alike — rather than relying on prompt instructions
+ * alone (a model can still ignore or drift from prompt text).
+ *
+ *  1. Strips "resources.column" from any policyType:2 (rowFilter) object —
+ *     Ranger's row-filter resource definition doesn't accept a column key at
+ *     all (row filters scope by database/table only), regardless of what
+ *     the prompt asked for.
+ *  2. When serviceType/service were entered on this specific policy at
+ *     Add-Policy time, force them onto every object. This is NOT the same
+ *     as guessing a fixed value across dozens of possible services per
+ *     env — it's a per-policy value the operator already typed in, so
+ *     honoring it exactly (rather than letting the LLM re-guess from Rego
+ *     content) is strictly more correct.
+ */
+function enforcePolicyConstraints(policies, { serviceType, service } = {}) {
+  return policies.map((policy) => {
+    let next = policy;
+    if (next.policyType === 2 && next.resources && 'column' in next.resources) {
+      const { column, ...rest } = next.resources;
+      next = { ...next, resources: rest };
+    }
+    if (serviceType || service) {
+      next = { ...next, ...(serviceType ? { serviceType } : {}), ...(service ? { service } : {}) };
+    }
+    return next;
+  });
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -286,10 +331,12 @@ function stripJsonFences(text) {
  * Ranger policy JSON, along with the prompt used and token usage.
  *
  * @param {string} regoCode    Normalised Rego content
- * @param {{ model?, customPrompt?, envId? }} opts
+ * @param {{ model?, customPrompt?, envId?, serviceType?, service? }} opts  serviceType/service
+ *   are operator-entered on this specific policy (Add-Policy modal) — forced onto every
+ *   generated object rather than left to LLM inference from Rego content.
  * @returns {{ rangerPolicy: object, builtPrompt: string, tokenUsage: object, mock: boolean }}
  */
-async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {}) {
+async function generateRangerPolicy(regoCode, { model, customPrompt, envId, serviceType, service } = {}) {
   const resolvedModel =
     model ||
     process.env.RANGER_LLM_MODEL ||
@@ -298,11 +345,12 @@ async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {
     'gpt-4o';
 
   const normalised = normaliseRego(regoCode);
-  const prompt = customPrompt || buildRangerPrompt(normalised);
+  const serviceOverride = (serviceType || service) ? { serviceType, service } : null;
+  const prompt = customPrompt || buildRangerPrompt(normalised, '', serviceOverride);
 
   if (!isLlmConfigured({ envId })) {
     return {
-      rangerPolicies: buildMockRangerPolicy(normalised),
+      rangerPolicies: enforcePolicyConstraints(buildMockRangerPolicy(normalised), { serviceType, service }),
       builtPrompt:    prompt,
       tokenUsage:     { promptTokens: 0, completionTokens: 0 },
       mock: true,
@@ -345,6 +393,7 @@ async function generateRangerPolicy(regoCode, { model, customPrompt, envId } = {
       `LLM returned non-JSON output. Raw response:\n${raw.slice(0, 300)}`
     );
   }
+  rangerPolicies = enforcePolicyConstraints(rangerPolicies, { serviceType, service });
 
   return {
     rangerPolicies,
