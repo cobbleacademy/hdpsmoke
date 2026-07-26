@@ -1,5 +1,5 @@
 # Build from the java/ directory (the Maven reactor root):
-#   docker build -f docker/Dockerfile.hsm-service -t hsm-encryption-service:1.0.0 .
+#   docker build -f docker/Dockerfile.hsm-service -t hsm-core-service:1.0.0 .
 #
 # Ported from docker/Dockerfile (Python). Same port (3005), same health check
 # path, same non-root uid/gid (1001) convention.
@@ -13,10 +13,10 @@
 FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
 WORKDIR /workspace
 COPY pom.xml .
-COPY hsm-encryption-service/pom.xml hsm-encryption-service/pom.xml
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
-COPY hsm-encryption-service/src hsm-encryption-service/src
-RUN mvn -q -pl hsm-encryption-service -am package -DskipTests
+COPY hsm-core-service/src hsm-core-service/src
+RUN mvn -q -pl hsm-core-service -am package -DskipTests
 
 FROM eclipse-temurin:21-jre-jammy@sha256:d63bd8d9b171999cbed8576f2c76e874dd4856791a358536e5c4d407e77edc13 AS final
 RUN apt-get update \
@@ -26,7 +26,7 @@ RUN apt-get update \
     && useradd -m -u 1001 -g 1001 -s /usr/sbin/nologin hsmsvc
 
 WORKDIR /app
-COPY --from=build /workspace/hsm-encryption-service/target/hsm-encryption-service.jar app.jar
+COPY --from=build /workspace/hsm-core-service/target/hsm-core-service.jar app.jar
 RUN chown -R hsmsvc:hsmsvc /app
 
 USER hsmsvc
