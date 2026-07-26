@@ -12,7 +12,7 @@
     <description>Java/Spring Boot + Bouncy Castle port of the Python HSM envelope-encryption service</description>
 
     <modules>
-        <module>hsm-encryption-service</module>
+        <module>hsm-core-service</module>
         <module>cek-rotation-service</module>
     </modules>
 
