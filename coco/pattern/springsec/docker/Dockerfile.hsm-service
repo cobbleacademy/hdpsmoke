@@ -1,0 +1,38 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-service -t hsm-encryption-service:1.0.0 .
+#
+# Ported from docker/Dockerfile (Python). Same port (3005), same health check
+# path, same non-root uid/gid (1001) convention.
+#
+# Base images are pinned by digest (not just tag) so a rebuild can't silently
+# pull a different image than the one that was reviewed/scanned -- re-resolve
+# and bump deliberately (e.g. `docker buildx imagetools inspect maven:3.9.9-eclipse-temurin-21`)
+# rather than tracking the floating tag. Build stage uses the official Maven
+# image (bundles Maven on top of Temurin JDK 21) -- plain eclipse-temurin:21-jdk
+# has no `mvn` binary at all.
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+COPY hsm-encryption-service/pom.xml hsm-encryption-service/pom.xml
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-encryption-service/src hsm-encryption-service/src
+RUN mvn -q -pl hsm-encryption-service -am package -DskipTests
+
+FROM eclipse-temurin:21-jre-jammy@sha256:d63bd8d9b171999cbed8576f2c76e874dd4856791a358536e5c4d407e77edc13 AS final
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 1001 hsmsvc \
+    && useradd -m -u 1001 -g 1001 -s /usr/sbin/nologin hsmsvc
+
+WORKDIR /app
+COPY --from=build /workspace/hsm-encryption-service/target/hsm-encryption-service.jar app.jar
+RUN chown -R hsmsvc:hsmsvc /app
+
+USER hsmsvc
+EXPOSE 3005
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:3005/api/sensec/hsm/v1/admin/health || exit 1
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
