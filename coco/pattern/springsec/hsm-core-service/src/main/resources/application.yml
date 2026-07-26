@@ -1,0 +1,132 @@
+# Base configuration -- always active, applies to both the default (production-shaped)
+# profile and the "demo" profile (application-demo.yml overlays on top of this file).
+#
+# Every ${ENV_VAR:default} below preserves the exact env var name used by the Python
+# service's .env.example / Helm ConfigMap, so existing deployment config keeps working.
+# NOTE: DATABASE_URL's *value format* still changes from SQLAlchemy's
+# "postgresql+asyncpg://..." to a JDBC URL "jdbc:postgresql://..." -- unavoidable,
+# the JDBC driver requires the jdbc: scheme.
+
+server:
+  port: ${SERVER_PORT:3005}
+
+spring:
+  web:
+    resources:
+      # No static UI outside demo mode; DemoUiConfig mounts its own resource
+      # handler under the service's path prefix (not bare "/") when demo-mode=true.
+      add-mappings: false
+  application:
+    name: hsm-core-service
+  jackson:
+    # All JSON wire fields are snake_case (ciphertext_token, edek_id, ...) to match
+    # the Python service's REST contract exactly -- Java code itself stays camelCase.
+    property-naming-strategy: SNAKE_CASE
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  datasource:
+    url: ${DATABASE_URL:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    placeholders:
+      crypto_schema: ${CRYPTO_SCHEMA:public}
+      access_schema: ${ACCESS_SCHEMA:public}
+
+hsm:
+  demo-mode: ${DEMO_MODE:false}
+  skip-akv: ${SKIP_AKV:false}
+  azure:
+    client-id: ${AZURE_CLIENT_ID:}
+    tenant-id: ${AZURE_TENANT_ID:}
+    keyvault-url: ${AZURE_KEYVAULT_URL:}
+    kek-name: ${AZURE_KEK_NAME:hsm-master-kek}
+    kek-version: ${AZURE_KEK_VERSION:}
+    keyvault-secret-url: ${AZURE_KEYVAULT_SECRET_URL:}
+  database:
+    url: ${DATABASE_URL:}
+    demo-url: ${DEMO_DATABASE_URL:}
+    ssl-enabled: ${DB_SSL_ENABLED:false}
+    ssl-ca-cert: ${DB_SSL_CA_CERT:}
+    crypto-schema: ${CRYPTO_SCHEMA:public}
+    access-schema: ${ACCESS_SCHEMA:public}
+  jwt:
+    public-key-pem: ${JWT_PUBLIC_KEY_PEM:}
+    jwks-url: ${JWT_JWKS_URL:}
+    audience: ${JWT_AUDIENCE:hsm-core-service}
+    issuer: ${JWT_ISSUER:}
+  service:
+    env: ${SERVICE_ENV:development}
+    log-level: ${LOG_LEVEL:INFO}
+    api-v1-prefix: ${API_V1_PREFIX:/api/sensec/hsm/v1}
+    # Conservative starting point -- no measured HSM throughput numbers exist
+    # yet (see java/docs/CACHING_AND_ROTATION.md and the "Performance testing"
+    # backlog item). Raise once real numbers justify it.
+    batch-max-items: ${ENCRYPT_BATCH_MAX_ITEMS:100}
+  splunk:
+    enabled: ${SPLUNK_ENABLED:false}
+    hec-url: ${SPLUNK_HEC_URL:}
+    hec-token: ${SPLUNK_HEC_TOKEN:}
+    index: ${SPLUNK_INDEX:hsm_audit}
+    source: ${SPLUNK_SOURCE:hsm-core-service}
+    sourcetype: ${SPLUNK_SOURCETYPE:_json}
+    verify-ssl: ${SPLUNK_VERIFY_SSL:true}
+    batch-size: ${SPLUNK_BATCH_SIZE:50}
+    flush-interval-seconds: ${SPLUNK_FLUSH_INTERVAL_SECONDS:5}
+  pbac:
+    enabled: ${PBAC_ENABLED:false}
+    plainid-url: ${PLAINID_URL:}
+    plainid-api-key-secret-name: ${PLAINID_API_KEY_SECRET_NAME:plainid-api-key}
+    cache-ttl-seconds: ${PBAC_CACHE_TTL_SECONDS:30}
+    fail-open: ${PBAC_FAIL_OPEN:false}
+    http-timeout-seconds: ${PBAC_HTTP_TIMEOUT_SECONDS:3.0}
+    integration-config-path: ${PBAC_INTEGRATION_CONFIG_PATH:config/pbac_integration.json}
+  kek-rotation:
+    cron: ${KEK_ROTATION_CRON:0 2 1 * *}
+    enabled: ${KEK_ROTATION_ENABLED:true}
+  redis:
+    url: ${REDIS_URL:}
+  dek-cache:
+    enabled: ${DEK_CACHE_ENABLED:false}
+    ttl-seconds: ${DEK_CACHE_TTL_SECONDS:60}
+    cek-current-key-secret-name: ${CEK_CURRENT_KEY_SECRET_NAME:cek-current-key}
+    cek-alpha-secret-name: ${CEK_ALPHA_SECRET_NAME:cek-alpha}
+    cek-beta-secret-name: ${CEK_BETA_SECRET_NAME:cek-beta}
+    excluded-classifications: ${DEK_CACHE_EXCLUDED_CLASSIFICATIONS:}
+    reload-interval-seconds: ${DEK_CACHE_RELOAD_INTERVAL_SECONDS:30}
+  security:
+    # Single source of truth for which endpoints require which scope (authority).
+    # Read by both JwtAppIdAuthenticationFilter (which requests need a bearer
+    # token at all) and SecurityConfig's authorizeHttpRequests (whether the
+    # caller's scopes satisfy this endpoint). Patterns are relative to
+    # hsm.service.api-v1-prefix. Anything not listed here (GET /admin/health,
+    # /demo/**, the demo UI) stays public -- matches today's behavior; the
+    # health check must stay open for Kubernetes liveness/readiness probes.
+    access-rules:
+      - pattern: /encrypt
+        methods: [POST]
+        authorities: [encrypt]
+      - pattern: /encrypt/batch
+        methods: [POST]
+        authorities: [encrypt]
+      - pattern: /decrypt
+        methods: [POST]
+        authorities: [decrypt]
+      - pattern: /decrypt/batch
+        methods: [POST]
+        authorities: [decrypt]
+      - pattern: /admin/rotate-kek
+        methods: [POST]
+        authorities: [rotate]
+      - pattern: /admin/grants
+        methods: [POST, DELETE, GET]
+        authorities: [grant]
+      - pattern: /admin/apps/status
+        methods: [POST]
+        authorities: [manage_apps]
