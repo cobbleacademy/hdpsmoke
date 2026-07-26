@@ -103,6 +103,31 @@ DB fix has to happen directly against the database, not through the API.
 - If Redis is down long enough that HSM throughput becomes the bottleneck,
   that's a capacity/scaling conversation, not a data-loss one.
 
+## Closing out `dek_issue`/`dek_unwrap` access after a bulk window (once Tier 3 is built)
+
+**Not built yet — see `BULK_OPERATIONS.md`'s Tier 3 proposal.** Documented
+ahead of time so the procedure exists the moment the capability does,
+rather than being improvised during a real onboarding window.
+
+`dek_issue`/`dek_unwrap` are narrow-window scopes by design — granted for
+an app's onboarding or de-boarding migration, never meant to stay standing
+afterward (see Tier 3's "What this is NOT": onboarding/de-boarding only,
+never steady-state traffic). The moment a bulk window closes:
+
+- **Revoke via the admin endpoint, not direct SQL** — see
+  `ADMIN_OPERATIONS.md`'s "Prefer the admin API over direct SQL": a raw
+  update leaves the app's cached scopes stale for up to the cache TTL, and
+  leaves no audit record of the revocation.
+- If `hsm-bulk-service` is deployed per onboarding window (per the
+  Development Plan's "on/off is a deployment operation" design), also
+  scale it to zero / undeploy once the window closes. This is
+  belt-and-suspenders, not a substitute for revoking the scope — an app
+  with the scope but no reachable service, and an app with a reachable
+  service but no scope, should each independently fail closed.
+- Confirm via the audit log (the revocation event) and a direct read of
+  `app_registrations.allowed_scopes` that the change actually took effect
+  before treating the window as closed.
+
 ## `TODO`: fill in before this is a real on-call doc
 
 - [ ] Escalation path / on-call rotation for each failure mode above

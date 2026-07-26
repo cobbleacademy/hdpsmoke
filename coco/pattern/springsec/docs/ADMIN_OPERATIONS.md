@@ -20,6 +20,30 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/rotate-kek` | `rotate` | Trigger KEK rotation (see `RUNBOOK.md`) |
 | `GET /admin/health` | none (public) | Vault + DB reachability |
 
+## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented
+
+Added via `V5__add_timestamps_to_access_tables.sql`, closing the gap that
+used to exist here (neither table had any timestamp column at all —
+confirmed against `V1__initial_schema.sql` before this was added):
+
+- **`app_registrations.created_at` / `updated_at`** — `AppRegistration`
+  sets `createdAt` in its constructor and bumps `updatedAt` in both
+  `setActive` and `setAllowedScopes`. Not yet exposed via an API response
+  (no `GET /admin/apps` list endpoint exists — see the gap noted below),
+  but queryable directly, which is what `RUNBOOK.md`'s break-glass
+  diagnosis actually needs ("was this row recently changed?").
+- **`app_decrypt_grants.created_at`** — set in `AppDecryptGrant`'s
+  constructor, and now exposed via `GET /admin/grants` and the response to
+  `POST /admin/grants` (`GrantResponse.createdAt`). This is the field a
+  periodic access review ("show every grant older than 90 days") queries
+  directly, instead of searching Splunk's `grant_added` events against
+  their own retention window. No `updated_at` on this table — grants are
+  add/remove only, never mutated in place.
+
+Both columns are nullable with no backfill (same pattern as
+`V2__add_fingerprint_to_edek_records.sql`): rows from before this migration
+simply have `NULL` timestamps going forward.
+
 ## The gap: no endpoint creates a new app_registration
 
 Notice what's missing from the table above: there is no `POST /admin/apps`
@@ -35,6 +59,35 @@ compromised ops-admin token could abuse to silently mint a new
 fully-privileged app. Keep it this way rather than "fixing" it by adding a
 create endpoint, unless there's a strong operational reason to automate
 onboarding at higher volume than manual migrations can support.
+
+## Prefer the admin API over direct SQL for security-relevant changes
+
+Direct SQL against `app_registrations`/`app_decrypt_grants` is sometimes
+unavoidable — see `RUNBOOK.md`'s total-lockout section, the one case where
+the API itself is what's broken, so the DB is the only path left. Outside
+that case, don't reach for it as a shortcut for something an admin endpoint
+can already do, even when it feels like "just a data change." Two real,
+non-cosmetic reasons:
+
+- **Cache staleness.** `AppRegistryService` caches scopes for performance;
+  the existing admin endpoints (`/admin/apps/status`, `/admin/grants`)
+  invalidate that cache on write, so a change takes effect immediately. A
+  raw SQL `UPDATE` bypasses that invalidation entirely — the row is correct
+  in the database, but the running service can keep honoring the old value
+  until the cache entry expires. That's the opposite of what you want for
+  anything time-sensitive, like cutting off access right after an incident
+  or the moment an onboarding/bulk window closes.
+- **No audit trail.** Every admin endpoint fires an audit event
+  (`app_status_changed`, `grant_added`, `grant_removed`, ...) recording who
+  changed what and when. A raw SQL statement leaves no equivalent record
+  inside this service — only whatever your DB's own query log happens to
+  capture, if anything.
+
+This is exactly why the still-missing scope-revocation capability discussed
+in `BULK_OPERATIONS.md` (revoking `dek_issue`/`dek_unwrap` once a Tier-3
+onboarding/de-boarding window closes) should be built as an admin endpoint
+when Tier 3 is approved, not operated as an ad hoc SQL step — even though
+it would be a trivially easy `UPDATE` to write by hand.
 
 ## How to actually run these day-to-day
 

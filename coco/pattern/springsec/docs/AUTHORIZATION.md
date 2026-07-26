@@ -1,6 +1,6 @@
 # Authorization Model & Entra ID Correlation
 
-This documents how `hsm-encryption-service` currently decides *what a caller
+This documents how `hsm-core-service` currently decides *what a caller
 is allowed to do*, what role Entra ID (Azure AD) plays in that decision
 today, and the recommended path to correlate resource paths with Entra ID
 group/role membership if that becomes a requirement. `cek-rotation-service`
@@ -12,7 +12,7 @@ Today, authorization is a two-step process, and only the first step involves
 Entra ID:
 
 1. **Authentication (Entra ID's role stops here).**
-   [`RsaJwtValidator`](../hsm-encryption-service/src/main/java/com/hsm/encryption/auth/RsaJwtValidator.java)
+   [`RsaJwtValidator`](../hsm-core-service/src/main/java/com/hsm/encryption/auth/RsaJwtValidator.java)
    validates the JWT's signature (RS256, JWKS or static PEM), issuer, audience,
    and expiry, then extracts the caller's identity. It already normalizes
    Entra ID's built-in `appid` claim into this service's `app_id` field
@@ -21,15 +21,15 @@ Entra ID:
    read today.**
 
 2. **Authorization (entirely local DB, no Entra ID involvement).**
-   [`JwtAppIdAuthenticationFilter`](../hsm-encryption-service/src/main/java/com/hsm/encryption/security/JwtAppIdAuthenticationFilter.java)
+   [`JwtAppIdAuthenticationFilter`](../hsm-core-service/src/main/java/com/hsm/encryption/security/JwtAppIdAuthenticationFilter.java)
    takes the `app_id` from step 1 and calls
-   [`AppRegistryService.getScopes(appId)`](../hsm-encryption-service/src/main/java/com/hsm/encryption/auth/AppRegistryService.java#L34),
+   [`AppRegistryService.getScopes(appId)`](../hsm-core-service/src/main/java/com/hsm/encryption/auth/AppRegistryService.java#L34),
    which looks up the `app_registrations.allowed_scopes` column — a
    comma-separated string (`"encrypt,decrypt"`) stored entirely in this
    service's own database, edited only through this service's own
    `/admin/apps/status` and `/admin/grants` endpoints. Those scopes become
    Spring Security `GrantedAuthority` values, which
-   [`SecurityConfig`](../hsm-encryption-service/src/main/java/com/hsm/encryption/security/SecurityConfig.java)
+   [`SecurityConfig`](../hsm-core-service/src/main/java/com/hsm/encryption/security/SecurityConfig.java)
    then matches against `hsm.security.access-rules` in `application.yml` to
    decide whether a given resource path + HTTP method is permitted.
 

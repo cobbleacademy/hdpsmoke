@@ -22,16 +22,16 @@ migration.
 ## Step 1 — Add the app_registrations row via migration
 
 Add a new Flyway migration (next `V{n}__...sql` in
-`hsm-encryption-service/src/main/resources/db/migration/`), **not** a direct
+`hsm-core-service/src/main/resources/db/migration/`), **not** a direct
 `INSERT` run by hand against production:
 
 ```sql
 -- V{n}__add_app_{new_app_id}.sql
-INSERT INTO ${access_schema}.app_registrations (app_id, allowed_scopes, description, active)
-VALUES ('new-app-id', 'encrypt,decrypt', 'One-line description of what this app does and who owns it', TRUE);
+INSERT INTO ${access_schema}.app_registrations (app_id, allowed_scopes, description, active, created_at, updated_at)
+VALUES ('new-app-id', 'encrypt,decrypt', 'One-line description of what this app does and who owns it', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 ```
 
-Schema reference (`V1__initial_schema.sql`):
+Schema reference (`V1__initial_schema.sql` + `V5__add_timestamps_to_access_tables.sql`):
 
 | Column | Notes |
 |---|---|
@@ -39,12 +39,14 @@ Schema reference (`V1__initial_schema.sql`):
 | `allowed_scopes` | `VARCHAR(512)`, comma-separated (e.g. `"encrypt,decrypt"`) — parsed by `AppRegistryService.getScopes` |
 | `description` | `VARCHAR(512)` — put the owning team and a contact here, not just what it does |
 | `active` | `BOOLEAN` — `TRUE` to onboard live; can be flipped via `/admin/apps/status` later without a new migration |
+| `created_at` | Nullable, no default — this SQL-based onboarding path must set it explicitly (`CURRENT_TIMESTAMP`), unlike rows created through `AppRegistration`'s Java constructor (e.g. `DemoSeedInitializer`), which sets it automatically |
+| `updated_at` | Same at insert time; bumped automatically afterward whenever `active` or `allowed_scopes` changes via the running service (`AppRegistration.setActive`/`setAllowedScopes`) |
 
 If it needs an initial cross-app grant, add it in the same migration:
 
 ```sql
-INSERT INTO ${access_schema}.app_decrypt_grants (grantee_app_id, owner_app_id)
-VALUES ('new-app-id', 'some-owner-app');
+INSERT INTO ${access_schema}.app_decrypt_grants (grantee_app_id, owner_app_id, created_at)
+VALUES ('new-app-id', 'some-owner-app', CURRENT_TIMESTAMP);
 ```
 
 ## Step 2 — If using Entra ID App Roles (see `AUTHORIZATION.md`)
