@@ -1,0 +1,18 @@
+# Env var names match cek_rotation/config.py's Settings exactly, so the existing
+# Helm chart (helm/cek-rotation-service/) keeps working unmodified.
+
+spring:
+  main:
+    web-application-type: none
+  application:
+    name: cek-rotation-service
+
+cek:
+  azure-keyvault-secret-url: ${AZURE_KEYVAULT_SECRET_URL:}
+  cek-alpha-secret-name: ${CEK_ALPHA_SECRET_NAME:cek-alpha}
+  cek-beta-secret-name: ${CEK_BETA_SECRET_NAME:cek-beta}
+  current-key-secret-name: ${CURRENT_KEY_SECRET_NAME:cek-current-key}
+  rotation-interval-hours: ${ROTATION_INTERVAL_HOURS:4}
+  redis-url: ${REDIS_URL:}
+  redis-post-rotation-mode: ${REDIS_POST_ROTATION_MODE:rekey}
+  dek-cache-ttl-seconds: ${DEK_CACHE_TTL_SECONDS:60}
