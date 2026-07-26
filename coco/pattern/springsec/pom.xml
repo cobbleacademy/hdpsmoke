@@ -33,7 +33,7 @@
         <!-- CMVP-validated (cert #4943, FIPS 140-3, Security Level 1: the ceiling for
              any software-only crypto module) module, not the general-purpose provider. -->
         <bc-fips.version>2.1.1</bc-fips.version>
-        <nimbus-jose-jwt.version>9.37.3</nimbus-jose-jwt.version>
+        <nimbus-jose-jwt.version>9.37.4</nimbus-jose-jwt.version>
         <logstash-encoder.version>7.4</logstash-encoder.version>
     </properties>
 
