@@ -14,7 +14,7 @@
 FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
 WORKDIR /workspace
 COPY pom.xml .
-COPY hsm-encryption-service/pom.xml hsm-encryption-service/pom.xml
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 COPY cek-rotation-service/src cek-rotation-service/src
 RUN mvn -q -pl cek-rotation-service -am package -DskipTests
