@@ -137,16 +137,16 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 1320 960" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
-        <title>HSM Encryption Service Architecture — replicated from hsm_project/app/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Encryption Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Encryption Service.</desc>
+      <svg viewBox="0 0 1320 1040" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+        <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service.</desc>
 
-        <rect width="1320" height="960" fill="#0f1117" />
+        <rect width="1320" height="1040" fill="#0f1117" />
 
         {/* ── AZURE SUBSCRIPTION BOUNDARY — everything below/left of this
             dashed rect is inside the HSM Service's own Azure subscription;
             Auditor SPN (far right) is deliberately outside it. ── */}
-        <rect x="5" y="165" width="895" height="785" rx="10" fill="none" stroke="#374151" strokeWidth="1.5" strokeDasharray="8,4" />
+        <rect x="5" y="165" width="895" height="865" rx="10" fill="none" stroke="#374151" strokeWidth="1.5" strokeDasharray="8,4" />
         <rect x="5" y="157" width="160" height="16" rx="3" fill="#0f1117" />
         <text x="12" y="169" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">AZURE SUBSCRIPTION</text>
 
@@ -199,16 +199,16 @@ function ArchitectureDiagram() {
         <text x="310" y="350" textAnchor="middle" fill="#fbbf24" fontSize="9" fontFamily="monospace">Audit Log → SIEM</text>
         <line x1="390" y1="290" x2="440" y2="290" stroke="#f59e0b" strokeWidth="1.5" markerEnd="url(#arr-amber)" />
 
-        {/* ── ENCRYPTION SERVICE ── */}
+        {/* ── CORE SERVICE ── */}
         <rect x="440" y="180" width="200" height="300" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
-        <text x="540" y="202" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPTION SERVICE</text>
-        <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">FastAPI · /api/sensec/hsm/v1</text>
+        <text x="540" y="202" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">CORE SERVICE</text>
+        <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Spring Boot · /api/sensec/hsm/v1</text>
         <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
-        <text x="540" y="243" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt</text>
+        <text x="540" y="243" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt · /batch</text>
         <text x="540" y="258" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
         <text x="540" y="270" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
         <rect x="455" y="285" width="170" height="58" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
-        <text x="540" y="301" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt</text>
+        <text x="540" y="301" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt · /batch</text>
         <text x="540" y="315" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">grant check → cache lookup</text>
         <text x="540" y="328" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">→ unwrap MISS → AES decrypt</text>
         <text x="540" y="339" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">Redis: {'{'}slot{'}'}:{'{'}kv_ver{'}'}:{'{'}edek_id{'}'}</text>
@@ -317,7 +317,7 @@ function ArchitectureDiagram() {
         <text x="785" y="688" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">HSM SPN: grant check (decrypt path)</text>
 
         {/* ── ENCRYPT / DECRYPT PAYLOAD FLOW ── */}
-        <rect x="20" y="650" width="400" height="280" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
+        <rect x="20" y="650" width="400" height="352" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
         <text x="220" y="670" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT / DECRYPT PAYLOAD FLOW</text>
         <text x="36" y="690" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
         <rect x="36" y="698" width="365" height="60" rx="4" fill="#22263a" />
@@ -338,6 +338,12 @@ function ArchitectureDiagram() {
         <text x="50" y="895" fill="#555b7a" fontSize="8" fontFamily="monospace">Pods poll 30s: detect slot or kv_version change → rotate(cek, slot, ver)</text>
         <text x="50" y="907" fill="#555b7a" fontSize="8" fontFamily="monospace">Redis key: {'{'}slot{'}'}:{'{'}kv_ver{'}'}:{'{'}edek_id{'}'} · prev slot readable via fallback</text>
         <text x="50" y="919" fill="#555b7a" fontSize="8" fontFamily="monospace">Old {'{'}slot{'}'}:{'{'}old_ver{'}'}:* entries expire via 60s TTL — no flush needed</text>
+
+        <rect x="36" y="932" width="365" height="60" rx="4" fill="#1a0a2e" stroke="#a78bfa" strokeWidth="1" />
+        <text x="50" y="946" fill="#a78bfa" fontSize="9" fontFamily="monospace">Batch (encrypt/decrypt/batch):</text>
+        <text x="50" y="959" fill="#555b7a" fontSize="8" fontFamily="monospace">Same per-item crypto path, looped — no new EDEK-writing path</text>
+        <text x="50" y="971" fill="#555b7a" fontSize="8" fontFamily="monospace">N items/call, keyed by caller's own id · cap = batch-max-items (100)</text>
+        <text x="50" y="983" fill="#555b7a" fontSize="8" fontFamily="monospace">Always 200 · per-item status success/error (bad batch itself → 422)</text>
 
         {/* ── AUDITOR SPN — OUTSIDE the Azure subscription boundary ── */}
         <rect x="960" y="10" width="340" height="940" rx="10" fill="#100404" stroke="#f87171" strokeWidth="1" strokeDasharray="6,3" />
@@ -784,6 +790,7 @@ const OVERVIEW_ACTORS = [
   { id: 'hsm', label: 'Azure Managed HSM' },
   { id: 'kvsecrets', label: 'Azure KV Secrets' },
   { id: 'edek', label: 'EDEK Store' },
+  { id: 'accessstore', label: 'Access Store' },
   { id: 'redis', label: 'Redis Cache' },
   { id: 'cekrotationsvc', label: 'CEK Rotation Svc' },
   { id: 'auditor', label: 'Auditor SPN' },
@@ -794,18 +801,20 @@ const OVERVIEW_MAIN_ROWS = [
   { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — client\'s own JWT (direct)', color: '#a78bfa' },
   { from: 'service', to: 'plainid', label: '4. [optional] PBAC check — HSM Service\'s own identity', color: '#eab308' },
   { from: 'plainid', to: 'service', label: '5. [optional] Permit / Deny decision', color: '#eab308', dashed: true },
+  { from: 'service', to: 'accessstore', label: '5b. [decrypt only] grant check — hsm_access.app_decrypt_grants', color: '#fb923c' },
   { from: 'service', to: 'hsm', label: '6. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
   { from: 'service', to: 'redis', label: '7. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
   { from: 'service', to: 'edek', label: '8. persist / lookup edek_record', color: '#38bdf8' },
   { from: 'service', to: 'client', label: '9. Result: ciphertext_token / plaintext', color: '#a78bfa' },
 ];
 const OVERVIEW_ROTATION_ROWS = [
-  { from: 'cekrotationsvc', to: 'kvsecrets', label: '10. write inactive slot, then flip current_key — Rotation SPN', color: '#eab308' },
+  { from: 'cekrotationsvc', to: 'kvsecrets', label: '10. write inactive slot, then flip current_key — HSM Service SPN', color: '#eab308' },
   { from: 'service', to: 'kvsecrets', label: '11. poll detects change (30s) → fetch + rotate() — Service SPN', color: '#eab308', dashed: true },
 ];
 const OVERVIEW_AUDIT_ROWS = [
   { from: 'auditor', to: 'kvsecrets', label: '12. read-only secrets (crosses subscription boundary)', color: '#f87171', dashed: true },
-  { from: 'auditor', to: 'edek', label: '13. read-only DB scan (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'edek', label: '13. read-only DB scan — hsm_crypto (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'accessstore', label: '13b. read-only DB scan — hsm_access grants + registrations', color: '#f87171', dashed: true },
 ];
 
 // ── End-to-end overview — condensed macro-view across all 9 participants ────
@@ -974,7 +983,7 @@ export default function HsmDemo() {
   // ── Tab state, deep-linkable via #diagram ──────────────────────────────────
   function tabFromHash() {
     const h = window.location.hash.slice(1);
-    return h === 'diagram' || h === 'flows' ? h : 'demo';
+    return h === 'diagram' || h === 'flows' || h === 'status' ? h : 'demo';
   }
   const [activeTab, setActiveTab] = useState(tabFromHash);
 
@@ -1244,6 +1253,90 @@ export default function HsmDemo() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // ── Panel: Development Status — replicated from the master's own Development
+  // Status tab (see ADR-014's hsm-core-service amendment). Backed by the real
+  // service's DB (DevStatusController), not a bundled static file, so edits
+  // survive a restart there — same "call the real service directly" pattern
+  // as every other panel in this page; no Express proxy, no local mock state.
+  const [devStatusItems, setDevStatusItems]     = useState([]);
+  const [devStatusUpdated, setDevStatusUpdated] = useState('');
+  const [devStatusDrafts, setDevStatusDrafts]   = useState({}); // id -> { item, status, notes }
+  const [devStatusError, setDevStatusError]     = useState(null);
+  const [devStatusConfirmDelete, setDevStatusConfirmDelete] = useState(null); // id awaiting a second click
+  const [newStatusCategory, setNewStatusCategory] = useState('');
+  const [newStatusItem, setNewStatusItem]         = useState('');
+  const [newStatusStatus, setNewStatusStatus]     = useState('N');
+  const [newStatusNotes, setNewStatusNotes]       = useState('');
+  const [devStatusBusy, setDevStatusBusy]         = useState(false);
+
+  const loadDevStatus = useCallback(() => {
+    callApi('/demo/dev-status').then((res) => {
+      if (!res.ok) { setDevStatusError(errMessage(res, 'Could not load development status')); return; }
+      const items = res.data?.items || [];
+      setDevStatusItems(items);
+      setDevStatusError(null);
+      const latest = items.reduce((max, r) => (r.updated_at && (!max || r.updated_at > max)) ? r.updated_at : max, null);
+      setDevStatusUpdated(latest
+        ? `${items.length} tracked items · last updated ${new Date(latest).toLocaleString()}`
+        : `${items.length} tracked items`);
+      setDevStatusDrafts(Object.fromEntries(items.map((r) => [r.id, { item: r.item, status: r.status, notes: r.notes || '' }])));
+    });
+  }, []);
+  useEffect(() => { if (activeTab === 'status') loadDevStatus(); }, [activeTab, loadDevStatus]);
+
+  const devStatusCategories = [...new Set(devStatusItems.map((r) => r.category))];
+  const devStatusGroups = devStatusCategories.map((category) => ({
+    category,
+    rows: devStatusItems.filter((r) => r.category === category),
+  }));
+
+  function updateDevStatusDraft(id, field, value) {
+    setDevStatusDrafts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  }
+
+  async function handleSaveDevStatus(row) {
+    const draft = devStatusDrafts[row.id] || {};
+    setDevStatusBusy(true);
+    const res = await callApi(`/demo/dev-status/${row.id}`, {
+      method: 'PUT',
+      body: { category: row.category, item: draft.item, status: draft.status, notes: draft.notes },
+    });
+    setDevStatusBusy(false);
+    if (res.ok) loadDevStatus();
+    else setDevStatusError(errMessage(res, 'Could not save item'));
+  }
+
+  async function handleDeleteDevStatus(id) {
+    if (devStatusConfirmDelete !== id) {
+      setDevStatusConfirmDelete(id);
+      setTimeout(() => setDevStatusConfirmDelete((cur) => (cur === id ? null : cur)), 3000);
+      return;
+    }
+    setDevStatusConfirmDelete(null);
+    const res = await callApi(`/demo/dev-status/${id}`, { method: 'DELETE' });
+    if (res.ok) loadDevStatus();
+    else setDevStatusError(errMessage(res, 'Could not delete item'));
+  }
+
+  async function handleAddDevStatus() {
+    if (!newStatusCategory.trim() || !newStatusItem.trim()) {
+      setDevStatusError('Category and item are required.');
+      return;
+    }
+    setDevStatusBusy(true);
+    const res = await callApi('/demo/dev-status', {
+      method: 'POST',
+      body: { category: newStatusCategory.trim(), item: newStatusItem.trim(), status: newStatusStatus, notes: newStatusNotes.trim() },
+    });
+    setDevStatusBusy(false);
+    if (res.ok) {
+      setNewStatusCategory(''); setNewStatusItem(''); setNewStatusStatus('N'); setNewStatusNotes('');
+      loadDevStatus();
+    } else {
+      setDevStatusError(errMessage(res, 'Could not add item'));
+    }
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div style={s.container}>
@@ -1282,6 +1375,14 @@ export default function HsmDemo() {
           onClick={() => selectTab('flows')}
         >
           Flows
+        </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === 'status'}
+          style={{ ...s.tab, ...(activeTab === 'status' ? s.tabActive : {}) }}
+          onClick={() => selectTab('status')}
+        >
+          Development Status
         </button>
       </div>
 
@@ -1596,7 +1697,7 @@ export default function HsmDemo() {
         {activeTab === 'diagram' && (
           <div role="tabpanel" style={s.diagramTabWrap}>
             <div style={s.diagramHeader}>
-              <h3 style={s.diagramHeaderTitle}>HSM Encryption Service — Architecture</h3>
+              <h3 style={s.diagramHeaderTitle}>HSM Core Service — Architecture</h3>
               <p style={s.diagramHeaderSub}>Cross-subscription 2-SPN split (HSM Service vs. Auditor) · shared PlainID PBAC (Client + Service) · KEK/CEK on separate resources · Redis DEK cache w/ CEK hot-reload</p>
             </div>
             <div style={s.diagramScrollBody}>
@@ -1609,6 +1710,111 @@ export default function HsmDemo() {
         {activeTab === 'flows' && (
           <div role="tabpanel" style={s.demoScroll}>
             <FlowsSequence />
+          </div>
+        )}
+
+        {/* ── Tab 4: Development Status — live CRUD against the real service's
+            own DB-backed tracker (GET/POST/PUT/DELETE /demo/dev-status),
+            replicated from the master's own tab of the same name. ── */}
+        {activeTab === 'status' && (
+          <div role="tabpanel" style={s.demoScroll}>
+            <Panel
+              title="Development Status"
+              sub="Tracks both this port's own component-by-component build-out and the open backlog items discovered along the way (e.g. compliance gaps, un-tested integrations). N = not started, P = in progress, C = completed."
+            >
+              {devStatusError && <div style={s.errorBanner}>{devStatusError}</div>}
+              {devStatusUpdated && <p style={s.muted}>{devStatusUpdated}</p>}
+
+              {devStatusGroups.map(({ category, rows }) => (
+                <div key={category} style={{ marginTop: '1.2rem' }}>
+                  <div style={s.statusCategoryHeading}>{category}</div>
+                  <table style={s.table}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...s.th, width: '4.5rem' }}>Status</th>
+                        <th style={s.th}>Item</th>
+                        <th style={s.th}>Notes</th>
+                        <th style={{ ...s.th, width: '9.5rem' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => {
+                        const draft = devStatusDrafts[r.id] || { item: r.item, status: r.status, notes: r.notes || '' };
+                        return (
+                          <tr key={r.id}>
+                            <td style={s.td}>
+                              <select
+                                style={s.select}
+                                value={draft.status}
+                                onChange={(e) => updateDevStatusDraft(r.id, 'status', e.target.value)}
+                              >
+                                <option value="N">N</option>
+                                <option value="P">P</option>
+                                <option value="C">C</option>
+                              </select>
+                            </td>
+                            <td style={s.td}>
+                              <input
+                                style={s.input}
+                                value={draft.item}
+                                onChange={(e) => updateDevStatusDraft(r.id, 'item', e.target.value)}
+                              />
+                            </td>
+                            <td style={s.td}>
+                              <input
+                                style={s.input}
+                                value={draft.notes}
+                                onChange={(e) => updateDevStatusDraft(r.id, 'notes', e.target.value)}
+                              />
+                            </td>
+                            <td style={s.td}>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button style={s.primaryBtn} disabled={devStatusBusy} onClick={() => handleSaveDevStatus(r)}>Save</button>
+                                <button style={s.dangerBtn} onClick={() => handleDeleteDevStatus(r.id)}>
+                                  {devStatusConfirmDelete === r.id ? 'Confirm?' : 'Delete'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+
+              <div style={s.statusCategoryHeading}>Add Item</div>
+              <div style={s.formRow}>
+                <input
+                  style={s.input}
+                  placeholder="Core Port"
+                  list="statusCategoryList"
+                  value={newStatusCategory}
+                  onChange={(e) => setNewStatusCategory(e.target.value)}
+                />
+                <datalist id="statusCategoryList">
+                  {devStatusCategories.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <input
+                  style={{ ...s.input, flex: 2, minWidth: '14rem' }}
+                  placeholder="New tracked item…"
+                  value={newStatusItem}
+                  onChange={(e) => setNewStatusItem(e.target.value)}
+                />
+                <select style={s.select} value={newStatusStatus} onChange={(e) => setNewStatusStatus(e.target.value)}>
+                  <option value="N">N — Not started</option>
+                  <option value="P">P — In progress</option>
+                  <option value="C">C — Completed</option>
+                </select>
+                <input
+                  style={{ ...s.input, flex: 2, minWidth: '12rem' }}
+                  placeholder="Optional notes"
+                  value={newStatusNotes}
+                  onChange={(e) => setNewStatusNotes(e.target.value)}
+                />
+                <button style={s.primaryBtn} disabled={devStatusBusy} onClick={handleAddDevStatus}>+ Add Item</button>
+              </div>
+            </Panel>
           </div>
         )}
       </div>
@@ -1686,6 +1892,10 @@ const s = {
   dangerBtn: {
     padding: '0.3rem 0.7rem', borderRadius: 6, border: '1px solid var(--error)', background: 'transparent',
     color: 'var(--error)', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+  },
+  statusCategoryHeading: {
+    margin: '1.2rem 0 0.4rem', fontSize: '0.9rem', color: 'var(--muted)',
+    textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 700,
   },
 
   errorBanner: {
