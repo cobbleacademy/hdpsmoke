@@ -1,0 +1,105 @@
+# ── Image ──────────────────────────────────────────────────────────────────────
+# Built from java/docker/Dockerfile.cek-rotation (Spring Boot + Bouncy Castle FIPS),
+# not the legacy Python cek_rotation/Dockerfile -- that image is retained in the
+# repo for reference/rollback only and is no longer built or deployed via this chart.
+image:
+  repository: your-registry.azurecr.io/cek-rotation-service
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# Singleton — only one instance should write to AKV at a time.
+# Running two replicas risks a split-brain where both pods write different CEK
+# bytes to the same slot in the same window.  Keep this at 1.
+replicaCount: 1
+
+# ── Service account & identity ──────────────────────────────────────────────
+#
+# This chart creates a dedicated ServiceAccount for the Rotation SPN — NOT
+# the same identity used by the main HSM service.  The Rotation SPN holds
+# secrets/set on cek-alpha, cek-beta, and cek-current-key; the main service
+# SPN holds only secrets/get.  Separate SAs keep those permission sets apart.
+#
+# Like the main chart, no Kubernetes Role/RoleBinding is created — the SA is
+# a Workload Identity federation anchor only.
+serviceAccount:
+  create: true
+  name: ""   # defaults to the chart's fullname if empty
+  annotations:
+    # Set to the Azure AD application (or managed identity) client-id of the
+    # Rotation SPN that has been granted secrets/set on the three CEK secrets.
+    azure.workload.identity/client-id: "<ROTATION_SPN_CLIENT_ID>"
+  labels: {}
+
+# Pod-level label injected by the Workload Identity mutating webhook.
+workloadIdentity:
+  enabled: true
+
+# ── Resources — intentionally small; this pod does almost nothing ───────────
+# Bumped from the Python version's 128Mi/128Mi: even a minimal Spring Boot
+# process (no HTTP stack here, but Hibernate-free JVM + Azure/BC-FIPS libs
+# still loaded) needs more baseline heap/metaspace than uvicorn-less asyncio.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 250m
+    memory: 384Mi
+
+# ── Security — mirrors the Dockerfile's cekrotator uid=1001 ────────────────
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    fsGroup: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# The JVM wants a writable /tmp even with readOnlyRootFilesystem.
+tmpVolume:
+  enabled: true
+  sizeLimit: 32Mi
+
+# ── Application configuration ──────────────────────────────────────────────
+config:
+  # Azure Key Vault URL (regular vault, not Managed HSM — CEK secrets live here)
+  azureKeyVaultSecretUrl: "https://<your-vault>.vault.azure.net/"
+
+  # Secret names for the two CEK slots
+  cekAlphaSecretName: "cek-alpha"
+  cekBetaSecretName: "cek-beta"
+
+  # Secret that holds "alpha" or "beta" — the active-slot pointer
+  currentKeySecretName: "cek-current-key"
+
+  # How often to rotate (hours).  Default 4 h → 6 rotations per day.
+  rotationIntervalHours: "4"
+
+  # ── Redis post-rotation ops ─────────────────────────────────────────────
+  # redisUrl: same URL the main HSM service uses (rediss:// for TLS).
+  # Empty → skip all Redis ops.  Credential-shaped — mount via External
+  # Secrets Operator or AKV CSI driver; do NOT hardcode here.
+  redisUrl: ""
+
+  # What to do with existing DEK cache entries after flipping current_key:
+  #   none  — do nothing; entries drain via 60 s TTL (safe, causes MISS storm).
+  #   flush — delete all dek:* keys immediately (fast, same MISS storm effect).
+  #   rekey — re-encrypt each entry under the new CEK in-place; no MISS storm.
+  #           Requires secrets/get on cek-alpha and cek-beta for the Rotation SPN.
+  redisPostRotationMode: "rekey"
+
+  # Must match dekCacheTtlSeconds on the main HSM service (default 60 s).
+  # Used as fallback TTL when re-keying an entry whose original TTL is unknown.
+  dekCacheTtlSeconds: "60"
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

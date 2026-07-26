@@ -1,0 +1,15 @@
+apiVersion: v2
+name: cek-rotation-service
+description: Standalone CEK rotation service — writes fresh 256-bit keys to Azure Key Vault CEK slots and flips the active-slot pointer so the main HSM service pods hot-reload without a restart.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - encryption
+  - cek
+  - key-rotation
+  - security
+  - hsm
+home: https://example.internal/cek-rotation-service
+maintainers:
+  - name: Platform Security
