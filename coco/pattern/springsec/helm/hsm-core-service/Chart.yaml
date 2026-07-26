@@ -1,0 +1,14 @@
+apiVersion: v2
+name: hsm-core-service
+description: Centralized envelope-encryption microservice backed by Azure Key Vault Managed HSM
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - encryption
+  - hsm
+  - security
+  - envelope-encryption
+home: https://example.internal/hsm-core-service
+maintainers:
+  - name: Platform Security

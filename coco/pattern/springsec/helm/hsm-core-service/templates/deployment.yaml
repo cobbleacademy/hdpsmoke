@@ -1,0 +1,182 @@
+{{- if and (eq (.Values.config.demoMode | toString) "true") (or .Values.autoscaling.enabled (gt (.Values.replicaCount | int) 1)) }}
+{{- fail "DEMO_MODE's mock HSM key and H2 file store are per-process, not shared across replicas. Running config.demoMode=true with replicaCount > 1 (or autoscaling enabled) causes encrypt/decrypt to silently fail depending on which pod a request lands on. Set replicaCount: 1 and autoscaling.enabled: false while demo_mode is on, or turn demo_mode off for a real multi-replica deployment." }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hsm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hsm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hsm.selectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.istio.rewriteAppHTTPProbers }}
+        # Explicit, not left to the cluster/mesh-wide default — without this,
+        # kubelet's plain-HTTP probe can hit Envoy's intercepted inbound
+        # listener directly. Under STRICT mTLS that listener expects a TLS
+        # handshake, not a plaintext GET, and responds 400 instead of just
+        # routing through. This forces Istio to rewrite the probe to its
+        # dedicated, interception-exempt status port (15020) instead.
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "hsm.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- if .Values.corporateCa.enabled }}
+      # The JVM has no equivalent of Python's REQUESTS_CA_BUNDLE/SSL_CERT_FILE env
+      # vars -- it needs the CA imported into an actual trust store. This
+      # initContainer builds one (default cacerts + the corporate CA) into a
+      # shared emptyDir; the main container points JDK_JAVA_OPTIONS at it below.
+      initContainers:
+        - name: import-corporate-ca
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              cp "$JAVA_HOME/lib/security/cacerts" /truststore/cacerts
+              keytool -importcert -noprompt -trustcacerts \
+                -alias corporate-ca \
+                -file /etc/ssl/corporate/{{ .Values.corporateCa.certFile }} \
+                -keystore /truststore/cacerts \
+                -storepass changeit
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+            - name: corporate-ca
+              mountPath: /etc/ssl/corporate
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: hsm-core-service
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "hsm.fullname" . }}-config
+            - secretRef:
+                name: {{ include "hsm.secretName" . }}
+                optional: true
+          {{- if eq .Values.probes.type "http" }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- else if eq .Values.probes.type "tcp" }}
+          # Connection-level only — no HTTP request goes through, so this
+          # doesn't confirm the app is genuinely serving correctly. It's a
+          # deliberate middle ground: Istio's rewriteAppHTTPProbers only
+          # intercepts httpGet probes, so a tcpSocket check isn't subject
+          # to the same agent-forwarding path that was failing in practice
+          # — it still catches a dead/hung process (port stops accepting
+          # connections) without depending on that mechanism working.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.corporateCa.enabled }}
+          env:
+            # Recognized automatically by the java launcher (JDK 9+) without
+            # needing a wrapper entrypoint script.
+            - name: JDK_JAVA_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- if .Values.pbacIntegration.enabled }}
+            - name: pbac-integration-config
+              mountPath: /app/config
+              readOnly: true
+            {{- end }}
+            {{- if .Values.corporateCa.enabled }}
+            - name: truststore
+              mountPath: /truststore
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if .Values.pbacIntegration.enabled }}
+        - name: pbac-integration-config
+          configMap:
+            name: {{ include "hsm.fullname" . }}-pbac-integration
+        {{- end }}
+        {{- if .Values.corporateCa.enabled }}
+        - name: corporate-ca
+          configMap:
+            name: {{ .Values.corporateCa.configMapName }}
+        - name: truststore
+          emptyDir:
+            sizeLimit: 16Mi
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
