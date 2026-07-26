@@ -1,0 +1,26 @@
+# Demo profile overlay -- zero external dependencies, mirrors .env.demo.
+# Activated either via `--spring.profiles.active=demo` or automatically by
+# DemoProfileEnvironmentPostProcessor whenever DEMO_MODE=true is set.
+#
+# Uses H2 (file-based, PostgreSQL-compatibility mode) instead of literal SQLite --
+# same "zero setup" experience as Python's demo_hsm.db, per the project's Java port.
+
+spring:
+  datasource:
+    url: ${DEMO_DATABASE_URL:jdbc:h2:file:./demo_hsm_h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_ON_EXIT=FALSE}
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-demo
+
+hsm:
+  # Defaults to true whenever the "demo" profile is active by any mechanism
+  # (explicit --spring.profiles.active=demo, @ActiveProfiles in tests, or the
+  # DemoProfileEnvironmentPostProcessor triggered by DEMO_MODE=true) -- DEMO_MODE
+  # can still override to false explicitly, though that combination is unusual.
+  demo-mode: ${DEMO_MODE:true}
+  splunk:
+    enabled: ${SPLUNK_ENABLED:false}
+  kek-rotation:
+    enabled: ${KEK_ROTATION_ENABLED:false}
