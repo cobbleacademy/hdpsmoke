@@ -1,0 +1,43 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-core-service -t hsm-core-service:1.0.0 .
+#
+# Ported from docker/Dockerfile (Python). Same port (3005).
+#
+# Base images are pinned by digest (not just tag) so a rebuild can't silently
+# pull a different image than the one that was reviewed/scanned -- re-resolve
+# and bump deliberately (e.g. `docker buildx imagetools inspect maven:3.9.9-eclipse-temurin-21`,
+# or for the final stage `crane digest gcr.io/distroless/java21-debian13:nonroot`)
+# rather than tracking the floating tag. Build stage uses the official Maven
+# image (bundles Maven on top of Temurin JDK 21) -- plain eclipse-temurin:21-jdk
+# has no `mvn` binary at all.
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-core-service/src hsm-core-service/src
+RUN mvn -q -pl hsm-core-service -am package -DskipTests
+
+# Debian-based distroless, not Ubuntu -- Temurin itself only publishes
+# Alpine/UBI/Ubuntu/Windows, no Debian variant. This also removes the only
+# apt-get call that used to exist in this file (installing curl for
+# HEALTHCHECK, below) -- no OS package manager at all here, so no more
+# Jammy-archive-key issues and nothing that needs an apt/deb mirror behind a
+# firewall. Ships Temurin OpenJDK 21 already installed. The :nonroot tag
+# bakes in a fixed uid/gid 65532 user -- no groupadd/useradd/chown needed,
+# and there's no shell to run them with anyway. This UID must stay in sync
+# with securityContext.pod.{runAsUser,runAsGroup,fsGroup} and
+# securityContext.container in helm/hsm-core-service/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /workspace/hsm-core-service/target/hsm-core-service.jar app.jar
+
+EXPOSE 3005
+
+# No HEALTHCHECK here -- distroless has no shell/curl to run one with. Not a
+# gap in practice: production health-checking is Kubernetes' own httpGet/
+# tcpSocket livenessProbe/readinessProbe (helm/hsm-core-service/templates/
+# deployment.yaml), which the kubelet evaluates from outside the container
+# and never needed anything installed inside it.
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

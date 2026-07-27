@@ -2,12 +2,12 @@
 #   docker build -f docker/Dockerfile.cek-rotation -t cek-rotation-service:1.0.0 .
 #
 # Ported from cek_rotation/Dockerfile (Python). Headless worker -- no HTTP
-# listener, no EXPOSE, no health check endpoint. Same non-root uid/gid (1001)
-# convention as the main service, distinct user name.
+# listener, no EXPOSE, no health check endpoint.
 #
 # Base images are pinned by digest (not just tag) so a rebuild can't silently
 # pull a different image than the one that was reviewed/scanned -- re-resolve
-# and bump deliberately (e.g. `docker buildx imagetools inspect maven:3.9.9-eclipse-temurin-21`)
+# and bump deliberately (e.g. `docker buildx imagetools inspect maven:3.9.9-eclipse-temurin-21`,
+# or for the final stage `crane digest gcr.io/distroless/java21-debian13:nonroot`)
 # rather than tracking the floating tag. Build stage uses the official Maven
 # image (bundles Maven on top of Temurin JDK 21) -- plain eclipse-temurin:21-jdk
 # has no `mvn` binary at all.
@@ -19,14 +19,14 @@ COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 COPY cek-rotation-service/src cek-rotation-service/src
 RUN mvn -q -pl cek-rotation-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre-jammy@sha256:d63bd8d9b171999cbed8576f2c76e874dd4856791a358536e5c4d407e77edc13 AS final
-RUN groupadd -g 1001 cekrotator \
-    && useradd -m -u 1001 -g 1001 -s /usr/sbin/nologin cekrotator
-
+# Debian-based distroless, not Ubuntu -- same rationale and same image as
+# hsm-core-service's Dockerfile (see there for the full explanation). The
+# :nonroot tag bakes in a fixed uid/gid 65532 -- no groupadd/useradd/chown
+# needed, and no shell to run them with anyway (replaces the old dedicated
+# "cekrotator" uid 1001 user). This UID must stay in sync with
+# securityContext in helm/cek-rotation-service/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
 WORKDIR /app
-COPY --from=build /workspace/cek-rotation-service/target/cek-rotation-service.jar app.jar
-RUN chown -R cekrotator:cekrotator /app
-
-USER cekrotator
+COPY --from=build --chown=65532:65532 /workspace/cek-rotation-service/target/cek-rotation-service.jar app.jar
 
 ENTRYPOINT ["java", "-jar", "app.jar"]
