@@ -28,7 +28,7 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .orElse("Validation failed");
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("detail", detail));
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(Map.of("detail", detail));
     }
 
     @ExceptionHandler(Exception.class)
