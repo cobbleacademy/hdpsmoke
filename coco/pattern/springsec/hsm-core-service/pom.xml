@@ -37,9 +37,13 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- Spring Boot 4: Flyway's auto-configuration moved out of the general
+             autoconfigure module into its own starter, so declaring flyway-core
+             directly (as before) no longer pulls in FlywayAutoConfiguration at
+             all, and migrations silently never ran. -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -95,6 +99,18 @@
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>
             <artifactId>httpclient5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Spring Boot 4: TestRestTemplate moved out of spring-boot-starter-test into
+             its own opt-in artifact, plus a runtime dependency on spring-boot-restclient. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
