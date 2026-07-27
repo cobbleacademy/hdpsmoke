@@ -3,7 +3,8 @@ package com.hsm.core;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * correlated back by a caller-supplied key. See java/docs/BULK_OPERATIONS.md.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @ActiveProfiles("demo")
 class BatchEncryptIntegrationTest {
 
@@ -101,7 +103,7 @@ class BatchEncryptIntegrationTest {
                 item("dup", "first"),
                 item("dup", "second")
         ));
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody());
         assertTrue(detail.contains("duplicate"));
     }
@@ -109,7 +111,7 @@ class BatchEncryptIntegrationTest {
     @Test
     void emptyBatchRejected() {
         ResponseEntity<Map> resp = postBatch(List.of());
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
     }
 
     @Test
@@ -119,7 +121,7 @@ class BatchEncryptIntegrationTest {
             items.add(item("key-" + i, "value-" + i));
         }
         ResponseEntity<Map> resp = postBatch(items);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody());
         assertTrue(detail.contains("maximum item count"));
     }
@@ -130,7 +132,7 @@ class BatchEncryptIntegrationTest {
                 item("good", "fine"),
                 item("bad", "")
         ));
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
     }
 
     @Test

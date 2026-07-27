@@ -6,7 +6,8 @@ import com.hsm.core.repository.EdekRecordRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * this class exercises them over the real HTTP layer.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @ActiveProfiles("demo")
 class InputValidationIntegrationTest {
 
@@ -114,7 +116,7 @@ class InputValidationIntegrationTest {
     void over1MibPlaintextRejected() {
         String payload = "A".repeat(1_048_576 + 1);
         ResponseEntity<Map> resp = encryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody());
         assertTrue(detail.contains("1048576") || detail.toLowerCase().contains("size"));
     }
@@ -128,7 +130,7 @@ class InputValidationIntegrationTest {
 
     @Test
     void emptyPlaintextRejected() {
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, encryptRaw("").getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, encryptRaw("").getStatusCode());
     }
 
     // ── Element integrity ────────────────────────────────────────────────────
@@ -139,7 +141,7 @@ class InputValidationIntegrationTest {
         Map<String, Object> payload = legacyFieldsOf(enc);
         payload.put("iv_b64", Base64.getEncoder().encodeToString(new byte[8])); // 8 instead of 12
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody());
         assertTrue(detail.contains("iv_b64"));
         assertTrue(detail.contains("12"));
@@ -151,7 +153,7 @@ class InputValidationIntegrationTest {
         Map<String, Object> payload = legacyFieldsOf(enc);
         payload.put("tag_b64", Base64.getEncoder().encodeToString(new byte[8])); // 8 instead of 16
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody());
         assertTrue(detail.contains("tag_b64"));
         assertTrue(detail.contains("16"));
@@ -169,7 +171,7 @@ class InputValidationIntegrationTest {
         payload.put("tag_b64", encB.get("tag_b64"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         assertNotNull(lastFailureWithReason("element_mismatch"));
     }
 
@@ -183,7 +185,7 @@ class InputValidationIntegrationTest {
         payload.put("ciphertext_b64", encB.get("ciphertext_b64"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         String detail = String.valueOf(resp.getBody()).toLowerCase();
         assertTrue(detail.contains("tampered") || detail.contains("corrupt") || detail.contains("authentication"));
     }
@@ -197,7 +199,7 @@ class InputValidationIntegrationTest {
         payload.put("edek_id", encA.get("edek_id"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         assertNotNull(lastFailureWithReason("element_mismatch"));
     }
 
@@ -225,7 +227,7 @@ class InputValidationIntegrationTest {
         payload.put("ciphertext_b64", Base64.getEncoder().encodeToString(ct));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         assertNotNull(lastFailureWithReason("tag_verification_failed"));
     }
 
@@ -236,7 +238,7 @@ class InputValidationIntegrationTest {
             Map<String, Object> payload = legacyFieldsOf(enc);
             payload.put(field, "!!!not-base64!!!");
             ResponseEntity<Map> resp = decryptRaw(payload);
-            assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode(), "field=" + field);
+            assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode(), "field=" + field);
         }
     }
 

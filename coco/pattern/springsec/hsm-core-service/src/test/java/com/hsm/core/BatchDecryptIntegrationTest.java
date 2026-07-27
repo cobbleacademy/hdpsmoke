@@ -3,7 +3,8 @@ package com.hsm.core;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * java/docs/BULK_OPERATIONS.md.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @ActiveProfiles("demo")
 class BatchDecryptIntegrationTest {
 
@@ -133,13 +135,13 @@ class BatchDecryptIntegrationTest {
     void duplicateKeyRejectsWholeBatch() {
         String token = encryptOne("x");
         ResponseEntity<Map> resp = postBatchDecrypt(List.of(item("dup", token), item("dup", token)));
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         assertTrue(String.valueOf(resp.getBody()).contains("duplicate"));
     }
 
     @Test
     void emptyBatchRejected() {
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, postBatchDecrypt(List.of()).getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, postBatchDecrypt(List.of()).getStatusCode());
     }
 
     @Test
@@ -150,7 +152,7 @@ class BatchDecryptIntegrationTest {
             items.add(item("key-" + i, token));
         }
         ResponseEntity<Map> resp = postBatchDecrypt(items);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, resp.getStatusCode());
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
         assertTrue(String.valueOf(resp.getBody()).contains("maximum item count"));
     }
 
