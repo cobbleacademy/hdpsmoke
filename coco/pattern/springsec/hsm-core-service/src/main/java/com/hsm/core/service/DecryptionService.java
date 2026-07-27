@@ -70,7 +70,7 @@ public class DecryptionService {
             try {
                 unpacked = DekManager.unpackToken(request.ciphertextToken());
             } catch (IllegalArgumentException e) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
             }
             resolvedEdekId = unpacked.edekId();
             resolvedIv = unpacked.iv();
@@ -78,12 +78,12 @@ public class DecryptionService {
             resolvedCiphertext = unpacked.ciphertext();
         } else {
             if (request.edekId() == null) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "Provide either 'ciphertext_token' (recommended) or the legacy fields "
                                 + "'edek_id', 'iv_b64', 'ciphertext_b64', 'tag_b64'");
             }
             if (request.ivB64() == null || request.ciphertextB64() == null || request.tagB64() == null) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "Legacy decrypt is missing required fields. Use 'ciphertext_token' instead to avoid this.");
             }
             resolvedEdekId = request.edekId();
@@ -92,7 +92,7 @@ public class DecryptionService {
                 resolvedCiphertext = Base64.getDecoder().decode(request.ciphertextB64());
                 resolvedTag = Base64.getDecoder().decode(request.tagB64());
             } catch (IllegalArgumentException e) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "field must be valid base64");
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "field must be valid base64");
             }
         }
 
@@ -130,13 +130,13 @@ public class DecryptionService {
         if (request.ciphertextToken() == null) {
             if (resolvedIv.length != DekManager.IV_LENGTH) {
                 auditFail(appId, callerSub, edekIdStr, callerIp, "invalid_iv_length", request.endUserId(), null);
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "iv_b64 is invalid: decoded to " + resolvedIv.length + " bytes, AES-GCM requires exactly "
                                 + DekManager.IV_LENGTH + " bytes (96-bit nonce)");
             }
             if (resolvedTag.length != DekManager.TAG_LENGTH) {
                 auditFail(appId, callerSub, edekIdStr, callerIp, "invalid_tag_length", request.endUserId(), null);
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "tag_b64 is invalid: decoded to " + resolvedTag.length + " bytes, AES-GCM requires exactly "
                                 + DekManager.TAG_LENGTH + " bytes (128-bit tag)");
             }
@@ -148,7 +148,7 @@ public class DecryptionService {
             String expected = DekManager.makeFingerprint(resolvedIv, resolvedTag);
             if (!expected.equals(record.getFingerprint())) {
                 auditFail(appId, callerSub, edekIdStr, callerIp, "element_mismatch", request.endUserId(), null);
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "iv_b64, ciphertext_b64, or tag_b64 do not belong to this edek_id. These fields must all "
                                 + "come from the same encrypt response -- mixing elements across different responses is not permitted.");
             }
@@ -170,7 +170,7 @@ public class DecryptionService {
             plaintext = DekManager.decrypt(resolvedCiphertext, resolvedTag, resolvedIv, dek, ownerAppId);
         } catch (AEADBadTagException e) {
             auditFail(appId, callerSub, edekIdStr, callerIp, "tag_verification_failed", request.endUserId(), null);
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "Ciphertext authentication failed: the data may be corrupt or tampered with");
         } finally {
             DekManager.zeroDek(dek);
@@ -199,14 +199,14 @@ public class DecryptionService {
 
         int maxItems = properties.service().batchMaxItems();
         if (items.size() > maxItems) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "batch exceeds maximum item count: " + items.size() + " (limit " + maxItems + ")");
         }
 
         Set<String> seenKeys = new HashSet<>();
         for (BatchDecryptItem item : items) {
             if (!seenKeys.add(item.key())) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "duplicate key in batch: '" + item.key() + "' -- each item must have a unique key for correlation");
             }
         }

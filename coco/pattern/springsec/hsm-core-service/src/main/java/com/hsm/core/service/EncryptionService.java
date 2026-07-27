@@ -53,7 +53,7 @@ public class EncryptionService {
     public EncryptResponse encrypt(EncryptRequest request, String appId, String callerSub, String callerIp) {
         byte[] plaintextBytes = request.plaintext().getBytes(StandardCharsets.UTF_8);
         if (plaintextBytes.length > MAX_PLAINTEXT_BYTES) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "plaintext exceeds maximum size: " + plaintextBytes.length
                             + " bytes (hard limit " + MAX_PLAINTEXT_BYTES + " bytes)");
         }
@@ -123,14 +123,14 @@ public class EncryptionService {
 
         int maxItems = properties.service().batchMaxItems();
         if (items.size() > maxItems) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "batch exceeds maximum item count: " + items.size() + " (limit " + maxItems + ")");
         }
 
         Set<String> seenKeys = new HashSet<>();
         for (BatchEncryptItem item : items) {
             if (!seenKeys.add(item.key())) {
-                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY,
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                         "duplicate key in batch: '" + item.key() + "' -- each item must have a unique key for correlation");
             }
         }
