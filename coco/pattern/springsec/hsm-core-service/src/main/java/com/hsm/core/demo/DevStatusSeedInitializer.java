@@ -24,12 +24,15 @@ import java.util.List;
 @ConditionalOnProperty(prefix = "hsm", name = "demo-mode", havingValue = "true")
 public class DevStatusSeedInitializer {
 
+    // Built locally, not injected -- Spring's auto-configured Jackson bean is now a
+    // Jackson 3 JsonMapper (tools.jackson), not this class's com.fasterxml ObjectMapper,
+    // so DI can no longer satisfy this. Matches the pattern already used everywhere else
+    // in this codebase (AuditLogger, SplunkHecBatcher, ...) for a private, local mapper.
     private final DevStatusItemRepository repository;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public DevStatusSeedInitializer(DevStatusItemRepository repository, ObjectMapper objectMapper) {
+    public DevStatusSeedInitializer(DevStatusItemRepository repository) {
         this.repository = repository;
-        this.objectMapper = objectMapper;
     }
 
     private record SeedFile(List<SeedItem> items) {
