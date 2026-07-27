@@ -129,16 +129,18 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ── Security ───────────────────────────────────────────────────────────────────
-# Mirrors the Dockerfile exactly: a dedicated non-root user (uid/gid 1001,
-# "hsmsvc") created at image build time. Pod and container security contexts
-# both pin to that same UID so Kubernetes can't be configured to run the
-# image as a different (e.g. root) user than the image itself expects.
+# Mirrors the Dockerfile exactly: gcr.io/distroless/java21-debian13's :nonroot
+# tag bakes in a fixed uid/gid 65532 user (the standard distroless
+# convention -- no groupadd/useradd, there's no shell to run them with
+# anyway). Pod and container security contexts both pin to that same UID so
+# Kubernetes can't be configured to run the image as a different (e.g. root)
+# user than the image itself expects.
 securityContext:
   pod:
     runAsNonRoot: true
-    runAsUser: 1001
-    runAsGroup: 1001
-    fsGroup: 1001
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
     seccompProfile:
       type: RuntimeDefault
   container:
@@ -311,6 +313,15 @@ pbacIntegration:
 # Set enabled: true when the cluster sits behind a proxy that does SSL
 # inspection. The CA cert must be pre-created as a ConfigMap:
 #   kubectl create configmap corporate-ca --from-file=ca.crt=corporate-ca.crt
+#
+# KNOWN GAP as of the move to gcr.io/distroless/java21-debian13: the
+# import-corporate-ca initContainer in templates/deployment.yaml runs
+# `sh -c "cp ... && keytool ..."` against this same application image --
+# distroless has no shell and no `cp` binary, so this breaks if ever enabled.
+# Not exercised by the default (enabled: false) path, so left as a known,
+# documented gap rather than worked around here. Fix is to point that
+# initContainer at a small separate utility image (anything with sh + a JDK
+# for keytool) instead of reusing the app image -- not done yet.
 corporateCa:
   enabled: false
   configMapName: "corporate-ca"
