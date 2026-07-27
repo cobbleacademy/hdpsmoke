@@ -3,10 +3,10 @@ package com.hsm.core;
 import com.hsm.core.config.FipsBootstrap;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
-import org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration;
-import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration;
-import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration;
+import org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -24,9 +24,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * password and logs it at startup, which is just noise here.
  */
 @SpringBootApplication(exclude = {
-        RedisAutoConfiguration.class,
-        RedisReactiveAutoConfiguration.class,
-        RedisRepositoriesAutoConfiguration.class,
+        DataRedisAutoConfiguration.class,
+        DataRedisReactiveAutoConfiguration.class,
+        DataRedisRepositoriesAutoConfiguration.class,
         UserDetailsServiceAutoConfiguration.class
 })
 @EnableScheduling
