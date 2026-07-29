@@ -238,6 +238,7 @@ async function refreshConsumerAccounts() {
       <td>${a.customer_name}</td>
       <td>${a.email}</td>
       <td><code class="account-cell token-cell">${a.ciphertext_token}</code></td>
+      <td>${a.created_at ? new Date(a.created_at).toLocaleString() : "-"}</td>
       <td><button class="reveal-btn" data-id="${a.id}">Reveal</button></td>
     </tr>`).join("");
   tbody.querySelectorAll(".reveal-btn").forEach(btn => {
@@ -283,6 +284,7 @@ async function refreshGrants() {
   tbody.innerHTML = data.grants.map(g => `<tr>
       <td>${g.grantee_app_id}</td>
       <td>${g.owner_app_id}</td>
+      <td>${g.created_at ? new Date(g.created_at).toLocaleString() : "-"}</td>
       <td><button class="revoke-btn" data-grantee="${g.grantee_app_id}" data-owner="${g.owner_app_id}">Revoke</button></td>
     </tr>`).join("");
   tbody.querySelectorAll(".revoke-btn").forEach(btn => {
