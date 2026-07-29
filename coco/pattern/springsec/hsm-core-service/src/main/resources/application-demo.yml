@@ -13,6 +13,13 @@ spring:
     password:
   flyway:
     locations: classpath:db/migration,classpath:db/migration-demo
+    # The base config's ${ACCESS_SCHEMA:public} already resolves to lowercase
+    # "public" here (ACCESS_SCHEMA is never set in demo mode), which happens to be
+    # correct -- but only because DATABASE_TO_LOWER=TRUE above folds H2's real
+    # default schema to lowercase too, specifically to mimic Postgres. Without that
+    # flag H2's native default is uppercase "PUBLIC" instead; this override exists
+    # mainly as a guard against that default ever changing out from under this file.
+    schemas: public
 
 hsm:
   # Defaults to true whenever the "demo" profile is active by any mechanism

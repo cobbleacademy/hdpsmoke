@@ -35,6 +35,23 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Pins flyway_schema_history into ACCESS_SCHEMA specifically (the lighter-weight
+    # of the two -- app_registrations/app_decrypt_grants, not the encryption store)
+    # rather than leaving it to the connecting DB role's own search_path default.
+    # This is the Postgres-shaped default; H2/demo mode needs its own override
+    # (see application-demo.yml) because H2's real default schema is "PUBLIC"
+    # (uppercase), not "public" -- an explicit lowercase value here would create a
+    # second, empty schema H2 treats as distinct and silently migrate nothing into
+    # the one the app actually reads from.
+    schemas: ${ACCESS_SCHEMA:public}
+    # Only correct when the target schema already has V1-equivalent content from
+    # somewhere Flyway doesn't know about (e.g. cutting over from the Python
+    # service's own Alembic-managed database, which already created
+    # edek_records/app_registrations/app_decrypt_grants) -- baselining at the
+    # default version (1) tells Flyway "treat V1 as already applied, start from V2."
+    # Wrong for a genuinely empty/fresh schema: it would skip V1 entirely and leave
+    # the core tables never created. Don't enable this against a brand-new database.
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
     placeholders:
       crypto_schema: ${CRYPTO_SCHEMA:public}
       access_schema: ${ACCESS_SCHEMA:public}
