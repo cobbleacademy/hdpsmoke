@@ -1,1 +1,2 @@
 Intitial
+jdbc:postgresql://host:port/db?sslmode=require&currentSchema=myschema&user=USERNAME&password=PASSWORD
