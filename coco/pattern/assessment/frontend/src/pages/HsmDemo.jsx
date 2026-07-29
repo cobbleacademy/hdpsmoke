@@ -1559,13 +1559,14 @@ export default function HsmDemo() {
                 {grantError && <div style={s.errorBanner}>{grantError}</div>}
                 <table style={s.table}>
                   <thead>
-                    <tr><th style={s.th}>Grantee</th><th style={s.th}>Owner</th><th style={s.th}></th></tr>
+                    <tr><th style={s.th}>Grantee</th><th style={s.th}>Owner</th><th style={s.th}>Created</th><th style={s.th}></th></tr>
                   </thead>
                   <tbody>
                     {grants.map((g) => (
                       <tr key={`${g.grantee_app_id}:${g.owner_app_id}`}>
                         <td style={s.td}>{g.grantee_app_id}</td>
                         <td style={s.td}>{g.owner_app_id}</td>
+                        <td style={s.td}>{g.created_at ? new Date(g.created_at).toLocaleString() : '-'}</td>
                         <td style={s.td}><button style={s.dangerBtn} onClick={() => handleRevokeGrant(g)}>Revoke</button></td>
                       </tr>
                     ))}
@@ -1638,7 +1639,7 @@ export default function HsmDemo() {
               <thead>
                 <tr>
                   <th style={s.th}>ID</th><th style={s.th}>Customer</th><th style={s.th}>Email</th>
-                  <th style={s.th}>ciphertext_token</th><th style={s.th}></th>
+                  <th style={s.th}>ciphertext_token</th><th style={s.th}>Created</th><th style={s.th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -1650,6 +1651,7 @@ export default function HsmDemo() {
                     <td style={s.tdMono}>
                       {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.ciphertext_token, 18)}
                     </td>
+                    <td style={s.td}>{acc.created_at ? new Date(acc.created_at).toLocaleString() : '-'}</td>
                     <td style={s.td}>
                       <button style={s.primaryBtnSmall} disabled={revealBusyId === acc.id} onClick={() => handleReveal(acc.id)}>
                         {revealBusyId === acc.id ? '…' : 'Reveal'}
