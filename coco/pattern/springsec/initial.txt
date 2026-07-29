@@ -1,2 +1,46 @@
 Intitial
 jdbc:postgresql://host:port/db?sslmode=require&currentSchema=myschema&user=USERNAME&password=PASSWORD
+
+Base path is ${SERVER_PORT:3005} + ${API_V1_PREFIX:/api/sensec/hsm/v1} (both overridable). All 4 endpoints are POST, need Authorization: Bearer <token> + X-App-ID: <app-id> headers, and wire fields are snake_case (spring.jackson.property-naming-strategy: SNAKE_CASE).
+
+1. Encrypt — POST /api/sensec/hsm/v1/encrypt — requires encrypt scope
+
+curl -X POST http://<host>:3005/api/sensec/hsm/v1/encrypt \
+  -H "Authorization: Bearer <token>" \
+  -H "X-App-ID: payments-svc" \
+  -H "Content-Type: application/json" \
+  -d '{"plaintext": "4111-1111-1111-1234", "data_classification": "pci", "end_user_id": "user@example.com"}'
+2. Decrypt — POST /api/sensec/hsm/v1/decrypt — requires decrypt scope
+
+curl -X POST http://<host>:3005/api/sensec/hsm/v1/decrypt \
+  -H "Authorization: Bearer <token>" \
+  -H "X-App-ID: payments-svc" \
+  -H "Content-Type: application/json" \
+  -d '{"ciphertext_token": "v1.AZc...(from the encrypt response above)", "end_user_id": "user@example.com"}'
+3. Batch Encrypt — POST /api/sensec/hsm/v1/encrypt/batch — requires encrypt scope, capped by ENCRYPT_BATCH_MAX_ITEMS (default 100)
+
+curl -X POST http://<host>:3005/api/sensec/hsm/v1/encrypt/batch \
+  -H "Authorization: Bearer <token>" \
+  -H "X-App-ID: payments-svc" \
+  -H "Content-Type: application/json" \
+  -d '{"items": [
+        {"key": "row-1", "plaintext": "secret A", "data_classification": "pii"},
+        {"key": "row-2", "plaintext": "secret B", "data_classification": "pii"}
+      ]}'
+4. Batch Decrypt — POST /api/sensec/hsm/v1/decrypt/batch — requires decrypt scope
+
+curl -X POST http://<host>:3005/api/sensec/hsm/v1/decrypt/batch \
+  -H "Authorization: Bearer <token>" \
+  -H "X-App-ID: payments-svc" \
+  -H "Content-Type: application/json" \
+  -d '{"items": [
+        {"key": "row-1", "ciphertext_token": "v1.AZc...(from batch encrypt result item row-1)"},
+        {"key": "row-2", "ciphertext_token": "v1.AZc...(from batch encrypt result item row-2)"}
+      ]}'
+Batch responses are always 200, with per-item key-correlated success/error status inside the body — check each item, not just the HTTP status.
+
+Notes:
+
+Decrypt/batch-decrypt also accept the legacy 4-field form (edek_id, iv_b64, ciphertext_b64, tag_b64) instead of ciphertext_token — one or the other, not both.
+<host> is whatever you're reaching the service through in K8s (in-cluster service DNS, port-forward, or ingress); <token> must satisfy whatever JwtValidator is configured for in that environment — in demo mode it's the fixed demo-token-<app-id> pattern (e.g. demo-token-payments-svc), in a real deployment it's a JWT the caller app mints against your real JWKS/public key with the right app_id claim matching X-App-ID.
+GET /api/sensec/hsm/v1/admin/health needs no auth — good first smoke check before hitting the encrypt/decrypt paths.
