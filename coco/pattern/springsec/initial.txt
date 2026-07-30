@@ -3,6 +3,34 @@ jdbc:postgresql://host:port/db?sslmode=require&currentSchema=myschema&user=USERN
 
 Base path is ${SERVER_PORT:3005} + ${API_V1_PREFIX:/api/sensec/hsm/v1} (both overridable). All 4 endpoints are POST, need Authorization: Bearer <token> + X-App-ID: <app-id> headers, and wire fields are snake_case (spring.jackson.property-naming-strategy: SNAKE_CASE).
 
+
+corporateCa:
+  enabled: false
+  configMapName: "corporate-ca"
+  certFile: "ca.crt"
+  utilityImage: "eclipse-temurin:21-jre-alpine"
+
+      initContainers:
+        - name: import-corporate-ca
+          image: "{{ .Values.corporateCa.utilityImage }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              cp "$JAVA_HOME/lib/security/cacerts" /truststore/cacerts
+              keytool -importcert -noprompt -trustcacerts \
+                -alias corporate-ca \
+                -file /etc/ssl/corporate/{{ .Values.corporateCa.certFile }} \
+                -keystore /truststore/cacerts \
+                -storepass {{ .Values.corporateCa.trustStorePassword }}
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+            - name: corporate-ca
+              mountPath: /etc/ssl/corporate
+              readOnly: true
+
+
 1. Encrypt — POST /api/sensec/hsm/v1/encrypt — requires encrypt scope
 
 curl -X POST http://<host>:3005/api/sensec/hsm/v1/encrypt \
