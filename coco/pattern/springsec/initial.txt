@@ -3,12 +3,13 @@ jdbc:postgresql://host:port/db?sslmode=require&currentSchema=myschema&user=USERN
 
 Base path is ${SERVER_PORT:3005} + ${API_V1_PREFIX:/api/sensec/hsm/v1} (both overridable). All 4 endpoints are POST, need Authorization: Bearer <token> + X-App-ID: <app-id> headers, and wire fields are snake_case (spring.jackson.property-naming-strategy: SNAKE_CASE).
 
-
+----------------------------------------------------------------------------------------------------------
 corporateCa:
   enabled: false
   configMapName: "corporate-ca"
   certFile: "ca.crt"
   utilityImage: "eclipse-temurin:21-jre-alpine"
+----------------------------------------------------------------------------------------------------------
 
       initContainers:
         - name: import-corporate-ca
@@ -18,18 +19,42 @@ corporateCa:
             - |
               set -e
               cp "$JAVA_HOME/lib/security/cacerts" /truststore/cacerts
-              keytool -importcert -noprompt -trustcacerts \
-                -alias corporate-ca \
-                -file /etc/ssl/corporate/{{ .Values.corporateCa.certFile }} \
-                -keystore /truststore/cacerts \
-                -storepass {{ .Values.corporateCa.trustStorePassword }}
+              count=0
+              find /etc/ssl/corporate -type f \( \
+                  -name '*.pem' -o -name '*.PEM' \
+                  -o -name '*.crt' -o -name '*.CRT' \
+                  -o -name '*.cer' -o -name '*.CER' \
+                \) | while IFS= read -r cert; do
+                alias=$(echo "$cert" | sed -e 's#^/etc/ssl/corporate/##' -e 's#[/.]#-#g')
+                echo "Importing $cert as alias $alias"
+                keytool -importcert -noprompt -trustcacerts \
+                  -alias "$alias" \
+                  -file "$cert" \
+                  -keystore /truststore/cacerts \
+                  -storepass {{ .Values.corporateCa.trustStorePassword }}
+              done
+              count=$(find /etc/ssl/corporate -type f \( \
+                  -name '*.pem' -o -name '*.PEM' \
+                  -o -name '*.crt' -o -name '*.CRT' \
+                  -o -name '*.cer' -o -name '*.CER' \
+                \) | wc -l)
+              if [ "$count" -eq 0 ]; then
+                echo "ERROR: no .pem/.crt/.cer files found under /etc/ssl/corporate" >&2
+                exit 1
+              fi
+              echo "Imported $count corporate CA cert(s)"
           volumeMounts:
             - name: truststore
               mountPath: /truststore
             - name: corporate-ca
               mountPath: /etc/ssl/corporate
               readOnly: true
+----------------------------------------------------------------------------------------------------------
 
+
+            - name: JDK_JAVA_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword={{ .Values.corporateCa.trustStorePassword }}"
+----------------------------------------------------------------------------------------------------------
 
 1. Encrypt — POST /api/sensec/hsm/v1/encrypt — requires encrypt scope
 
