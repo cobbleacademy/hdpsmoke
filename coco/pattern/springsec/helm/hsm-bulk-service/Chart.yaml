@@ -1,0 +1,14 @@
+apiVersion: v2
+name: hsm-bulk-service
+description: Tier 3 bulk PoC SVC -- issues/unwraps DEKs (POST /dek/issue, POST /dek/unwrap) for hsm-bulk-client, backed by the same Azure Key Vault Managed HSM as hsm-core-service
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - encryption
+  - hsm
+  - security
+  - bulk
+home: https://example.internal/hsm-bulk-service
+maintainers:
+  - name: Platform Security

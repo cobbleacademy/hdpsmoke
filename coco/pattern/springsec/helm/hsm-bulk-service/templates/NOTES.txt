@@ -1,0 +1,36 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} has been deployed.
+
+Service account:    {{ include "hsm.serviceAccountName" . }}
+Workload Identity:  {{ if .Values.workloadIdentity.enabled }}enabled — confirm the federated credential on the Azure AD app/identity matches client-id {{ index .Values.serviceAccount.annotations "azure.workload.identity/client-id" }}{{ else }}disabled — DefaultAzureCredential will fall back to another credential source{{ end }}
+
+Before this pod can reach Azure Key Vault, confirm:
+  1. The Azure AD application/managed identity referenced by
+     azure.workload.identity/client-id has a federated credential bound to:
+       - issuer:    your AKS cluster's OIDC issuer URL
+       - subject:   system:serviceaccount:{{ .Release.Namespace }}:{{ include "hsm.serviceAccountName" . }}
+  2. That identity has been granted ONLY "wrap key" / "unwrap key" /
+     "get key" on the target Key Vault — nothing broader.
+
+{{- if .Values.secrets.create }}
+
+WARNING: secrets.create=true — DATABASE_URL and other credentials are
+stored as a plain Kubernetes Secret (base64, not encrypted by default in
+every cluster). For production, set secrets.create=false and provide
+secrets.existingSecretName pointing at a Secret populated by the Azure Key
+Vault CSI driver or External Secrets Operator instead.
+{{- end }}
+
+No health endpoint exists on this service yet (only authenticated
+POST /dek/issue and POST /dek/unwrap) — probes.type defaults to tcp, a
+connection-level check only. It confirms the process is alive, not that it's
+genuinely serving correctly.
+
+Check rollout status:
+  kubectl rollout status deployment/{{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
+
+Exercise it directly (requires a valid bearer token + X-App-ID for a
+provisioned app — see java/docs/TIER3_POC_BUILD.md):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "hsm.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -X POST http://localhost:{{ .Values.service.port }}{{ .Values.config.apiV1Prefix }}/dek/issue \
+    -H "Authorization: Bearer <token>" -H "X-App-ID: <app-id>" -H "Content-Type: application/json" \
+    -d '{"items":[{"key":"smoke-test"}]}'

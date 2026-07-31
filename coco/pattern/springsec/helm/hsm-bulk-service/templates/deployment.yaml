@@ -1,0 +1,179 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hsm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hsm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hsm.selectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and (eq .Values.probes.type "http") .Values.istio.rewriteAppHTTPProbers }}
+        # Only meaningful for http probes -- see hsm-core-service's chart for
+        # the full explanation of why this rewrite matters under STRICT mTLS.
+        sidecar.istio.io/rewriteAppHTTPProbers: "true"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "hsm.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      {{- if .Values.corporateCa.enabled }}
+      # Same corporate-proxy TLS-interception fix as hsm-core-service's chart
+      # -- see that chart's deployment.yaml for the full explanation.
+      initContainers:
+        - name: import-corporate-ca
+          image: "{{ .Values.corporateCa.utilityImage }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              cp "$JAVA_HOME/lib/security/cacerts" /truststore/cacerts
+              count=0
+              find /etc/ssl/corporate -type f \( \
+                  -name '*.pem' -o -name '*.PEM' \
+                  -o -name '*.crt' -o -name '*.CRT' \
+                  -o -name '*.cer' -o -name '*.CER' \
+                \) | while IFS= read -r cert; do
+                alias=$(echo "$cert" | sed -e 's#^/etc/ssl/corporate/##' -e 's#[/.]#-#g')
+                echo "Importing $cert as alias $alias"
+                keytool -importcert -noprompt -trustcacerts \
+                  -alias "$alias" \
+                  -file "$cert" \
+                  -keystore /truststore/cacerts \
+                  -storepass {{ .Values.corporateCa.trustStorePassword }}
+              done
+              count=$(find /etc/ssl/corporate -type f \( \
+                  -name '*.pem' -o -name '*.PEM' \
+                  -o -name '*.crt' -o -name '*.CRT' \
+                  -o -name '*.cer' -o -name '*.CER' \
+                \) | wc -l)
+              if [ "$count" -eq 0 ]; then
+                echo "ERROR: no .pem/.crt/.cer files found under /etc/ssl/corporate" >&2
+                exit 1
+              fi
+              echo "Imported $count corporate CA cert(s)"
+          volumeMounts:
+            - name: truststore
+              mountPath: /truststore
+            - name: corporate-ca
+              mountPath: /etc/ssl/corporate
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: hsm-bulk-service
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "hsm.fullname" . }}-config
+            - secretRef:
+                name: {{ include "hsm.secretName" . }}
+                optional: true
+          {{- if eq .Values.probes.type "http" }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- else if eq .Values.probes.type "tcp" }}
+          # Connection-level only -- this service has no health endpoint yet
+          # (see values.yaml's probes comment). Still catches a dead/hung
+          # process without depending on an unauthenticated HTTP route.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readinessInitialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.probes.readinessPeriodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.corporateCa.enabled }}
+          env:
+            # JDK_JAVA_OPTIONS -- see hsm-core-service's chart for why this
+            # (not JAVA_TOOL_OPTIONS) is the recommended choice, with the same
+            # plain `ENTRYPOINT ["java","-jar","app.jar"]` here too.
+            - name: JDK_JAVA_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword={{ .Values.corporateCa.trustStorePassword }}"
+          {{- end }}
+          volumeMounts:
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- if .Values.corporateCa.enabled }}
+            - name: truststore
+              mountPath: /truststore
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if .Values.corporateCa.enabled }}
+        - name: corporate-ca
+          configMap:
+            name: {{ .Values.corporateCa.configMapName }}
+        - name: truststore
+          emptyDir:
+            sizeLimit: 16Mi
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
