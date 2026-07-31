@@ -14,6 +14,8 @@
     <modules>
         <module>hsm-core-service</module>
         <module>cek-rotation-service</module>
+        <module>hsm-bulk-service</module>
+        <module>hsm-bulk-client</module>
     </modules>
 
     <properties>
@@ -181,6 +183,16 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
+                    <!-- No explicit version here used to leave plugin resolution up to
+                         whatever the local Maven installation defaults to; without a pin,
+                         an older default (predating <release> support, added in 3.6) can
+                         silently fall back to an ancient source/target level, which is
+                         exactly how a build reports "records are not supported in -source
+                         11" despite <release>21</release> being set below; records need
+                         16+. Pinned to 3.15.0, the version already verified against this
+                         project's own record-heavy DTOs/config classes throughout this
+                         session. -->
+                    <version>3.15.0</version>
                     <configuration>
                         <release>${java.version}</release>
                         <!-- Spring Boot's own starter-parent sets this by default; needed for
