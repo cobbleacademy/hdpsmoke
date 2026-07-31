@@ -1,0 +1,67 @@
+# hsm-bulk-client -- see java/docs/BULK_OPERATIONS.md (Tier 3) and
+# java/docs/TIER3_POC_BUILD.md. Talks only to SVC (hsm-bulk-service); never receives
+# inbound requests, so this runs as a one-shot batch job, not a server.
+#
+# client.db.columns and client.file.file-types are lists of objects/strings, which
+# don't map cleanly onto single env vars -- override them via a job-specific config
+# file (e.g. --spring.config.additional-location=file:./my-job.yml) rather than env
+# vars, same as hsm-core-service's own hsm.security.access-rules list.
+
+spring:
+  main:
+    web-application-type: none
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+client:
+  job:
+    type: ${JOB_TYPE:DB}          # DB | FILE
+    mode: ${JOB_MODE:ENCRYPT}     # ENCRYPT | DECRYPT
+
+  svc:
+    base-url: ${SVC_BASE_URL:http://localhost:3006}
+    app-id: ${SVC_APP_ID:payments-svc}
+    token: ${SVC_TOKEN:}
+    dek-batch-max-items: ${SVC_DEK_BATCH_MAX_ITEMS:100}
+    # PKCS#8 PEM. Never sent anywhere -- only used locally to unwrap what SVC
+    # returns. The corresponding public key must already be registered on
+    # app_registrations.public_key_pem for svc.app-id (see TIER3_POC_BUILD.md;
+    # no admin endpoint provisions this yet -- it's a direct DB step).
+    private-key-pem: ${CLIENT_PRIVATE_KEY_PEM:}
+
+  db:
+    source:
+      jdbc-url: ${DB_SOURCE_JDBC_URL:}
+      username: ${DB_SOURCE_USERNAME:}
+      password: ${DB_SOURCE_PASSWORD:}
+      schema: ${DB_SOURCE_SCHEMA:}
+      table: ${DB_SOURCE_TABLE:}
+    target:
+      # Defaults to source.jdbc-url when blank -- same-DB, different-schema/table
+      # is the common case; set explicitly only for a genuinely separate target DB.
+      jdbc-url: ${DB_TARGET_JDBC_URL:}
+      username: ${DB_TARGET_USERNAME:}
+      password: ${DB_TARGET_PASSWORD:}
+      schema: ${DB_TARGET_SCHEMA:}
+      table: ${DB_TARGET_TABLE:}
+    key-column: ${DB_KEY_COLUMN:id}
+    row-batch-size: ${DB_ROW_BATCH_SIZE:100}
+    # Example shape -- override in a job-specific config file:
+    # columns:
+    #   - source: ssn
+    #     target: ssn_ciphertext_token
+    #   - source: account_number
+    #     target: account_number_ciphertext_token
+    columns: []
+
+  file:
+    source:
+      type: ${FILE_SOURCE_TYPE:LOCAL}   # LOCAL | ADLS
+      root: ${FILE_SOURCE_ROOT:}        # local path, or abfss://<container>@<account>.dfs.core.windows.net/<path>
+    target:
+      type: ${FILE_TARGET_TYPE:LOCAL}   # independent of source.type -- e.g. source: ADLS, target: LOCAL is valid
+      root: ${FILE_TARGET_ROOT:}
+    # Example: file-types: [".png", ".txt", ".pdf"] -- empty list means all files.
+    file-types: []
+    chunk-size-bytes: ${FILE_CHUNK_SIZE_BYTES:8388608}   # 8 MiB default
+    files-per-batch: ${FILE_FILES_PER_BATCH:10}
