@@ -1,0 +1,37 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-bulk-service -t hsm-bulk-service:1.0.0 .
+#
+# SVC for the Tier 3 bulk PoC -- see java/docs/BULK_OPERATIONS.md and
+# java/docs/TIER3_POC_BUILD.md. Same build/runtime pattern as
+# Dockerfile.hsm-core-service (see there for the full rationale on the
+# distroless base image and digest pinning) -- this file only differs in
+# which module gets built and packaged.
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-bulk-service/pom.xml hsm-bulk-service/pom.xml
+COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-bulk-service/src hsm-bulk-service/src
+RUN mvn -q -pl hsm-bulk-service -am package -DskipTests
+
+# Debian-based distroless, not Ubuntu -- same rationale and same image as
+# hsm-core-service's Dockerfile. The :nonroot tag bakes in a fixed uid/gid
+# 65532 -- no groupadd/useradd/chown needed, and no shell to run them with
+# anyway. This UID must stay in sync with securityContext in
+# helm/hsm-bulk-service/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /workspace/hsm-bulk-service/target/hsm-bulk-service.jar app.jar
+
+EXPOSE 3006
+
+# No HEALTHCHECK here -- distroless has no shell/curl to run one with, same
+# as hsm-core-service. Unlike hsm-core-service, this service also has no
+# dedicated GET /admin/health-equivalent endpoint at all yet (only
+# POST /dek/issue and POST /dek/unwrap, both authenticated) -- see
+# helm/hsm-bulk-service/values.yaml's probes.type default (tcp, not http)
+# for how Kubernetes liveness/readiness are handled without one.
+
+ENTRYPOINT ["java", "-jar", "app.jar"]
