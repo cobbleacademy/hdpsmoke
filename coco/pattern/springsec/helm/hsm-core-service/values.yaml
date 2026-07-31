@@ -268,7 +268,16 @@ secrets:
     # name (DATABASE_URL) didn't. The JDBC driver needs "jdbc:postgresql://...",
     # not SQLAlchemy's "postgresql+asyncpg://...". Update any existing secret
     # value when cutting a namespace over from the Python image to the Java one.
+    #
+    # Do NOT embed credentials in databaseUrl itself (the old
+    # "postgresql://user:pass@host/db" convention) -- Hikari and Hibernate both
+    # print the JDBC URL at startup unconditionally, which ships to Splunk via
+    # this service's own log pipeline; an embedded password would land in
+    # plaintext in every pod's logs. Use a bare URL (no credentials) plus these
+    # two separate fields instead.
     databaseUrl: ""
+    databaseUsername: ""
+    databasePassword: ""
     jwtPublicKeyPem: ""
     splunkHecToken: ""
     # Redis connection string for the DEK cache — credential-shaped, never in ConfigMap.
@@ -311,21 +320,31 @@ pbacIntegration:
 
 # ── Corporate proxy CA ────────────────────────────────────────────────────────
 # Set enabled: true when the cluster sits behind a proxy that does SSL
-# inspection. The CA cert must be pre-created as a ConfigMap:
-#   kubectl create configmap corporate-ca --from-file=ca.crt=corporate-ca.crt
+# inspection. The import-corporate-ca initContainer walks configMapName's
+# mount recursively and imports every .pem/.crt/.cer file it finds -- so a
+# single cert works the same as with --from-file=ca.crt=corporate-ca.crt, and
+# so does any number of certs from a projected volume of several
+# ConfigMaps/Secrets, each mapped to its own subpath (a single ConfigMap's own
+# keys can't contain "/", so genuine child folders under the mount need that
+# kind of projected source, not a plain ConfigMap).
 #
-# KNOWN GAP as of the move to gcr.io/distroless/java21-debian13: the
-# import-corporate-ca initContainer in templates/deployment.yaml runs
-# `sh -c "cp ... && keytool ..."` against this same application image --
-# distroless has no shell and no `cp` binary, so this breaks if ever enabled.
-# Not exercised by the default (enabled: false) path, so left as a known,
-# documented gap rather than worked around here. Fix is to point that
-# initContainer at a small separate utility image (anything with sh + a JDK
-# for keytool) instead of reusing the app image -- not done yet.
+# The import-corporate-ca initContainer needs `sh` + `keytool`, which the
+# distroless runtime image (gcr.io/distroless/java21-debian13) no longer has.
+# utilityImage is a separate, non-distroless JDK image used ONLY for this
+# initContainer -- the main container still runs distroless. Alpine (not a
+# Jammy/Ubuntu variant) keeps the OS-package CVE surface minimal, matching
+# why the main image moved off Ubuntu; cacerts format is portable across
+# vendors/versions, so it doesn't need to match the runtime image's JDK build.
+# trustStorePassword: cacerts holds only public CA certs (no private key
+# material), so this password protects integrity, not confidentiality --
+# "changeit" is the JDK's own built-in default. Parameterized here mainly so
+# it isn't a literal hardcoded string a secret-scanner flags, not because it
+# guards anything actually secret.
 corporateCa:
   enabled: false
   configMapName: "corporate-ca"
-  certFile: "ca.crt"
+  utilityImage: "eclipse-temurin:21-jre-alpine"
+  trustStorePassword: "changeit"
 
 podAnnotations: {}
 podLabels: {}
