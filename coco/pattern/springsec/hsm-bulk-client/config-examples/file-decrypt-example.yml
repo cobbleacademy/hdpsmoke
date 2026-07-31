@@ -1,0 +1,27 @@
+# Reverses file-encrypt-example.yml -- source now holds the encrypted files
+# (length-prefixed framing + edek_id header), target receives decrypted output,
+# mirroring the same relative paths/filenames.
+
+client:
+  job:
+    type: FILE
+    mode: DECRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  file:
+    source:
+      type: LOCAL
+      root: /path/to/target
+    target:
+      type: LOCAL
+      root: /path/to/roundtrip
+    file-types: []
+    chunk-size-bytes: 8388608
+    files-per-batch: 10

@@ -1,0 +1,37 @@
+# Reverses db-encrypt-example.yml -- source/target swap roles: source now
+# holds ciphertext_token values, target receives decrypted plaintext.
+# columns.source/target also swap meaning accordingly.
+
+client:
+  job:
+    type: DB
+    mode: DECRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  db:
+    source:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "secure"
+      table: customers_encrypted
+    target:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "raw"
+      table: customers_decrypted
+    key-column: id
+    row-batch-size: 100
+    columns:
+      - source: ssn_ciphertext_token
+        target: ssn
+      - source: account_number_ciphertext_token
+        target: account_number

@@ -1,0 +1,45 @@
+# Example BULK DB encrypt job config -- the exact shape verified end-to-end in
+# java/docs/TIER3_POC_BUILD.md. Copy this, fill in the real values, run with:
+#   scripts/run.sh config-examples/db-encrypt-example.yml
+#
+# Generating a keypair for svc.private-key-pem (the public half must be
+# registered on app_registrations.public_key_pem for svc.app-id -- no admin
+# endpoint does this yet, see TIER3_POC_BUILD.md):
+#   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
+#   openssl rsa -in private.pem -pubout -out public.pem
+
+client:
+  job:
+    type: DB
+    mode: ENCRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  db:
+    source:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "raw"
+      table: customers
+    target:
+      # Omit jdbc-url/username/password entirely to reuse source's connection
+      # (same DB, different schema/table -- the common case).
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "secure"
+      table: customers_encrypted
+    key-column: id
+    row-batch-size: 100
+    columns:
+      - source: ssn
+        target: ssn_ciphertext_token
+      - source: account_number
+        target: account_number_ciphertext_token
