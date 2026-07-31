@@ -6,6 +6,14 @@
 # NOTE: DATABASE_URL's *value format* still changes from SQLAlchemy's
 # "postgresql+asyncpg://..." to a JDBC URL "jdbc:postgresql://..." -- unavoidable,
 # the JDBC driver requires the jdbc: scheme.
+#
+# DATABASE_USERNAME/DATABASE_PASSWORD are separate from DATABASE_URL deliberately --
+# do NOT embed credentials in the URL itself (the old "postgresql://user:pass@host/db"
+# convention). Hikari and Hibernate both print the JDBC URL at startup unconditionally
+# ("Database JDBC URL [...]", "HikariPool-1 - Added connection ... url=..."), which
+# ships to Splunk via this service's own audit/log pipeline -- an embedded password
+# would land in plaintext in every pod's logs. A bare URL (no credentials) plus these
+# two separate properties avoids that; hsm-bulk-service already uses this pattern.
 
 server:
   port: ${SERVER_PORT:3005}
@@ -32,6 +40,8 @@ spring:
           time_zone: UTC
   datasource:
     url: ${DATABASE_URL:}
+    username: ${DATABASE_USERNAME:}
+    password: ${DATABASE_PASSWORD:}
   flyway:
     enabled: true
     locations: classpath:db/migration
