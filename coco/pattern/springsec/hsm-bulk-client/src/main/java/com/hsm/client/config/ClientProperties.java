@@ -29,6 +29,7 @@ public record ClientProperties(
 
     public record Svc(
             String baseUrl,
+            String apiV1Prefix,    // must match SVC's own API_V1_PREFIX (hsm.service.api-v1-prefix) -- the two are configured independently and not auto-synced
             String appId,
             String token,
             int dekBatchMaxItems,  // mirrors hsm.service.dek-batch-max-items on SVC -- self-limit client-side rather than rely on SVC's 422 rejection
