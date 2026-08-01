@@ -1,0 +1,49 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} -- Job "{{ include "hsm.fullname" . }}" submitted in namespace {{ .Release.Namespace }}.
+
+This chart runs ONE bulk DB or File job and exits -- it is not a long-lived
+service. Each real run should be its own `helm install <unique-name> ...`
+(Jobs are immutable once created; there is no "update" of a prior run).
+
+Before install, the Secret named by `secretName` must already exist, holding
+the full job config under key "job.yml":
+
+  # Start from java/hsm-bulk-client/config-examples/{db,file}-{encrypt,decrypt}-example.yml,
+  # fill in real values, then:
+  kubectl create secret generic <name>-config --from-file=job.yml=<your-job.yml> \
+    --dry-run=client -o yaml -n {{ .Release.Namespace }} | kubectl apply -f -
+
+  helm install <name> helm/hsm-bulk-client-job \
+    --set secretName=<name>-config -n {{ .Release.Namespace }}
+
+The image itself never contains job config -- it is fixed and reused across
+every run (java/docker/Dockerfile.hsm-bulk-client bakes in only the mount
+path, --spring.config.additional-location=file:/config/job.yml). To change
+what a run does, change the Secret's content and start a new Job; never
+rebuild the image for a config-only change.
+
+{{- if .Values.workloadIdentity.enabled }}
+
+Workload Identity is enabled -- confirm the federated credential on the
+Azure AD app/identity referenced by
+{{ index .Values.serviceAccount.annotations "azure.workload.identity/client-id" }}
+is bound to:
+  issuer:   your AKS cluster's OIDC issuer URL
+  subject:  system:serviceaccount:{{ .Release.Namespace }}:{{ include "hsm.serviceAccountName" . }}
+(needed only when this run's client.file.source/target.type is ADLS.)
+{{- end }}
+
+Watch it:
+  kubectl logs -f job/{{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
+  kubectl get job {{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
+
+backoffLimit is {{ .Values.backoffLimit }} -- a failed run does NOT auto-retry
+(DbBulkJob/FileBulkJob have no checkpointing; a K8s-driven retry after a
+partial failure could hit primary-key conflicts or re-encrypt already-done
+files). Re-running after a failure is a deliberate manual step: clean up the
+partial target, then `helm install` again with a new release name.
+
+Clean up:
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+  {{- if gt (int .Values.ttlSecondsAfterFinished) 0 }}
+  (or wait -- ttlSecondsAfterFinished={{ .Values.ttlSecondsAfterFinished }}s auto-deletes the Job/pod after completion)
+  {{- end }}

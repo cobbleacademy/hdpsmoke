@@ -1,0 +1,96 @@
+
+# ── Image ──────────────────────────────────────────────────────────────────────
+# Built from java/docker/Dockerfile.hsm-bulk-client. This image is config-free --
+# it never bakes in which table/file, columns, credentials, etc. to process (see
+# secretName below). The same image tag is reused across every run; only the
+# mounted Secret changes. Rebuild/retag only on an actual code change.
+image:
+  repository: your-registry.azurecr.io/hsm-bulk-client
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# ── Job config ─────────────────────────────────────────────────────────────────
+# Name of a pre-existing Secret holding the full job YAML under key "job.yml"
+# (see NOTES.txt for the exact kubectl command). This chart does NOT create the
+# Secret -- job config (including credentials: DB password, bearer token,
+# private-key-pem) is provided per run, outside of `helm install`, so it never
+# ends up in `helm history` or a values file committed to source control.
+# REQUIRED -- `helm install` fails validation if left blank.
+secretName: ""
+
+# No auto-retry: DbBulkJob does a plain INSERT (no upsert/checkpointing) and
+# FileBulkJob has no skip-already-done logic, so a K8s-driven retry after a
+# partial failure would hit primary-key conflicts or re-encrypt already-done
+# files rather than cleanly resume. A failed run just stops; re-running is a
+# deliberate, manual step (with the partial target cleaned up first).
+backoffLimit: 0
+
+# Safety cap, not a target -- actual duration is data-size-dependent (row/file
+# count, chunk-size-bytes, files-per-batch). Tune per run via --set for
+# unusually large or small jobs.
+activeDeadlineSeconds: 21600   # 6h
+
+# Auto-cleanup of the completed Job/pod, long enough to read `kubectl logs`
+# first. Set to a negative value (or omit) to disable and clean up manually.
+ttlSecondsAfterFinished: 3600  # 1h
+
+# ── Resources ──────────────────────────────────────────────────────────────────
+# A DB job holds roughly row-batch-size rows in memory; a File job holds
+# roughly chunk-size-bytes per in-flight chunk (default 8MiB, see
+# hsm-bulk-client's application.yml) -- these defaults cover typical runs.
+# Re-tune per run for unusually large row-batch-size/chunk-size-bytes.
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# ── Service account & identity ──────────────────────────────────────────────────
+# Off by default -- only needed when this run's client.file.source.type or
+# client.file.target.type (in the mounted job.yml) is ADLS. hsm-bulk-client's
+# AdlsFileStore resolves credentials the same way AzureKeyVaultKekClient does
+# (WorkloadIdentityCredential -> ManagedIdentityCredential -> DefaultAzureCredential),
+# purely from environment/well-known token file, so no extra config section
+# beyond the standard Workload Identity annotation is needed here.
+serviceAccount:
+  create: false
+  name: ""   # defaults to the chart's fullname if empty
+  annotations: {}
+    # azure.workload.identity/client-id: "<AZURE_CLIENT_ID>"
+  labels: {}
+
+workloadIdentity:
+  enabled: false
+
+# ── Security ───────────────────────────────────────────────────────────────────
+# Mirrors the Dockerfile exactly -- same distroless :nonroot uid/gid 65532
+# convention as every other chart in this repo.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# Writable scratch space for the JVM's own /tmp needs (readOnlyRootFilesystem
+# makes everywhere else unwritable) and for LocalFileStore when a run's
+# file.source/target root points here -- bump sizeLimit for large local-disk
+# File runs; irrelevant for DB runs and ADLS-only File runs.
+tmpVolume:
+  enabled: true
+  sizeLimit: 512Mi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

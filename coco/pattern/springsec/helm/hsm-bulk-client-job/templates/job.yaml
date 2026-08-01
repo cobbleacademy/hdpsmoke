@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hsm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  {{- if ge (int .Values.ttlSecondsAfterFinished) 0 }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "hsm.selectorLabels" . | nindent 8 }}
+        {{- if .Values.workloadIdentity.enabled }}
+        azure.workload.identity/use: "true"
+        {{- end }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "hsm.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      containers:
+        - name: hsm-bulk-client
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: job-config
+              mountPath: /config
+              readOnly: true
+            {{- if .Values.tmpVolume.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+      volumes:
+        # The entire per-run job -- DB or File, encrypt or decrypt, table/columns
+        # or source/target roots, plus credentials (private-key-pem, DB password,
+        # bearer token) -- lives as one key in one Secret, mounted at the fixed
+        # path Dockerfile.hsm-bulk-client's ENTRYPOINT already points at
+        # (--spring.config.additional-location=file:/config/job.yml). This chart
+        # does not create the Secret -- see NOTES.txt for the kubectl command to
+        # create it before `helm install`.
+        - name: job-config
+          secret:
+            secretName: {{ required "secretName is required -- create a Secret with key job.yml first (see NOTES.txt), then --set secretName=<name>" .Values.secretName }}
+            items:
+              - key: job.yml
+                path: job.yml
+        {{- if .Values.tmpVolume.enabled }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
