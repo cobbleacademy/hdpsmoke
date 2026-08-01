@@ -20,6 +20,11 @@ client:
 
   svc:
     base-url: ${SVC_BASE_URL:http://localhost:3006}
+    # Must match SVC's own API_V1_PREFIX (hsm.service.api-v1-prefix,
+    # helm/hsm-bulk-service/values.yaml's config.apiV1Prefix) -- the two are
+    # configured independently, not auto-synced, so if SVC's is ever changed
+    # this needs to change to match or every call 404s.
+    api-v1-prefix: ${SVC_API_V1_PREFIX:/api/sensec/hsm/v1}
     app-id: ${SVC_APP_ID:payments-svc}
     token: ${SVC_TOKEN:}
     dek-batch-max-items: ${SVC_DEK_BATCH_MAX_ITEMS:100}
