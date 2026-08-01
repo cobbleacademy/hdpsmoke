@@ -64,7 +64,7 @@ public class SvcClient {
     private <T, R> List<R> post(String path, ItemsRequest<T> body, Class<R> resultType) {
         try {
             String json = MAPPER.writeValueAsString(body);
-            HttpRequest request = HttpRequest.newBuilder(URI.create(config.baseUrl() + "/api/sensec/hsm/v1" + path))
+            HttpRequest request = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiV1Prefix() + path))
                     .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + config.token())
