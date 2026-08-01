@@ -97,3 +97,6 @@ Notes:
 Decrypt/batch-decrypt also accept the legacy 4-field form (edek_id, iv_b64, ciphertext_b64, tag_b64) instead of ciphertext_token — one or the other, not both.
 <host> is whatever you're reaching the service through in K8s (in-cluster service DNS, port-forward, or ingress); <token> must satisfy whatever JwtValidator is configured for in that environment — in demo mode it's the fixed demo-token-<app-id> pattern (e.g. demo-token-payments-svc), in a real deployment it's a JWT the caller app mints against your real JWKS/public key with the right app_id claim matching X-App-ID.
 GET /api/sensec/hsm/v1/admin/health needs no auth — good first smoke check before hitting the encrypt/decrypt paths.
+----------------------------------------------------------------------------------------------------------
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
+openssl rsa -in private.pem -pubout -out public.pem
