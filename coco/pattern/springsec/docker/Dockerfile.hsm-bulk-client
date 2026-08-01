@@ -1,0 +1,48 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-bulk-client -t hsm-bulk-client:1.0.0 .
+#
+# CLNT for the Tier 3 bulk PoC -- see java/docs/BULK_OPERATIONS.md and
+# java/docs/TIER3_POC_BUILD.md. This is the second way to run hsm-bulk-client
+# (alongside scripts/build.sh + scripts/run.sh, which stays the recommended
+# path for local/manual runs) -- for a Kubernetes Job, see
+# helm/hsm-bulk-client-job. Same build/runtime pattern as
+# Dockerfile.hsm-bulk-service (see there and Dockerfile.hsm-core-service for
+# the full rationale on the distroless base image and digest pinning) --
+# this file only differs in which module gets built, has no EXPOSE (this
+# process makes only outbound calls to hsm-bulk-service, never listens), and
+# bakes a fixed config path into ENTRYPOINT since a K8s Job always mounts the
+# per-run job config at the same path (see helm/hsm-bulk-client-job/templates/job.yaml)
+# -- changing what a run does means changing the mounted Secret, never rebuilding this image.
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-bulk-service/pom.xml hsm-bulk-service/pom.xml
+COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-bulk-client/src hsm-bulk-client/src
+RUN mvn -q -pl hsm-bulk-client -am package -DskipTests
+
+# Debian-based distroless, not Ubuntu -- same rationale and same image as
+# hsm-core-service's Dockerfile. The :nonroot tag bakes in a fixed uid/gid
+# 65532 -- no groupadd/useradd/chown needed, and no shell to run them with
+# anyway. This UID must stay in sync with securityContext in
+# helm/hsm-bulk-client-job/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /workspace/hsm-bulk-client/target/hsm-bulk-client.jar app.jar
+
+# No EXPOSE -- unlike every other module in this repo, this process never
+# accepts inbound connections (spring.main.web-application-type: none). It
+# only calls out to hsm-bulk-service via SvcClient.
+#
+# No HEALTHCHECK -- distroless has no shell/curl, same as every other
+# Dockerfile here. Not meaningful for a Job anyway: K8s tracks Job/pod
+# completion by exit code, not liveness/readiness probes (see
+# helm/hsm-bulk-client-job/templates/job.yaml, which defines neither).
+
+# Fixed mount path, not a placeholder -- the Job chart always mounts the
+# per-run job.yml Secret at exactly this path (helm/hsm-bulk-client-job's
+# job-config volume). This is what makes the image itself config-free: the
+# path never changes, only what's mounted there per run.
+ENTRYPOINT ["java", "-jar", "app.jar", "--spring.config.additional-location=file:/config/job.yml"]
