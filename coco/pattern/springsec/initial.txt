@@ -100,3 +100,17 @@ GET /api/sensec/hsm/v1/admin/health needs no auth — good first smoke check bef
 ----------------------------------------------------------------------------------------------------------
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
 openssl rsa -in private.pem -pubout -out public.pem
+
+UPDATE app_registrations SET public_key_pem = $pem$
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
+-----END PUBLIC KEY-----
+$pem$ WHERE app_id = 'payments-svc';
+
+client:
+  svc:
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcw...
+      (however many base64 lines)
+      -----END PRIVATE KEY-----
