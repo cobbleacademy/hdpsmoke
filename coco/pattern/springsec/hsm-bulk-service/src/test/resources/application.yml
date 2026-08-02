@@ -4,7 +4,7 @@ spring:
       mode: always
 
 hsm:
-  mock-kek: true
+  demo-mode: true
   service:
     api-v1-prefix: /api/sensec/hsm/v1
     dek-batch-max-items: 100
