@@ -37,7 +37,15 @@ the real numbers from running it, not just the design.
     per *column value* (not per row) so a compromised DEK only ever exposes one
     field, keyset-paginated (not `OFFSET`) reads, plain generic JDBC (no
     vendor-specific SQL). `encrypt()`/`decrypt()` share the same config shape --
-    direction just flips which side is ciphertext vs. plaintext.
+    direction just flips which side is ciphertext vs. plaintext. `columns` only
+    ever covers the sensitive columns being encrypted/decrypted -- any other
+    target-table column (non-sensitive business data you still want copied
+    over) needs an explicit `passthrough-columns: [name, email, ...]` entry;
+    nothing outside `key-column` + `columns` + `passthrough-columns` is ever
+    read from source or written to target. Deliberately explicit rather than
+    "copy every source column not in `columns`" -- auto-discovery would
+    silently copy a newly-added sensitive column into a "secure" target table
+    in plaintext if someone forgot to add it to `columns`.
   - **BULK File** (`FileBulkJob`) -- config-driven source/target root, each
     independently local disk or ADLS (`FileStore` interface, `LocalFileStore`/
     `AdlsFileStore` -- mixed pairs like ADLS source to local target fall out of
