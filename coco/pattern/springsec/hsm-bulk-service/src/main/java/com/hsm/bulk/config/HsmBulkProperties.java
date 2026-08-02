@@ -7,12 +7,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * com.hsm.core.config.HsmProperties (no Splunk/PBAC/DEK-cache/rotation-cron
  * fields, none of which this PoC module needs). jwt/azure share the exact same
  * underlying env var names as hsm-core-service (see application.yml) so both
- * services authenticate the same per-app JWTs and, when mockKek=false, point at
- * the same real Key Vault.
+ * services authenticate the same per-app JWTs and, when demoMode=false and
+ * skipAkv=false, point at the same real Key Vault.
+ *
+ * <p>demoMode and skipAkv are independent levers -- the exact same pair and
+ * relationship as com.hsm.core.config.HsmProperties': demoMode also swaps the
+ * JwtValidator (real JWTs vs fixed demo tokens, see CryptoBeansConfig), while
+ * skipAkv only ever affects the KekClient -- so demoMode=false + skipAkv=true
+ * gets real JWT/scope validation without requiring a reachable Key
+ * Vault/Managed HSM. Named to match hsm-core-service exactly (previously
+ * mockKek here), since it governs the same two things demoMode does there,
+ * not just the KEK client the old name implied.
  */
 @ConfigurationProperties(prefix = "hsm")
 public record HsmBulkProperties(
-        boolean mockKek,
+        boolean demoMode,
+        boolean skipAkv,
         Azure azure,
         Database database,
         Jwt jwt,
