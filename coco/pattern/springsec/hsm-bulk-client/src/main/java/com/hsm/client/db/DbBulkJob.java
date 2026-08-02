@@ -67,11 +67,14 @@ public class DbBulkJob {
         String sourceTable = qualify(config.source().schema(), config.source().table());
         String targetTable = qualify(config.target().schema(), config.target().table());
         List<String> sourceColumns = config.columns().stream().map(ClientProperties.Db.ColumnMapping::source).toList();
+        List<String> passthroughColumns = passthroughColumns();
+        List<String> selectColumns = concat(sourceColumns, passthroughColumns);
+        List<String> targetColumns = concat(config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), passthroughColumns);
 
         Object lastKey = null;
         int totalRows = 0;
         while (true) {
-            List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), sourceColumns, lastKey, config.rowBatchSize());
+            List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), selectColumns, lastKey, config.rowBatchSize());
             if (rows.isEmpty()) {
                 break;
             }
@@ -92,7 +95,7 @@ public class DbBulkJob {
                 List<Object[]> targetRows = new ArrayList<>();
                 for (Map<String, Object> row : subBatch) {
                     Object keyValue = row.get(config.keyColumn());
-                    Object[] targetRow = new Object[1 + config.columns().size()];
+                    Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
                     targetRow[0] = keyValue;
                     int i = 1;
                     for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
@@ -116,9 +119,12 @@ public class DbBulkJob {
                             DekManager.zeroDek(dek);
                         }
                     }
+                    for (String col : passthroughColumns) {
+                        targetRow[i++] = row.get(col);
+                    }
                     targetRows.add(targetRow);
                 }
-                insertRows(targetJdbc, targetTable, config.keyColumn(), config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), targetRows);
+                insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
             }
 
             totalRows += rows.size();
@@ -132,11 +138,14 @@ public class DbBulkJob {
         String sourceTable = qualify(config.source().schema(), config.source().table());
         String targetTable = qualify(config.target().schema(), config.target().table());
         List<String> sourceColumns = config.columns().stream().map(ClientProperties.Db.ColumnMapping::source).toList();
+        List<String> passthroughColumns = passthroughColumns();
+        List<String> selectColumns = concat(sourceColumns, passthroughColumns);
+        List<String> targetColumns = concat(config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), passthroughColumns);
 
         Object lastKey = null;
         int totalRows = 0;
         while (true) {
-            List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), sourceColumns, lastKey, config.rowBatchSize());
+            List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), selectColumns, lastKey, config.rowBatchSize());
             if (rows.isEmpty()) {
                 break;
             }
@@ -169,7 +178,7 @@ public class DbBulkJob {
                 List<Object[]> targetRows = new ArrayList<>();
                 for (Map<String, Object> row : subBatch) {
                     Object keyValue = row.get(config.keyColumn());
-                    Object[] targetRow = new Object[1 + config.columns().size()];
+                    Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
                     targetRow[0] = keyValue;
                     int i = 1;
                     for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
@@ -194,9 +203,12 @@ public class DbBulkJob {
                             DekManager.zeroDek(dek);
                         }
                     }
+                    for (String col : passthroughColumns) {
+                        targetRow[i++] = row.get(col);
+                    }
                     targetRows.add(targetRow);
                 }
-                insertRows(targetJdbc, targetTable, config.keyColumn(), config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), targetRows);
+                insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
             }
 
             totalRows += rows.size();
@@ -214,6 +226,17 @@ public class DbBulkJob {
             chunks.add(rows.subList(i, Math.min(i + maxRowsPerCall, rows.size())));
         }
         return chunks;
+    }
+
+    /** Empty, never null -- config.passthroughColumns() binds to null when omitted from YAML entirely. */
+    private List<String> passthroughColumns() {
+        return config.passthroughColumns() == null ? List.of() : config.passthroughColumns();
+    }
+
+    private static List<String> concat(List<String> a, List<String> b) {
+        List<String> combined = new ArrayList<>(a);
+        combined.addAll(b);
+        return combined;
     }
 
     private static String itemKey(Object keyValue, String column) {

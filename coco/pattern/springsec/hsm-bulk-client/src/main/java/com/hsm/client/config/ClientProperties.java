@@ -42,6 +42,13 @@ public record ClientProperties(
             TableRef target,
             String keyColumn,
             List<ColumnMapping> columns,
+            // Non-sensitive columns copied source-to-target as-is, never encrypted/decrypted
+            // -- same name in both tables (no renaming, unlike columns above). Deliberately
+            // explicit, not auto-discovered from the source table's schema: if a source
+            // column later becomes sensitive, it simply won't appear here (fetchPage/
+            // insertRows in DbBulkJob never reference it) rather than being silently
+            // copied in plaintext into what may be a "secure" target table.
+            List<String> passthroughColumns,
             int rowBatchSize
     ) {
         public record TableRef(String jdbcUrl, String username, String password, String schema, String table) {
