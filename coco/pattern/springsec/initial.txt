@@ -107,6 +107,14 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
 -----END PUBLIC KEY-----
 $pem$ WHERE app_id = 'payments-svc';
 
+UPDATE app_registrations
+SET allowed_scopes = allowed_scopes || ',dek_issue,dek_unwrap',
+    updated_at = now()
+WHERE app_id = 'payments-svc';UPDATE app_registrations
+SET allowed_scopes = allowed_scopes || ',dek_issue,dek_unwrap',
+    updated_at = now()
+WHERE app_id = 'payments-svc';
+
 client:
   svc:
     private-key-pem: |
