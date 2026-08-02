@@ -6,7 +6,8 @@ metadata:
   labels:
     {{- include "hsm.labels" . | nindent 4 }}
 data:
-  MOCK_KEK: {{ .Values.config.mockKek | quote }}
+  DEMO_MODE: {{ .Values.config.demoMode | quote }}
+  SKIP_AKV: {{ .Values.config.skipAkv | quote }}
   SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
