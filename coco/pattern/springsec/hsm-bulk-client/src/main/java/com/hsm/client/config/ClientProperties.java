@@ -54,7 +54,20 @@ public record ClientProperties(
         public record TableRef(String jdbcUrl, String username, String password, String schema, String table) {
         }
 
-        public record ColumnMapping(String source, String target) {
+        /**
+         * targetType only matters for DECRYPT jobs -- it's the SQL type the decrypted
+         * plaintext should be parsed into before insertion, since DekManager.decrypt()
+         * always hands back raw UTF-8 bytes as a String regardless of the original
+         * column's type. Ignored on ENCRYPT (target there is always the ciphertext_token
+         * VARCHAR/TEXT column). Null/unset -> STRING, the pre-existing behavior.
+         *
+         * <p>Only as many types as there are genuinely distinct JDBC parameter
+         * conversions needed, not one enum value per SQL dialect's type name --
+         * NUMERIC covers DECIMAL/NUMERIC-family columns, INTEGER covers
+         * INT/BIGINT/SMALLINT-family columns.
+         */
+        public record ColumnMapping(String source, String target, TargetType targetType) {
+            public enum TargetType { STRING, DATE, TIMESTAMP, NUMERIC, INTEGER }
         }
     }
 

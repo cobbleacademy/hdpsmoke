@@ -10,8 +10,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.crypto.AEADBadTagException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
+import java.sql.Date;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -196,9 +199,16 @@ public class DbBulkJob {
                         byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
                         try {
                             byte[] plaintext = DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, svcConfig.appId());
-                            targetRow[i++] = new String(plaintext, StandardCharsets.UTF_8);
+                            String decrypted = new String(plaintext, StandardCharsets.UTF_8);
+                            targetRow[i++] = convertForTarget(decrypted, mapping.targetType());
                         } catch (AEADBadTagException e) {
                             throw new IllegalStateException("AEAD tag verification failed for key=" + keyValue + " column=" + mapping.source(), e);
+                        } catch (IllegalArgumentException e) {
+                            // Date.valueOf/Timestamp.valueOf/NumberFormatException (a NumberFormatException
+                            // IS an IllegalArgumentException) all land here -- one catch covers every
+                            // TargetType's parse failure.
+                            throw new IllegalStateException("Decrypted value is not a valid " + mapping.targetType()
+                                    + " for key=" + keyValue + " column=" + mapping.source(), e);
                         } finally {
                             DekManager.zeroDek(dek);
                         }
@@ -231,6 +241,35 @@ public class DbBulkJob {
     /** Empty, never null -- config.passthroughColumns() binds to null when omitted from YAML entirely. */
     private List<String> passthroughColumns() {
         return config.passthroughColumns() == null ? List.of() : config.passthroughColumns();
+    }
+
+    /**
+     * DekManager.decrypt() always hands back the original plaintext as raw UTF-8 bytes
+     * -- there's no way to recover the source column's real SQL type from the
+     * ciphertext alone, so the caller (the DECRYPT job's own config) has to say what
+     * the target column actually is via ColumnMapping.targetType. Parsed value is
+     * handed to JDBC via plain setObject (see insertRows) -- a real java.sql.Date/
+     * Timestamp/BigDecimal/Long object round-trips into its matching column type
+     * correctly, where the raw decrypted String would not (see the config-examples'
+     * passthrough-columns note for why an untyped String into a non-VARCHAR column
+     * fails).
+     *
+     * <p>Date.valueOf/Timestamp.valueOf deliberately used directly, not via
+     * LocalDate/LocalDateTime.parse -- they accept exactly the format
+     * java.sql.Date.toString()/Timestamp.toString() produce (what ENCRYPT already
+     * stringified the original column value with), so this is a true round trip, not
+     * a reformat that could drift from what ENCRYPT actually saw.
+     */
+    private static Object convertForTarget(String value, ClientProperties.Db.ColumnMapping.TargetType targetType) {
+        ClientProperties.Db.ColumnMapping.TargetType type =
+                targetType == null ? ClientProperties.Db.ColumnMapping.TargetType.STRING : targetType;
+        return switch (type) {
+            case STRING -> value;
+            case DATE -> Date.valueOf(value);
+            case TIMESTAMP -> Timestamp.valueOf(value);
+            case NUMERIC -> new BigDecimal(value);
+            case INTEGER -> Long.parseLong(value);
+        };
     }
 
     private static List<String> concat(List<String> a, List<String> b) {
