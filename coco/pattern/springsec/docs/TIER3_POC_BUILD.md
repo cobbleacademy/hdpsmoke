@@ -46,6 +46,21 @@ the real numbers from running it, not just the design.
     "copy every source column not in `columns`" -- auto-discovery would
     silently copy a newly-added sensitive column into a "secure" target table
     in plaintext if someone forgot to add it to `columns`.
+
+    `DekManager.decrypt()` always hands back the plaintext as raw UTF-8 bytes
+    -- there's no way to recover a sensitive column's original SQL type from
+    the ciphertext alone. On a DECRYPT job, if a `columns` entry's target is
+    anything other than `VARCHAR`/`TEXT` (e.g. a `DOB` column typed `DATE`),
+    set `target-type` on that mapping: `DATE`, `TIMESTAMP`, `NUMERIC`
+    (DECIMAL/NUMERIC-family), or `INTEGER` (INT/BIGINT/SMALLINT-family).
+    Omitted/`STRING` (default) matches the pre-existing behavior and is
+    correct for `VARCHAR`/`TEXT` targets. `target-type` is ignored on ENCRYPT
+    jobs -- the target there is always the `ciphertext_token` `VARCHAR`/`TEXT`
+    column, regardless of the source column's type. `Date.valueOf`/
+    `Timestamp.valueOf` are used directly (not via `LocalDate`/
+    `LocalDateTime.parse`) because they accept exactly the format
+    `java.sql.Date`/`Timestamp.toString()` produce -- what ENCRYPT already
+    stringified the original value with -- so this is a true round trip.
   - **BULK File** (`FileBulkJob`) -- config-driven source/target root, each
     independently local disk or ADLS (`FileStore` interface, `LocalFileStore`/
     `AdlsFileStore` -- mixed pairs like ADLS source to local target fall out of
