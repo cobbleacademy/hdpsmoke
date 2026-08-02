@@ -3,8 +3,12 @@
 **Status: Tier 1 (synchronous batch encrypt and batch decrypt) is
 implemented in `hsm-core-service`.** Tier 2 (large datasets/files) is
 **not** a service to build — see "Architecture correction" below. Tier 3
-(client-side local envelope encryption via a separate hsm-bulk-service) is a
-**design proposal, not yet approved or built** — see that section below.
+(client-side local envelope encryption via a separate hsm-bulk-service) has a
+**scoped PoC built** (Phase 1 `/dek/issue` + Phase 2 `/dek/unwrap` + a
+Batch-vs-Bulk benchmark, in `java/hsm-bulk-service`) — see
+`TIER3_POC_BUILD.md` for what was built and real benchmark numbers. Phases
+3-6 (admin key provisioning, deployment lifecycle, file chunking, pilot)
+remain **not built**, per that PoC's confirmed scope.
 This exists to support app on-boarding (migrating an existing plaintext
 dataset into envelope encryption) and de-boarding (bulk export/decrypt, or
 bulk crypto-shred) — see `APP_ONBOARDING.md` for the onboarding procedure
@@ -403,23 +407,30 @@ required for a first version.
 - Tier 1 item-count and payload-size caps — needs real HSM throughput
   numbers (ties to the "Performance testing and capture metrics" backlog
   item).
-- Whether `hsm-core-service`'s team should publish a small reference
-  client library (a thin SDK wrapping the chunking/manifest/stitch-back
-  pattern above in a couple of languages) so app teams doing this
-  correctly don't each reinvent it — genuinely useful, but it's a shared
-  *library*, not a service, and doesn't change this service's own
-  boundary.
-- Tier 3: RSA-OAEP vs. ECIES for the DEK transport wrap.
-- Tier 3: long-lived per-app keypair (simpler, standing infrastructure) vs.
-  ephemeral per-batch keypair (stronger forward secrecy, more moving
-  parts) — current lean is long-lived, given a compromised private key
-  alone still can't get anything issued without a valid CLNT service
-  credential.
+- ~~Whether `hsm-core-service`'s team should publish a small reference
+  client library~~ — **resolved, built**: `hsm-bulk-client` (see
+  `TIER3_POC_BUILD.md`). Turned out to be a standalone client application,
+  not a shared *library* embedded into app teams' own codebases as
+  originally framed here — a real, deliberate difference from what this
+  bullet originally proposed, not just an implementation detail. Only one
+  language (Java) exists today; "a couple of languages" is still open if
+  non-JVM app teams need this.
+- ~~Tier 3: RSA-OAEP vs. ECIES for the DEK transport wrap~~ — **resolved,
+  built**: RSA-OAEP-256, matching the algorithm already used for KEK
+  wrapping in `AzureKeyVaultKekClient`.
+- ~~Tier 3: long-lived per-app keypair vs. ephemeral per-batch keypair~~ —
+  **resolved, built**: long-lived per-app (`app_registrations.public_key_pem`),
+  provisioned via a direct DB write for the PoC — no admin endpoint yet (see
+  the still-open bullet below).
 - Tier 3: whether an admin capability to revoke individual scopes from an
   existing app (not just today's active/inactive toggle) gets built
-  generally, or scoped narrowly to just `dek_issue`/`dek_unwrap`.
+  generally, or scoped narrowly to just `dek_issue`/`dek_unwrap` — **still
+  open**, this is the same Phase 3 admin key-provisioning gap `hsm-bulk-client`
+  works around with a direct DB write today.
 - Tier 3 needs a dedicated security/crypto review before any of it is
-  built — this doc is the input to that review, not a substitute for it.
+  built — **still open, and now more pressing**: real code exists (`hsm-bulk-service`,
+  `hsm-bulk-client`, both verified working end-to-end locally), not just this
+  design doc. This review has not happened.
 
 ## What this doesn't change
 
@@ -441,6 +452,18 @@ recoverable EDEK, exactly as today.
 Sequenced so each phase produces something reviewable or testable on its
 own, rather than a single large build. Nothing here starts until Phase 0
 concludes.
+
+**Note on what actually happened vs. this plan**: Phase 1 and Phase 2 below
+were built as a scoped PoC (see `TIER3_POC_BUILD.md`) without Phase 0's formal
+security/crypto review gate ever occurring. The specific technical decisions
+Phase 0 calls out (RSA-OAEP-256, long-lived per-app keypairs, the
+`dek_issue`/`dek_unwrap` scope model, the separate-service boundary) *were*
+made explicitly and deliberately, not assumed — but that happened as
+build-time decisions during this PoC, not through the dedicated
+"take this document to security/crypto review" step this section describes.
+That review has not happened. Treat the current `hsm-bulk-service`/
+`hsm-bulk-client` code as PoC-stage, not as something that's cleared the bar
+this doc itself set for building Tier 3 at all.
 
 **Phase 0 — Review sign-off, no code.** Take this document to
 security/crypto review. Needs explicit decisions on: RSA-OAEP vs. ECIES for
