@@ -43,3 +43,10 @@ client:
         target: ssn_ciphertext_token
       - source: account_number
         target: account_number_ciphertext_token
+    # Non-sensitive columns copied to the target table as-is, same name both
+    # sides. Anything not listed in columns or passthrough-columns is left
+    # out of the INSERT entirely -- it gets the target column's DEFAULT/NULL,
+    # or the whole batch fails if that column is NOT NULL with no default.
+    passthrough-columns:
+      - name
+      - created_at

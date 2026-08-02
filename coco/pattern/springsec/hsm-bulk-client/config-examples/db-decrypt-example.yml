@@ -35,3 +35,8 @@ client:
         target: ssn
       - source: account_number_ciphertext_token
         target: account_number
+    # Must mirror db-encrypt-example.yml's passthrough-columns -- same names,
+    # copied back to the decrypted target table as-is.
+    passthrough-columns:
+      - name
+      - created_at
