@@ -57,6 +57,15 @@ client:
     #     target: ssn_ciphertext_token
     #   - source: account_number
     #     target: account_number_ciphertext_token
+    #   # target-type only matters for DECRYPT jobs (ignored on ENCRYPT, whose
+    #   # target is always the ciphertext_token VARCHAR/TEXT column) -- what SQL
+    #   # type to parse the decrypted plaintext into before insertion. Omit /
+    #   # STRING (default) for a VARCHAR/TEXT target. Other values: DATE,
+    #   # TIMESTAMP, NUMERIC (DECIMAL/NUMERIC-family columns), INTEGER
+    #   # (INT/BIGINT/SMALLINT-family columns).
+    #   - source: dob_ciphertext_token
+    #     target: dob
+    #     target-type: DATE
     columns: []
     # Non-sensitive columns copied source-to-target as-is (same name both
     # sides, never encrypted/decrypted). Nothing beyond key-column + columns +
