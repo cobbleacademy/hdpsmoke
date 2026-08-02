@@ -121,8 +121,13 @@ config:
   # see com.hsm.bulk.config.CryptoBeansConfig. Production-shaped default here
   # is "false", unlike hsm-bulk-service's own application.yml default (which
   # defaults true for zero-setup local runs) -- this chart's default matches
-  # what a real deployment should actually run with.
-  mockKek: "false"
+  # what a real deployment should actually run with. Same flag name as
+  # hsm-core-service's own config.demoMode.
+  demoMode: "false"
+  # Independent of demoMode -- only swaps the KekClient (see
+  # com.hsm.bulk.config.CryptoBeansConfig). Same relationship as
+  # hsm-core-service's demoMode/skipAkv pair.
+  skipAkv: "false"
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
