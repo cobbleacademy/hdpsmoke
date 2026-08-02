@@ -41,9 +41,15 @@ hsm:
   # true (default here, unlike hsm-core-service's production-shaped default)
   # swaps both KekClient and JwtValidator to their Mock implementations -- see
   # com.hsm.bulk.config.CryptoBeansConfig -- so BulkVsBatchBenchmark runs with
-  # zero external dependencies, same "zero setup" intent as hsm-core-service's
-  # own DEMO_MODE/SKIP_AKV.
-  mock-kek: ${MOCK_KEK:true}
+  # zero external dependencies, same "zero setup" intent as, and now the exact
+  # same flag name and semantics as, hsm-core-service's own DEMO_MODE.
+  demo-mode: ${DEMO_MODE:true}
+  # Independent of demo-mode -- only swaps the KekClient, leaves whichever
+  # JwtValidator demo-mode selected untouched. Same relationship as
+  # hsm-core-service's demo-mode/skip-akv pair: set DEMO_MODE=false + this to
+  # true for real JWT/scope validation against real app_registrations rows
+  # without needing a reachable Key Vault/Managed HSM yet.
+  skip-akv: ${SKIP_AKV:false}
   azure:
     client-id: ${AZURE_CLIENT_ID:}
     tenant-id: ${AZURE_TENANT_ID:}
