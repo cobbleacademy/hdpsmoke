@@ -58,6 +58,13 @@ client:
     #   - source: account_number
     #     target: account_number_ciphertext_token
     columns: []
+    # Non-sensitive columns copied source-to-target as-is (same name both
+    # sides, never encrypted/decrypted). Nothing beyond key-column + columns +
+    # passthrough-columns is ever read from source or written to target --
+    # any other target-table column not listed here gets its DEFAULT/NULL, or
+    # the INSERT fails if that column is NOT NULL with no default.
+    # Example: passthrough-columns: [name, email, created_at]
+    passthrough-columns: []
 
   file:
     source:
