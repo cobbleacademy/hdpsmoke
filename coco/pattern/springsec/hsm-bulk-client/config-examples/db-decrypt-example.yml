@@ -35,6 +35,14 @@ client:
         target: ssn
       - source: account_number_ciphertext_token
         target: account_number
+      # target-type: the decrypted plaintext is always a String out of
+      # DekManager.decrypt() -- this says what SQL type to parse it into
+      # before insertion, since `dob` here is a real DATE column, not
+      # VARCHAR. Other values: TIMESTAMP, NUMERIC, INTEGER; omit/STRING for
+      # a VARCHAR/TEXT target (see ssn/account_number above).
+      - source: dob_ciphertext_token
+        target: dob
+        target-type: DATE
     # Must mirror db-encrypt-example.yml's passthrough-columns -- same names,
     # copied back to the decrypted target table as-is.
     passthrough-columns:
