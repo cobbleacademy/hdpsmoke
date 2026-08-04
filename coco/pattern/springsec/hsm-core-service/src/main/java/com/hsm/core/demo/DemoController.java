@@ -115,6 +115,7 @@ public class DemoController {
             m.put("algorithm", r.getAlgorithm());
             m.put("encoding", r.getEncoding());
             m.put("data_classification", r.getDataClassification());
+            m.put("dek_name", r.getDekName());
             m.put("rotation_status", r.getRotationStatus().name().toLowerCase());
             String blob = r.getEdekBlob();
             m.put("edek_blob_preview", blob.length() > 24 ? blob.substring(0, 24) + "…" : blob);
@@ -129,7 +130,7 @@ public class DemoController {
     public ResponseEntity<ConsumerAccountResponse> createConsumerAccount(@Valid @RequestBody ConsumerAccountCreateRequest body) {
         // In real life this would be an HTTP call from payments-svc to this service;
         // done in-process here purely to avoid a self-referential network call in the demo.
-        EncryptRequest encryptRequest = new EncryptRequest(body.accountNumber(), "utf8", "pci", null, Map.of());
+        EncryptRequest encryptRequest = new EncryptRequest(body.accountNumber(), "utf8", "pci", null, Map.of(), null);
         EncryptResponse enc = encryptionService.encrypt(encryptRequest, CONSUMER_OWNER_APP_ID, "demo-consumer-app", "");
         ConsumerAccount account = new ConsumerAccount(body.customerName(), body.email(), enc.ciphertextToken());
         consumerAccountRepository.save(account);
