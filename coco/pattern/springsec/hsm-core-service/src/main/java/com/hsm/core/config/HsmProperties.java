@@ -20,6 +20,7 @@ public record HsmProperties(
         Splunk splunk,
         Pbac pbac,
         KekRotation kekRotation,
+        NamedDekRotation namedDekRotation,
         Redis redis,
         DekCache dekCache
 ) {
@@ -96,6 +97,20 @@ public record HsmProperties(
     public record KekRotation(
             String cron,
             boolean enabled
+    ) {
+    }
+
+    /**
+     * Time/policy-driven, not usage-count-driven -- SVC/hsm-core-service has no
+     * visibility into how many individual values a caller actually encrypts with a
+     * DEK it was handed (that happens client-side), so a lookup counter could never
+     * be a trustworthy usage measure. Bounding the *age* a named DEK stays current
+     * sidesteps that gap entirely instead of trying to solve it.
+     */
+    public record NamedDekRotation(
+            String cron,
+            boolean enabled,
+            int maxAgeHours
     ) {
     }
 
