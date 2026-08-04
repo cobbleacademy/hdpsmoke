@@ -31,10 +31,13 @@ public record ClientProperties(
             String baseUrl,
             String apiV1Prefix,    // must match SVC's own API_V1_PREFIX (hsm.service.api-v1-prefix) -- the two are configured independently and not auto-synced
             String appId,
-            String token,
+            AuthMode authMode,     // STATIC (default) uses token below, unchanged; AZURE_AD acquires a fresh bearer token per call via Workload Identity -- see AzureAdTokenProvider
+            String token,          // only used when authMode=STATIC -- a real Azure AD JWT here would expire mid-job on any run longer than its TTL
+            String azureTokenScope, // only used when authMode=AZURE_AD -- must match whatever SVC's own Azure AD app registration exposes as its audience/scope
             int dekBatchMaxItems,  // mirrors hsm.service.dek-batch-max-items on SVC -- self-limit client-side rather than rely on SVC's 422 rejection
             String privateKeyPem   // PKCS#8 PEM, the private half of the public key registered on app_registrations.public_key_pem for appId -- never sent anywhere, only used locally to unwrap what SVC returns
     ) {
+        public enum AuthMode { STATIC, AZURE_AD }
     }
 
     public record Db(
@@ -66,7 +69,17 @@ public record ClientProperties(
          * NUMERIC covers DECIMAL/NUMERIC-family columns, INTEGER covers
          * INT/BIGINT/SMALLINT-family columns.
          */
-        public record ColumnMapping(String source, String target, TargetType targetType) {
+        /**
+         * dekName is optional and independent of targetType: unset -&gt; today's default,
+         * one DEK issued per (row, column) value. Set -&gt; every row's value for this
+         * column shares the current DEK for (svc.app-id, dekName) instead of each
+         * getting its own -- one /dek/issue lookup per column per job run instead of
+         * one per row. Same name must be used on both the ENCRYPT job's and the
+         * DECRYPT job's config for this column (mirrors how targetType only matters
+         * on the DECRYPT side -- dekName only matters on the ENCRYPT side, since
+         * DECRYPT resolves purely by the edek_id embedded in each row's own token).
+         */
+        public record ColumnMapping(String source, String target, TargetType targetType, String dekName) {
             public enum TargetType { STRING, DATE, TIMESTAMP, NUMERIC, INTEGER }
         }
     }
