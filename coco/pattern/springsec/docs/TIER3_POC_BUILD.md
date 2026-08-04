@@ -166,16 +166,110 @@ from the token -- `AppRegistryService` caches scopes in-memory with no
 eviction, so a scope grant added via direct SQL needs a service restart to
 take effect.
 
+## DEK naming & reuse
+
+A later round on top of the Phase 1/2 PoC above: `dek_name` lets a caller ask
+for the *same* DEK across many calls -- one DEK per logical column
+(`"customers.ssn"`) instead of one per value -- cutting real HSM/Key-Vault
+operations from O(rows) to O(distinct names), which is what was actually
+driving the benchmark's RSA-overhead cost above.
+
+- **Schema** (`V7__add_dek_name_to_edek_records.sql`): `edek_records` gains
+  `dek_name` (permanent, kept through rotation for history) and
+  `current_dek_name` (nulled out on rotation) -- a *shadow-column* pair, not a
+  Postgres partial unique index (`CREATE UNIQUE INDEX ... WHERE ...`), because
+  H2 (demo mode) rejects that syntax outright (verified directly against H2
+  2.4.240). A plain unique index on `(app_id, current_dek_name)` gets the same
+  effect on both databases, since ANSI SQL never treats one `NULL` as equal to
+  another in a unique index.
+- **Reuse logic**, mirrored in both `EncryptionService.resolveDek()`
+  (`hsm-core-service`, `/encrypt` + `/encrypt/batch`) and
+  `DekIssueService.issueOne()` (`hsm-bulk-service`, `/dek/issue`): a request
+  with `dek_name`/`name` set looks up `(app_id, current_dek_name)`; a hit
+  reuses that DEK (unwrap + reuse, `EncryptResponse.reused`/
+  `DekIssueResultItem.reused` reports which happened); a miss mints fresh and
+  tags the new row with the name. `hsm-core-service` also reads/primes
+  `DekCache` on the reuse path -- the same cache `DecryptionService` already
+  used, now warmed by encrypt too. `hsm-bulk-service` has no `DekCache` (this
+  module was deliberately scoped down without one), so a reuse there still
+  costs one real KEK/HSM unwrap -- the win is fewer *issued* DEKs and fewer
+  `EdekRecord` rows, not fewer HSM calls per lookup.
+- **Fingerprint**: left `null` on named rows. The existing per-token
+  fingerprint cross-check in `DecryptionService.decrypt()` assumes one
+  `edek_id` has exactly one `iv`/`tag` pair ever -- true under DEK-per-record,
+  false under reuse (many different `iv`/`tag` pairs legitimately share one
+  `edek_id`). The check already gates on non-null, so this needed no change on
+  the decrypt side at all.
+- **Classification immutability**: one `dek_name` is bound to exactly one
+  `data_classification`. Enforcement is three-way, not a strict equality
+  check: an explicit non-blank conflict is rejected (`422`); a blank
+  incoming value on an already-classified name is a no-op (informational
+  field stays as-is); a blank *existing* value backfills from a later
+  non-blank call (nothing to conflict with yet).
+- **A real bug this surfaced**: sending `dek_name: ""` (empty string, not
+  omitted) stored `""` in `current_dek_name`, not `null` -- and since the
+  unique index treats `""` as a real value, the *second* unnamed `/encrypt`
+  call from the same app collided and 500'd. Fixed by normalizing
+  blank-to-`null` in both `EncryptRequest`'s and `DekIssueItem`'s compact
+  constructors, so it's impossible to construct either DTO with a blank (as
+  opposed to genuinely absent) name.
+- **Rotation**: `NamedDekRotationScheduler` (`hsm-core-service`) mirrors
+  `KekRotationScheduler`'s exact shape -- same `@PostConstruct` + `CronTrigger`
+  pattern, same demo-mode guard. `RotationService.rotateNamedDeks(maxAgeHours)`
+  sweeps `current`-status rows with a non-null `current_dek_name` older than
+  the threshold (default 720h / 30 days, `hsm.named-dek-rotation.*`), mints a
+  fresh DEK per row, and retires the old one (`rotation_status=rotated`,
+  `current_dek_name` cleared, `dek_name` kept for history). Deliberately
+  **time-based, not usage-count-based**: `hsm-core-service` has no visibility
+  into how many individual values a caller actually encrypts with a DEK it
+  handed out (that happens entirely client-side), so a lookup counter could
+  never be a trustworthy usage measure -- bounding the *age* a name stays
+  current sidesteps that gap instead of trying to solve it. One real ordering
+  gotcha: the old row's `UPDATE` (clearing `current_dek_name`) must be
+  `saveAndFlush`'d *before* the new row's `INSERT`, since Hibernate's default
+  flush order is by operation type (inserts before updates), not registration
+  order -- inserting the fresh row first would transiently violate the unique
+  index within the same transaction.
+- **`hsm-bulk-client` DEK-name config**: `ClientProperties.Db.ColumnMapping`
+  gained `dekName` -- set on a column's `columns` entry and `DbBulkJob.encrypt()`
+  resolves that name's DEK **once for the whole job run** (not per row, not
+  even per sub-batch) via a new `issueNamedColumnDeks()` step before the
+  pagination loop starts. `decrypt()` separately dedups by `edek_id` (not by
+  the existing per-row correlation key) before calling `/dek/unwrap` *and*
+  before the local RSA-OAEP unwrap -- the RSA step, not the HTTP round trip,
+  was the dominant cost in the benchmark above, so deduping only the network
+  call would have missed the bigger win.
+- **Bearer-token expiry on long-running jobs**: `SvcClient` previously sent a
+  single static config token for the whole job -- fine for demo-mode's
+  never-expiring fixed strings, but a real Azure AD JWT (~1h TTL) would expire
+  mid-run on anything longer than that. Replaced with a `TokenProvider`
+  abstraction: `StaticTokenProvider` (today's behavior, unchanged, selected by
+  default `svc.auth-mode: STATIC`) or `AzureAdTokenProvider`
+  (`svc.auth-mode: AZURE_AD`), which calls `TokenCredential.getToken()` fresh
+  before *every* request. That call is a cache hit on nearly every request
+  (Azure Identity SDK caches internally and only re-acquires when the cached
+  token is near expiry) -- no manual TTL tracking needed. Same Workload
+  Identity cascade (`WorkloadIdentityCredential` → `ManagedIdentityCredential`
+  → `DefaultAzureCredential`) already used by `AzureKeyVaultKekClient` and
+  `AdlsFileStore`, kept as its own copy per this repo's no-shared-library
+  convention. No client secret anywhere in this chain.
+
 ## Verified
 
-1. `mvn -pl hsm-bulk-service -am test` -- 7/7 passing.
-2. `mvn -pl hsm-core-service -am test` -- 55/55 still passing with V6 applied
-   (schema-additive, no regressions).
-3. **Token-format compatibility** (the hard requirement): a DEK issued via
+1. `mvn -pl hsm-bulk-service -am test` -- 9/9 passing (7 original + 2 new:
+   named-DEK reuse shares `edek_id`, classification conflict rejected).
+2. `mvn -pl hsm-core-service -am test` -- 59/59 passing (54 original + 5 new:
+   `NamedDekIntegrationTest` -- reuse, independent mints, classification
+   conflict/backfill, and a full rotation round trip via `RotationService`
+   directly).
+3. `mvn clean install` across the full reactor (`hsm-core-service`,
+   `cek-rotation-service`, `hsm-bulk-service`, `hsm-bulk-client`) -- exit 0,
+   all 4 module jars built, 69/69 tests passing.
+4. **Token-format compatibility** (the hard requirement): a DEK issued via
    `/dek/issue`, unwrapped and used locally to build a `ciphertext_token` via
    `DekManager.packToken`, decrypted correctly through `hsm-core-service`'s real,
    unmodified `/decrypt` endpoint. Confirmed live, not just by test.
-4. **Benchmark, live run, 200 records, both services local/mocked**:
+5. **Benchmark, live run, 200 records, both services local/mocked**:
 
    | Path | Total time | Throughput |
    |---|---|---|
@@ -193,7 +287,7 @@ take effect.
    overhead specific to this design that a production pilot needs to size
    (batching the RSA operations, or evaluating ECIES's cheaper decrypt path
    instead of RSA-OAEP, are the two obvious levers).
-5. **`hsm-bulk-client`, live run, both jobs, against real `hsm-core-service` +
+6. **`hsm-bulk-client`, live run, both jobs, against real `hsm-core-service` +
    `hsm-bulk-service`** (shared H2 file, `demo-mode: true`):
    - **BULK DB**: seeded a 3-row `customers` table (`ssn`, `account_number`),
      ran `db encrypt` -- `customers_encrypted`'s two `ciphertext_token` columns

@@ -286,6 +286,11 @@ showing a large difference — though that comparison's "local" arm used one
 key for an entire operation, a materially different (and rejected, see
 below) design from DEK-per-record.
 
+*(This paragraph describes Tier 3 as originally scoped. A later round added
+an opt-in `dek_name` exception that does reduce real HSM/Key Vault call
+count for callers who choose it — see the "Update" note under "Non-negotiable
+constraint" below.)*
+
 ### Non-negotiable constraint: DEK-per-record, unchanged
 
 Explicitly considered and rejected: issuing one DEK per batch or file
@@ -295,6 +300,23 @@ comparison showed, but it breaks the actual point of HSM-backed envelope
 encryption — record-by-record isolation, where a single compromised or
 leaked DEK only ever exposes that one record. Not worth trading away for
 throughput. **Any Tier 3 work keeps one DEK per record, full stop.**
+
+> **Update (later round) — this constraint is narrowed, not reversed.**
+> `dek_name` (see `TIER3_POC_BUILD.md`'s "DEK naming & reuse" section) lets a
+> caller *explicitly opt into* sharing one DEK across many values under a
+> logical name (e.g. one column across a whole table). This is exactly the
+> shared-DEK design rejected above — but as an **opt-in exception a caller
+> deliberately chooses**, not the default: omitting `dek_name` still gets
+> strict DEK-per-record, unchanged, on every path (`/encrypt`,
+> `/encrypt/batch`, `/dek/issue`). The decision to allow this exception was
+> made explicitly, with the isolation/blast-radius tradeoff stated directly
+> before proceeding, and with mitigations this original rejection didn't
+> have available (age-based rotation, classification binding, a documented
+> phase-2 gap in `app_decrypt_grants` scoping — see below). The constraint
+> as originally written still governs the default; it no longer governs
+> every possible path.
+
+
 
 ### Design
 
@@ -389,12 +411,19 @@ required for a first version.
 
 ### What this is NOT
 
-- **Not an HSM-RPS reduction.** One HSM wrap/unwrap operation per DEK
-  either way — Tier 3 doesn't change Managed HSM call volume, only where
-  the AES-GCM step and the plaintext/ciphertext transfer happen.
-- **Not a shared-DEK design.** DEK-per-record is preserved exactly as
-  today; explicitly rejected trading that isolation property for
-  additional throughput.
+- **Not an HSM-RPS reduction** — true for Tier 3 as originally scoped
+  (Phase 1/2). One HSM wrap/unwrap operation per DEK either way, only where
+  the AES-GCM step and the plaintext/ciphertext transfer happen. **No
+  longer true when `dek_name` is used** (later round): reuse looks up an
+  existing DEK instead of minting/wrapping a new one, cutting real HSM/Key
+  Vault operations from O(records) to O(distinct names) — see
+  `TIER3_POC_BUILD.md`. Only applies when a caller opts in; the default,
+  unnamed path still costs one HSM operation per record as always.
+- **Not a shared-DEK design** — true for the default path, unchanged. **No
+  longer true when `dek_name` is used**: that's exactly a shared-DEK design,
+  adopted later as a deliberate, opt-in exception — see the "Update" note
+  under "Non-negotiable constraint" above for the full context on why this
+  was revisited.
 - **Not a mechanism for real-time or steady-state traffic.** Confirmed
   scope: onboarding (once) and de-boarding (once) per app's lifecycle.
   Once onboarding completes, an app goes back to single-item or Tier 1
@@ -428,9 +457,22 @@ required for a first version.
   open**, this is the same Phase 3 admin key-provisioning gap `hsm-bulk-client`
   works around with a direct DB write today.
 - Tier 3 needs a dedicated security/crypto review before any of it is
-  built — **still open, and now more pressing**: real code exists (`hsm-bulk-service`,
-  `hsm-bulk-client`, both verified working end-to-end locally), not just this
-  design doc. This review has not happened.
+  built — **still open, and now more pressing than when this was last
+  written**: not only does real code exist (`hsm-bulk-service`,
+  `hsm-bulk-client`, both verified working end-to-end locally), a later round
+  also reintroduced the shared-DEK design this doc originally rejected (see
+  the "Update" note above) without that review ever having happened. This
+  review has still not happened.
+- **(New, later round)** `app_decrypt_grants` cross-app authorization is
+  app-to-app only (`(grantee_app_id, owner_app_id)`, no column/name scoping)
+  — this predates `dek_name` and was already this coarse for ordinary
+  DEK-per-record data. But `dek_name` now gives the system a real taxonomy
+  (`"customers.ssn"` vs. `"customers.account_number"`) that grant scoping
+  could use but doesn't — an auditor can reasonably ask why access control
+  doesn't distinguish what DEK issuance already does. Natural fix: extend
+  `AppDecryptGrant`'s key with an optional, nullable `dek_name` (`NULL` =
+  today's blanket grant, unchanged; a value scopes to just that name) —
+  **still open, not required to ship `dek_name` reuse itself**.
 
 ## What this doesn't change
 
@@ -446,6 +488,14 @@ scoped narrowly (DEK issuance/unwrap only, a separate service, DEK-per-
 record preserved) specifically so it doesn't loosen the KEK/HSM boundary
 either: the real KEK is still the only thing that ever produces a durable,
 recoverable EDEK, exactly as today.
+
+*(True as originally written; true again for the default, unnamed path
+after the later `dek_name` round. Two things from that round are narrow,
+additive exceptions, not changes to the above: the audit log gained two new
+optional fields, `dek_name`/`reused`, on `encrypt`/`dek_issued` events — the
+event shapes and everything else about the audit trail are unchanged; and
+the grant/scope authorization model gap noted in "Open decisions" above is
+a documented gap, not a change that already happened.)*
 
 ## Development plan for Tier 3 (if approved)
 
