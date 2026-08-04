@@ -26,7 +26,17 @@ client:
     # this needs to change to match or every call 404s.
     api-v1-prefix: ${SVC_API_V1_PREFIX:/api/sensec/hsm/v1}
     app-id: ${SVC_APP_ID:payments-svc}
+    # STATIC (default): token below is sent as-is, unchanged -- fine for demo/mock-mode
+    # tokens (MockJwtValidator's fixed strings never expire) but a real Azure AD JWT
+    # here would expire mid-job on any run longer than its TTL (~1h). AZURE_AD:
+    # acquires a fresh bearer token per call via Workload Identity instead (see
+    # AzureAdTokenProvider) -- token/SVC_TOKEN below is then unused; azure-token-scope
+    # must be set instead.
+    auth-mode: ${SVC_AUTH_MODE:STATIC}
     token: ${SVC_TOKEN:}
+    # Only used when auth-mode=AZURE_AD -- must match whatever SVC's own Azure AD app
+    # registration exposes as its audience/scope (mirrors hsm.jwt.audience on SVC).
+    azure-token-scope: ${SVC_AZURE_TOKEN_SCOPE:}
     dek-batch-max-items: ${SVC_DEK_BATCH_MAX_ITEMS:100}
     # PKCS#8 PEM. Never sent anywhere -- only used locally to unwrap what SVC
     # returns. The corresponding public key must already be registered on
@@ -66,6 +76,16 @@ client:
     #   - source: dob_ciphertext_token
     #     target: dob
     #     target-type: DATE
+    #   # dek-name only matters on ENCRYPT jobs -- unset means today's default (one
+    #   # DEK per row's value for this column); set means every row shares the
+    #   # current DEK for this name instead (one /dek/issue lookup per column per
+    #   # run, not one per row). Use the SAME dek-name on this column's ENCRYPT and
+    #   # DECRYPT config -- it doesn't affect DECRYPT's own behavior (that always
+    #   # resolves by the edek_id embedded in each row's token), but keeping them in
+    #   # sync avoids confusion about which DEK protects which column.
+    #   - source: account_number
+    #     target: account_number_ciphertext_token
+    #     dek-name: customers.account_number
     columns: []
     # Non-sensitive columns copied source-to-target as-is (same name both
     # sides, never encrypted/decrypted). Nothing beyond key-column + columns +
