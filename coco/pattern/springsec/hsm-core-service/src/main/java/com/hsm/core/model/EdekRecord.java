@@ -51,13 +51,31 @@ public class EdekRecord {
     @Column(name = "fingerprint", length = 16)
     private String fingerprint;
 
+    /**
+     * Caller-chosen logical name ("customers.ssn") letting many encrypt calls share
+     * one DEK instead of each minting its own -- null for the default per-value
+     * issuance path. Kept even after rotation, for audit/history -- unlike
+     * currentDekName below, this never gets cleared.
+     */
+    @Column(name = "dek_name", length = 256)
+    private String dekName;
+
+    /**
+     * Mirrors dekName only while rotationStatus is CURRENT; nulled out the moment a
+     * row rotates away from current. This (not dekName) is what
+     * idx_edek_current_name enforces uniqueness on -- see V7's migration comment for
+     * why this shadow-column split exists (H2 has no partial-unique-index syntax).
+     */
+    @Column(name = "current_dek_name", length = 256)
+    private String currentDekName;
+
     protected EdekRecord() {
         // JPA
     }
 
     public EdekRecord(UUID edekId, String appId, String edekBlob, String kekVersion,
                        String algorithm, String encoding, String dataClassification,
-                       String fingerprint) {
+                       String fingerprint, String dekName) {
         this.edekId = edekId;
         this.appId = appId;
         this.edekBlob = edekBlob;
@@ -67,6 +85,8 @@ public class EdekRecord {
         this.dataClassification = dataClassification;
         this.rotationStatus = RotationStatus.CURRENT;
         this.fingerprint = fingerprint;
+        this.dekName = dekName;
+        this.currentDekName = dekName;
         this.createdAt = OffsetDateTime.now();
     }
 
@@ -106,6 +126,11 @@ public class EdekRecord {
         return dataClassification;
     }
 
+    /** Only ever called to backfill a previously-unset classification on a named DEK's first explicit value -- see EncryptionService.resolveDek. */
+    public void setDataClassification(String dataClassification) {
+        this.dataClassification = dataClassification;
+    }
+
     public RotationStatus getRotationStatus() {
         return rotationStatus;
     }
@@ -132,5 +157,18 @@ public class EdekRecord {
 
     public void setFingerprint(String fingerprint) {
         this.fingerprint = fingerprint;
+    }
+
+    public String getDekName() {
+        return dekName;
+    }
+
+    public String getCurrentDekName() {
+        return currentDekName;
+    }
+
+    /** Call when this row rotates away from CURRENT -- clears the uniqueness-enforcing shadow column while leaving dekName (history) intact. */
+    public void clearCurrentDekName() {
+        this.currentDekName = null;
     }
 }
