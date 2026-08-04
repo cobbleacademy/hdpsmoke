@@ -54,13 +54,20 @@ public class EdekRecord {
     @Column(name = "fingerprint", length = 16)
     private String fingerprint;
 
+    /** See com.hsm.core.model.EdekRecord's javadoc on the same two fields -- identical semantics, same underlying columns. */
+    @Column(name = "dek_name", length = 256)
+    private String dekName;
+
+    @Column(name = "current_dek_name", length = 256)
+    private String currentDekName;
+
     protected EdekRecord() {
         // JPA
     }
 
     public EdekRecord(UUID edekId, String appId, String edekBlob, String kekVersion,
                        String algorithm, String encoding, String dataClassification,
-                       String fingerprint) {
+                       String fingerprint, String dekName) {
         this.edekId = edekId;
         this.appId = appId;
         this.edekBlob = edekBlob;
@@ -70,6 +77,8 @@ public class EdekRecord {
         this.dataClassification = dataClassification;
         this.rotationStatus = RotationStatus.CURRENT;
         this.fingerprint = fingerprint;
+        this.dekName = dekName;
+        this.currentDekName = dekName;
         this.createdAt = OffsetDateTime.now();
     }
 
@@ -115,5 +124,18 @@ public class EdekRecord {
 
     public String getFingerprint() {
         return fingerprint;
+    }
+
+    public String getDekName() {
+        return dekName;
+    }
+
+    public String getCurrentDekName() {
+        return currentDekName;
+    }
+
+    /** Only ever called to backfill a previously-unset classification on a named DEK's first explicit value -- see DekIssueService. */
+    public void setDataClassification(String dataClassification) {
+        this.dataClassification = dataClassification;
     }
 }
