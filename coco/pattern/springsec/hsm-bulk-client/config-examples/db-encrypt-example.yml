@@ -15,7 +15,12 @@ client:
   svc:
     base-url: http://localhost:3006
     app-id: payments-svc
+    # STATIC (default): token below sent as-is. AZURE_AD: fresh Workload Identity
+    # token per call instead -- use this for any job that might run longer than a
+    # token's TTL; see TIER3_POC_BUILD.md and set azure-token-scope, not token, below.
+    auth-mode: STATIC
     token: "<bearer token for app-id>"
+    # azure-token-scope: "api://hsm-core-service/.default"   # only when auth-mode: AZURE_AD
     dek-batch-max-items: 100
     private-key-pem: |
       -----BEGIN PRIVATE KEY-----
@@ -41,8 +46,12 @@ client:
     columns:
       - source: ssn
         target: ssn_ciphertext_token
+      # dek-name: every row's account_number shares the current DEK for
+      # "customers.account_number" instead of each getting its own -- one
+      # /dek/issue lookup for this column for the whole run, not one per row.
       - source: account_number
         target: account_number_ciphertext_token
+        dek-name: customers.account_number
       # target-type only matters for DECRYPT jobs -- ignored here, target is
       # always a ciphertext_token VARCHAR/TEXT column on ENCRYPT.
       - source: dob

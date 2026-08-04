@@ -9,7 +9,9 @@ client:
   svc:
     base-url: http://localhost:3006
     app-id: payments-svc
+    auth-mode: STATIC
     token: "<bearer token for app-id>"
+    # azure-token-scope: "api://hsm-core-service/.default"   # only when auth-mode: AZURE_AD
     dek-batch-max-items: 100
     private-key-pem: |
       -----BEGIN PRIVATE KEY-----
@@ -33,6 +35,9 @@ client:
     columns:
       - source: ssn_ciphertext_token
         target: ssn
+      # dek-name is not needed here even though the ENCRYPT config set one for
+      # this column -- DECRYPT always resolves by the edek_id embedded in each
+      # row's own token, never by name.
       - source: account_number_ciphertext_token
         target: account_number
       # target-type: the decrypted plaintext is always a String out of
