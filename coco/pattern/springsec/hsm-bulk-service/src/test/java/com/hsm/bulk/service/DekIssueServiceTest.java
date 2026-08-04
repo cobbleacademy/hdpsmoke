@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -77,7 +78,7 @@ class DekIssueServiceTest {
         String appId = "bulk-test-app-1";
         registerAppWithKeyPair(appId, keyPair.getPublic());
 
-        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii")));
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", null)));
         DekIssueResponse response = dekIssueService.issue(request, appId, "test-sub", "127.0.0.1");
 
         assertEquals(1, response.items().size());
@@ -86,6 +87,7 @@ class DekIssueServiceTest {
         assertEquals("row-1", item.key());
         assertNotNull(item.edekId());
         assertNotNull(item.wrappedDekB64());
+        assertFalse(item.reused());
 
         // Persisted shape matches what EncryptionService.encrypt would write, minus the AES-GCM fields.
         Optional<EdekRecord> maybeRecord = edekRecordRepository.findById(item.edekId());
@@ -115,7 +117,7 @@ class DekIssueServiceTest {
         String appId = "bulk-test-app-no-key";
         appRegistrationRepository.save(new AppRegistration(appId, "dek_issue,dek_unwrap", "no key", true, null));
 
-        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", null)));
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", null, null)));
         assertThrows(ApiException.class, () -> dekIssueService.issue(request, appId, "test-sub", "127.0.0.1"));
     }
 
@@ -126,9 +128,49 @@ class DekIssueServiceTest {
         registerAppWithKeyPair(appId, keyPair.getPublic());
 
         DekIssueRequest request = new DekIssueRequest(List.of(
-                new DekIssueItem("same-key", null),
-                new DekIssueItem("same-key", null)
+                new DekIssueItem("same-key", null, null),
+                new DekIssueItem("same-key", null, null)
         ));
         assertThrows(ApiException.class, () -> dekIssueService.issue(request, appId, "test-sub", "127.0.0.1"));
+    }
+
+    @Test
+    void namedDekReusedAcrossItemsSharesEdekIdAndMintsOnlyOnce() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "bulk-test-app-named";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+
+        DekIssueRequest first = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.ssn")));
+        DekIssueResultItem firstItem = dekIssueService.issue(first, appId, "test-sub", "127.0.0.1").items().get(0);
+        assertFalse(firstItem.reused());
+
+        DekIssueRequest second = new DekIssueRequest(List.of(new DekIssueItem("row-2", "pii", "customers.ssn")));
+        DekIssueResultItem secondItem = dekIssueService.issue(second, appId, "test-sub", "127.0.0.1").items().get(0);
+        assertTrue(secondItem.reused());
+        assertEquals(firstItem.edekId(), secondItem.edekId());
+
+        byte[] dekViaFirstTransport = TransportWrapper.unwrap(
+                Base64.getDecoder().decode(firstItem.wrappedDekB64()), keyPair.getPrivate());
+        byte[] dekViaSecondTransport = TransportWrapper.unwrap(
+                Base64.getDecoder().decode(secondItem.wrappedDekB64()), keyPair.getPrivate());
+        assertTrue(Arrays.equals(dekViaFirstTransport, dekViaSecondTransport));
+
+        assertEquals(1, edekRecordRepository.findAll().stream()
+                .filter(r -> "customers.ssn".equals(r.getDekName())).count());
+    }
+
+    @Test
+    void namedDekConflictingClassificationRejected() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "bulk-test-app-classification";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+
+        DekIssueRequest first = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.ssn")));
+        dekIssueService.issue(first, appId, "test-sub", "127.0.0.1");
+
+        DekIssueRequest conflicting = new DekIssueRequest(List.of(new DekIssueItem("row-2", "pci", "customers.ssn")));
+        DekIssueResultItem result = dekIssueService.issue(conflicting, appId, "test-sub", "127.0.0.1").items().get(0);
+        assertEquals("error", result.status());
+        assertTrue(result.detail().contains("already bound to data_classification"));
     }
 }

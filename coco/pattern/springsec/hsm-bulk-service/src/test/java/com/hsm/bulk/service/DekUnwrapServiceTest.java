@@ -74,7 +74,7 @@ class DekUnwrapServiceTest {
         UUID edekId = UUID.randomUUID();
         edekRecordRepository.save(new EdekRecord(
                 edekId, ownerAppId, Base64.getEncoder().encodeToString(wrapResult.edekBytes()), wrapResult.kekVersion(),
-                DekManager.ALGORITHM, "utf8", null, null));
+                DekManager.ALGORITHM, "utf8", null, null, null));
         return edekId;
     }
 
