@@ -1,6 +1,7 @@
 package com.hsm.core.service;
 
 import com.hsm.core.audit.AuditLogger;
+import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.dto.RotateKekResponse;
 import com.hsm.core.model.EdekRecord;
@@ -17,6 +18,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * KEK rotation service. Ported from app/services/rotation_service.py.
@@ -77,6 +79,53 @@ public class RotationService {
                 "new_kek_version", newVersion, "records_rotated", total, "triggered_by", triggeredBy, "status", "success");
 
         return new RotateKekResponse(newVersion, total);
+    }
+
+    /**
+     * Rotates every "current" named DEK (edek_records row with a non-null
+     * current_dek_name) whose createdAt is older than maxAgeHours -- one at a time,
+     * each in its own transaction, so a failure partway through only loses that one
+     * rotation, not the whole sweep. Unlike rotateKek this mints a brand-new DEK per
+     * row rather than re-wrapping the existing one -- the DEK material itself is
+     * what's being retired, not just its KEK wrapping.
+     */
+    public int rotateNamedDeks(int maxAgeHours) {
+        OffsetDateTime cutoff = OffsetDateTime.now().minusHours(maxAgeHours);
+        List<EdekRecord> candidates = edekRecordRepository.findByRotationStatusAndCurrentDekNameIsNotNullAndCreatedAtBefore(
+                RotationStatus.CURRENT, cutoff);
+
+        int rotated = 0;
+        for (EdekRecord old : candidates) {
+            transactionTemplate.executeWithoutResult(status -> rotateNamedDek(old));
+            rotated++;
+        }
+
+        auditLogger.log("named_dek_rotation_completed", "records_rotated", rotated, "max_age_hours", maxAgeHours, "status", "success");
+        return rotated;
+    }
+
+    private void rotateNamedDek(EdekRecord old) {
+        byte[] dek = DekManager.generateDek();
+        try {
+            KekClient.WrapResult wrapResult = kekClient.wrapDek(dek);
+            EdekRecord fresh = new EdekRecord(
+                    UUID.randomUUID(), old.getAppId(), Base64.getEncoder().encodeToString(wrapResult.edekBytes()), wrapResult.kekVersion(),
+                    old.getAlgorithm(), old.getEncoding(), old.getDataClassification(), null, old.getDekName());
+
+            old.setRotationStatus(RotationStatus.ROTATED);
+            old.setRotatedAt(OffsetDateTime.now());
+            old.clearCurrentDekName();
+            // saveAndFlush, not save -- idx_edek_current_name allows only one row per
+            // (app_id, current_dek_name); Hibernate's default flush order is by
+            // operation type (inserts before updates), not registration order, so
+            // fresh's INSERT could otherwise land before old's UPDATE clears its
+            // current_dek_name and transiently violate that constraint within the
+            // same transaction.
+            edekRecordRepository.saveAndFlush(old);
+            edekRecordRepository.save(fresh);
+        } finally {
+            DekManager.zeroDek(dek);
+        }
     }
 
     private void rewrapRecord(EdekRecord record, String newVersion) {

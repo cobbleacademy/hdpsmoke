@@ -3,6 +3,7 @@ package com.hsm.core.service;
 import com.hsm.core.audit.AuditLogger;
 import com.hsm.core.auth.PbacClient;
 import com.hsm.core.config.HsmProperties;
+import com.hsm.core.crypto.DekCache;
 import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.dto.BatchEncryptItem;
@@ -25,6 +26,7 @@ import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -37,17 +39,23 @@ public class EncryptionService {
 
     private final KekClient kekClient;
     private final EdekRecordRepository edekRecordRepository;
+    private final DekCache dekCache;
     private final PbacClient pbacClient;
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
 
-    public EncryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository,
+    public EncryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository, DekCache dekCache,
                               PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties) {
         this.kekClient = kekClient;
         this.edekRecordRepository = edekRecordRepository;
+        this.dekCache = dekCache;
         this.pbacClient = pbacClient;
         this.auditLogger = auditLogger;
         this.properties = properties;
+    }
+
+    /** Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or from DekCache) or a newly minted one (reused=false, not yet persisted). */
+    private record ResolvedDek(UUID edekId, byte[] dek, String kekVersion, String edekBlobB64, boolean reused) {
     }
 
     public EncryptResponse encrypt(EncryptRequest request, String appId, String callerSub, String callerIp) {
@@ -71,37 +79,103 @@ public class EncryptionService {
             }
         }
 
-        byte[] dek = DekManager.generateDek();
+        String dekName = request.dekName();
+        ResolvedDek resolved = resolveDek(appId, dekName, request.dataClassification());
+
         DekManager.EncryptResult result;
-        KekClient.WrapResult wrapResult;
         try {
-            result = DekManager.encrypt(plaintextBytes, dek, appId);
-            wrapResult = kekClient.wrapDek(dek);
+            result = DekManager.encrypt(plaintextBytes, resolved.dek(), appId);
         } finally {
-            DekManager.zeroDek(dek);
+            DekManager.zeroDek(resolved.dek());
         }
 
-        UUID edekId = UUID.randomUUID();
-        String fingerprint = DekManager.makeFingerprint(result.iv(), result.tag());
-        EdekRecord record = new EdekRecord(
-                edekId, appId, Base64.getEncoder().encodeToString(wrapResult.edekBytes()), wrapResult.kekVersion(),
-                DekManager.ALGORITHM, request.encoding(), request.dataClassification(), fingerprint
-        );
-        edekRecordRepository.save(record);
+        UUID edekId = resolved.edekId();
+        if (!resolved.reused()) {
+            // Fingerprint left null for named rows -- a shared DEK legitimately produces
+            // a different iv/tag on every call that reuses it, so no single stored
+            // fingerprint could validly cross-check every token that will end up
+            // referencing this edek_id. DecryptionService's fingerprint check already
+            // gates on non-null (see its class comment), so this is a complete fix with
+            // zero change needed on the decrypt side.
+            boolean named = dekName != null && !dekName.isBlank();
+            String fingerprint = named ? null : DekManager.makeFingerprint(result.iv(), result.tag());
+            EdekRecord record = new EdekRecord(
+                    edekId, appId, resolved.edekBlobB64(), resolved.kekVersion(),
+                    DekManager.ALGORITHM, request.encoding(), request.dataClassification(), fingerprint, dekName
+            );
+            edekRecordRepository.save(record);
+        }
 
         auditLogger.log("encrypt",
                 "app_id", appId, "sub", callerSub, "end_user_id", request.endUserId(),
-                "edek_id", edekId.toString(), "kek_version", wrapResult.kekVersion(),
+                "edek_id", edekId.toString(), "kek_version", resolved.kekVersion(),
                 "data_classification", request.dataClassification(), "caller_ip", callerIp,
-                "context", request.context(), "status", "success");
+                "context", request.context(), "dek_name", dekName, "reused", resolved.reused(), "status", "success");
 
         return new EncryptResponse(
                 DekManager.packToken(edekId, result.iv(), result.tag(), result.ciphertext()),
-                edekId, appId, DekManager.ALGORITHM, request.encoding(), wrapResult.kekVersion(),
+                edekId, appId, DekManager.ALGORITHM, request.encoding(), resolved.kekVersion(),
                 Base64.getEncoder().encodeToString(result.iv()),
                 Base64.getEncoder().encodeToString(result.ciphertext()),
-                Base64.getEncoder().encodeToString(result.tag())
+                Base64.getEncoder().encodeToString(result.tag()),
+                resolved.reused()
         );
+    }
+
+    /**
+     * dekName unset (or never used before) -&gt; mint fresh, exactly as always. dekName
+     * set and already has a "current" row -&gt; reuse that DEK (DekCache hit, or one
+     * KEK/HSM unwrap on a miss) instead of minting a new one. First-time-named mints
+     * prime DekCache immediately (before the caller zeroes its local copy) so the
+     * *next* call for this name is already a cache hit.
+     */
+    private ResolvedDek resolveDek(String appId, String dekName, String dataClassification) {
+        boolean named = dekName != null && !dekName.isBlank();
+        if (named) {
+            Optional<EdekRecord> existing = edekRecordRepository.findByAppIdAndCurrentDekName(appId, dekName);
+            if (existing.isPresent()) {
+                EdekRecord record = existing.get();
+                checkClassificationMatch(dekName, record.getDataClassification(), dataClassification);
+                if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
+                        && dataClassification != null && !dataClassification.isBlank()) {
+                    // First call never set one; this call did, and there's nothing to
+                    // conflict with -- backfill rather than leave it permanently unset.
+                    record.setDataClassification(dataClassification);
+                    edekRecordRepository.save(record);
+                }
+                String edekIdStr = record.getEdekId().toString();
+                byte[] cached = dekCache.get(edekIdStr);
+                byte[] dek;
+                if (cached != null) {
+                    dek = cached;
+                } else {
+                    byte[] edekBytes = Base64.getDecoder().decode(record.getEdekBlob());
+                    dek = kekClient.unwrapDek(edekBytes, record.getKekVersion());
+                    dekCache.set(edekIdStr, dek, record.getDataClassification());
+                }
+                return new ResolvedDek(record.getEdekId(), dek, record.getKekVersion(), null, true);
+            }
+        }
+
+        byte[] dek = DekManager.generateDek();
+        KekClient.WrapResult wrapResult = kekClient.wrapDek(dek);
+        UUID edekId = UUID.randomUUID();
+        if (named) {
+            dekCache.set(edekId.toString(), dek, dataClassification);
+        }
+        return new ResolvedDek(edekId, dek, wrapResult.kekVersion(),
+                Base64.getEncoder().encodeToString(wrapResult.edekBytes()), false);
+    }
+
+    /** One dek_name is bound to exactly one data_classification -- reject only on an explicit, non-blank conflict; a blank side is a no-op (informational field stays as the other side already has it). */
+    private static void checkClassificationMatch(String dekName, String existingClassification, String requestedClassification) {
+        if (existingClassification != null && !existingClassification.isBlank()
+                && requestedClassification != null && !requestedClassification.isBlank()
+                && !existingClassification.equals(requestedClassification)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "dek_name '" + dekName + "' is already bound to data_classification '" + existingClassification
+                            + "' -- got '" + requestedClassification + "'");
+        }
     }
 
     /**
@@ -141,7 +215,7 @@ public class EncryptionService {
         for (BatchEncryptItem item : items) {
             try {
                 EncryptRequest single = new EncryptRequest(
-                        item.plaintext(), item.encoding(), item.dataClassification(), item.endUserId(), item.context());
+                        item.plaintext(), item.encoding(), item.dataClassification(), item.endUserId(), item.context(), item.dekName());
                 EncryptResponse response = encrypt(single, appId, callerSub, callerIp);
                 results.add(BatchEncryptResultItem.success(item.key(), response));
                 successCount++;
