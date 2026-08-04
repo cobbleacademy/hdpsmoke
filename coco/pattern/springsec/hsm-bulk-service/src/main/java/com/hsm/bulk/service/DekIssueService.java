@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -98,20 +99,66 @@ public class DekIssueService {
         return new DekIssueResponse(results);
     }
 
+    /**
+     * item.name() unset -&gt; mint fresh, exactly as always (DEK-per-item). Set and
+     * already has a "current" row for (appId, name) -&gt; reuse it: unwrap the existing
+     * edek_blob (one real KEK/HSM operation, same cost as a mint would have been) and
+     * transport-wrap that same raw DEK for this caller, rather than minting+persisting
+     * a new EdekRecord. No DekCache here (unlike hsm-core-service's EncryptionService)
+     * -- this module was deliberately scoped down without one -- so every reuse still
+     * pays one real unwrap; the win is fewer EdekRecord rows / fewer distinct DEKs
+     * issued overall, not fewer HSM calls per issuance.
+     */
     private DekIssueResultItem issueOne(DekIssueItem item, String appId, PublicKey callerPublicKey) {
+        String name = item.name();
+        boolean named = name != null && !name.isBlank();
+
+        if (named) {
+            Optional<EdekRecord> existing = edekRecordRepository.findByAppIdAndCurrentDekName(appId, name);
+            if (existing.isPresent()) {
+                EdekRecord record = existing.get();
+                checkClassificationMatch(name, record.getDataClassification(), item.dataClassification());
+                if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
+                        && item.dataClassification() != null && !item.dataClassification().isBlank()) {
+                    record.setDataClassification(item.dataClassification());
+                    edekRecordRepository.save(record);
+                }
+                byte[] edekBytes = Base64.getDecoder().decode(record.getEdekBlob());
+                byte[] dek = kekClient.unwrapDek(edekBytes, record.getKekVersion());
+                try {
+                    byte[] wrappedForTransport = TransportWrapper.wrap(dek, callerPublicKey);
+                    return DekIssueResultItem.success(item.key(), record.getEdekId(),
+                            Base64.getEncoder().encodeToString(wrappedForTransport), true);
+                } finally {
+                    DekManager.zeroDek(dek);
+                }
+            }
+        }
+
         byte[] dek = DekManager.generateDek();
         UUID edekId = UUID.randomUUID();
         try {
             KekClient.WrapResult wrapResult = kekClient.wrapDek(dek);
             EdekRecord record = new EdekRecord(
                     edekId, appId, Base64.getEncoder().encodeToString(wrapResult.edekBytes()), wrapResult.kekVersion(),
-                    DekManager.ALGORITHM, "utf8", item.dataClassification(), null);
+                    DekManager.ALGORITHM, "utf8", item.dataClassification(), null, name);
             edekRecordRepository.save(record);
 
             byte[] wrappedForTransport = TransportWrapper.wrap(dek, callerPublicKey);
-            return DekIssueResultItem.success(item.key(), edekId, Base64.getEncoder().encodeToString(wrappedForTransport));
+            return DekIssueResultItem.success(item.key(), edekId, Base64.getEncoder().encodeToString(wrappedForTransport), false);
         } finally {
             DekManager.zeroDek(dek);
+        }
+    }
+
+    /** One name is bound to exactly one data_classification -- reject only on an explicit, non-blank conflict; a blank side is a no-op. Same semantics as EncryptionService.checkClassificationMatch. */
+    private static void checkClassificationMatch(String name, String existingClassification, String requestedClassification) {
+        if (existingClassification != null && !existingClassification.isBlank()
+                && requestedClassification != null && !requestedClassification.isBlank()
+                && !existingClassification.equals(requestedClassification)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "name '" + name + "' is already bound to data_classification '" + existingClassification
+                            + "' -- got '" + requestedClassification + "'");
         }
     }
 
