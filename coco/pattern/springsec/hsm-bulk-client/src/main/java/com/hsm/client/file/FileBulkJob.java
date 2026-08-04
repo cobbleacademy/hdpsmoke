@@ -73,7 +73,7 @@ public class FileBulkJob {
         int done = 0;
         for (List<String> batch : partition(files, filesPerCall)) {
             List<SvcClient.IssueItem> issueItems = batch.stream()
-                    .map(path -> new SvcClient.IssueItem(path, null))
+                    .map(path -> new SvcClient.IssueItem(path, null, null))
                     .toList();
             List<SvcClient.IssueResult> issued = svcClient.issue(issueItems);
             Map<String, SvcClient.IssueResult> byKey = new LinkedHashMap<>();

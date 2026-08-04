@@ -30,15 +30,21 @@ public class SvcClient {
 
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private final ClientProperties.Svc config;
+    private final TokenProvider tokenProvider;
 
     public SvcClient(ClientProperties.Svc config) {
         this.config = config;
+        this.tokenProvider = switch (config.authMode() == null ? ClientProperties.Svc.AuthMode.STATIC : config.authMode()) {
+            case STATIC -> new StaticTokenProvider(config.token());
+            case AZURE_AD -> new AzureAdTokenProvider(config.azureTokenScope());
+        };
     }
 
-    public record IssueItem(String key, String dataClassification) {
+    /** name is optional -- see ClientProperties.Db.ColumnMapping.dekName's javadoc for what it does. */
+    public record IssueItem(String key, String dataClassification, String name) {
     }
 
-    public record IssueResult(String key, String status, UUID edekId, String wrappedDekB64, String detail) {
+    public record IssueResult(String key, String status, UUID edekId, String wrappedDekB64, String detail, boolean reused) {
     }
 
     public record UnwrapItem(String key, UUID edekId) {
@@ -67,7 +73,7 @@ public class SvcClient {
             HttpRequest request = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiV1Prefix() + path))
                     .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + config.token())
+                    .header("Authorization", "Bearer " + tokenProvider.getBearerToken())
                     .header("X-App-ID", config.appId())
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();

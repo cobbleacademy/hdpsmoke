@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * BULK DB job: reads plaintext from configured source columns, gets DEKs from SVC in
@@ -73,68 +74,121 @@ public class DbBulkJob {
         List<String> passthroughColumns = passthroughColumns();
         List<String> selectColumns = concat(sourceColumns, passthroughColumns);
         List<String> targetColumns = concat(config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), passthroughColumns);
+        List<String> unnamedSourceColumns = config.columns().stream()
+                .filter(m -> !isNamed(m))
+                .map(ClientProperties.Db.ColumnMapping::source)
+                .toList();
 
-        Object lastKey = null;
-        int totalRows = 0;
-        while (true) {
-            List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), selectColumns, lastKey, config.rowBatchSize());
-            if (rows.isEmpty()) {
-                break;
-            }
-
-            for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, sourceColumns.size())) {
-                List<SvcClient.IssueItem> issueItems = new ArrayList<>();
-                for (Map<String, Object> row : subBatch) {
-                    for (String col : sourceColumns) {
-                        issueItems.add(new SvcClient.IssueItem(itemKey(row.get(config.keyColumn()), col), null));
-                    }
-                }
-                List<SvcClient.IssueResult> issued = svcClient.issue(issueItems);
-                Map<String, SvcClient.IssueResult> byKey = new LinkedHashMap<>();
-                for (SvcClient.IssueResult r : issued) {
-                    byKey.put(r.key(), r);
+        // One DEK per distinct dek-name for the WHOLE run, resolved/unwrapped once up
+        // front -- not once per row, not even once per sub-batch. SVC's own
+        // /dek/issue already reuses the current DEK for a name idempotently, so
+        // calling it more often would still be correct, just redundant.
+        Map<String, NamedDek> namedDeks = issueNamedColumnDeks();
+        try {
+            Object lastKey = null;
+            int totalRows = 0;
+            while (true) {
+                List<Map<String, Object>> rows = fetchPage(sourceJdbc, sourceTable, config.keyColumn(), selectColumns, lastKey, config.rowBatchSize());
+                if (rows.isEmpty()) {
+                    break;
                 }
 
-                List<Object[]> targetRows = new ArrayList<>();
-                for (Map<String, Object> row : subBatch) {
-                    Object keyValue = row.get(config.keyColumn());
-                    Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
-                    targetRow[0] = keyValue;
-                    int i = 1;
-                    for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
-                        SvcClient.IssueResult result = byKey.get(itemKey(keyValue, mapping.source()));
-                        if (result == null || !"success".equals(result.status())) {
-                            throw new IllegalStateException("dek/issue failed for key=" + keyValue + " column=" + mapping.source()
-                                    + ": " + (result == null ? "no result returned" : result.detail()));
+                for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, unnamedSourceColumns.size())) {
+                    List<SvcClient.IssueItem> issueItems = new ArrayList<>();
+                    for (Map<String, Object> row : subBatch) {
+                        for (String col : unnamedSourceColumns) {
+                            issueItems.add(new SvcClient.IssueItem(itemKey(row.get(config.keyColumn()), col), null, null));
                         }
-                        byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
-                        try {
+                    }
+                    List<SvcClient.IssueResult> issued = issueItems.isEmpty() ? List.of() : svcClient.issue(issueItems);
+                    Map<String, SvcClient.IssueResult> byKey = new LinkedHashMap<>();
+                    for (SvcClient.IssueResult r : issued) {
+                        byKey.put(r.key(), r);
+                    }
+
+                    List<Object[]> targetRows = new ArrayList<>();
+                    for (Map<String, Object> row : subBatch) {
+                        Object keyValue = row.get(config.keyColumn());
+                        Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
+                        targetRow[0] = keyValue;
+                        int i = 1;
+                        for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
                             Object plaintextValue = row.get(mapping.source());
                             String plaintext = plaintextValue == null ? null : plaintextValue.toString();
                             if (plaintext == null) {
                                 targetRow[i++] = null;
                                 continue;
                             }
-                            DekManager.EncryptResult encrypted = DekManager.encrypt(
-                                    plaintext.getBytes(StandardCharsets.UTF_8), dek, svcConfig.appId());
-                            targetRow[i++] = DekManager.packToken(result.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
-                        } finally {
-                            DekManager.zeroDek(dek);
+                            if (isNamed(mapping)) {
+                                NamedDek namedDek = namedDeks.get(mapping.dekName());
+                                DekManager.EncryptResult encrypted = DekManager.encrypt(
+                                        plaintext.getBytes(StandardCharsets.UTF_8), namedDek.dek(), svcConfig.appId());
+                                targetRow[i++] = DekManager.packToken(namedDek.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
+                            } else {
+                                SvcClient.IssueResult result = byKey.get(itemKey(keyValue, mapping.source()));
+                                if (result == null || !"success".equals(result.status())) {
+                                    throw new IllegalStateException("dek/issue failed for key=" + keyValue + " column=" + mapping.source()
+                                            + ": " + (result == null ? "no result returned" : result.detail()));
+                                }
+                                byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
+                                try {
+                                    DekManager.EncryptResult encrypted = DekManager.encrypt(
+                                            plaintext.getBytes(StandardCharsets.UTF_8), dek, svcConfig.appId());
+                                    targetRow[i++] = DekManager.packToken(result.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
+                                } finally {
+                                    DekManager.zeroDek(dek);
+                                }
+                            }
                         }
+                        for (String col : passthroughColumns) {
+                            targetRow[i++] = row.get(col);
+                        }
+                        targetRows.add(targetRow);
                     }
-                    for (String col : passthroughColumns) {
-                        targetRow[i++] = row.get(col);
-                    }
-                    targetRows.add(targetRow);
+                    insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
                 }
-                insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
-            }
 
-            totalRows += rows.size();
-            lastKey = rows.get(rows.size() - 1).get(config.keyColumn());
-            log.info("db_bulk_encrypt_progress rows_done={}", totalRows);
+                totalRows += rows.size();
+                lastKey = rows.get(rows.size() - 1).get(config.keyColumn());
+                log.info("db_bulk_encrypt_progress rows_done={}", totalRows);
+            }
+            log.info("db_bulk_encrypt_complete total_rows={}", totalRows);
+        } finally {
+            namedDeks.values().forEach(nd -> DekManager.zeroDek(nd.dek()));
         }
-        log.info("db_bulk_encrypt_complete total_rows={}", totalRows);
+    }
+
+    private record NamedDek(UUID edekId, byte[] dek) {
+    }
+
+    private static boolean isNamed(ClientProperties.Db.ColumnMapping mapping) {
+        return mapping.dekName() != null && !mapping.dekName().isBlank();
+    }
+
+    /** One /dek/issue call for every distinct dek-name across config.columns() -- deduped so two columns sharing one name don't send a duplicate-key request SVC would reject. */
+    private Map<String, NamedDek> issueNamedColumnDeks() {
+        List<String> distinctNames = config.columns().stream()
+                .map(ClientProperties.Db.ColumnMapping::dekName)
+                .filter(n -> n != null && !n.isBlank())
+                .distinct()
+                .toList();
+        if (distinctNames.isEmpty()) {
+            return Map.of();
+        }
+        List<SvcClient.IssueItem> issueItems = distinctNames.stream()
+                .map(name -> new SvcClient.IssueItem(name, null, name))
+                .toList();
+        List<SvcClient.IssueResult> issued = svcClient.issue(issueItems);
+        Map<String, NamedDek> result = new LinkedHashMap<>();
+        for (SvcClient.IssueResult r : issued) {
+            if (!"success".equals(r.status())) {
+                throw new IllegalStateException("dek/issue failed for dek-name=" + r.key() + ": " + r.detail());
+            }
+            byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(r.wrappedDekB64()), privateKey);
+            result.put(r.key(), new NamedDek(r.edekId(), dek));
+            log.info("db_bulk_named_dek_resolved dek_name={} reused={}", r.key(), r.reused());
+        }
+        return result;
     }
 
     public void decrypt() {
@@ -155,7 +209,6 @@ public class DbBulkJob {
 
             for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, sourceColumns.size())) {
                 Map<String, DekManager.UnpackedToken> unpackedByKey = new LinkedHashMap<>();
-                List<SvcClient.UnwrapItem> unwrapItems = new ArrayList<>();
                 for (Map<String, Object> row : subBatch) {
                     Object keyValue = row.get(config.keyColumn());
                     for (String col : sourceColumns) {
@@ -163,62 +216,82 @@ public class DbBulkJob {
                         if (token == null) {
                             continue;
                         }
-                        DekManager.UnpackedToken unpacked = DekManager.unpackToken(token);
-                        String k = itemKey(keyValue, col);
-                        unpackedByKey.put(k, unpacked);
-                        unwrapItems.add(new SvcClient.UnwrapItem(k, unpacked.edekId()));
+                        unpackedByKey.put(itemKey(keyValue, col), DekManager.unpackToken(token));
                     }
                 }
-                if (unwrapItems.isEmpty()) {
+                if (unpackedByKey.isEmpty()) {
                     continue;
                 }
+
+                // Dedup by edek_id, not by (row, column) -- many pairs can share one id
+                // under a named/reused DEK. One /dek/unwrap call AND one local RSA-OAEP
+                // unwrap per distinct id, not one per pair -- RSA unwrap was the
+                // dominant cost in the original bulk-vs-batch benchmark, so this is the
+                // more important half of the dedup, not just fewer HTTP items.
+                List<UUID> distinctEdekIds = unpackedByKey.values().stream()
+                        .map(DekManager.UnpackedToken::edekId)
+                        .distinct()
+                        .toList();
+                List<SvcClient.UnwrapItem> unwrapItems = distinctEdekIds.stream()
+                        .map(id -> new SvcClient.UnwrapItem(id.toString(), id))
+                        .toList();
                 List<SvcClient.UnwrapResult> unwrapped = svcClient.unwrap(unwrapItems);
-                Map<String, SvcClient.UnwrapResult> byKey = new LinkedHashMap<>();
+                Map<UUID, SvcClient.UnwrapResult> resultByEdekId = new LinkedHashMap<>();
                 for (SvcClient.UnwrapResult r : unwrapped) {
-                    byKey.put(r.key(), r);
+                    resultByEdekId.put(UUID.fromString(r.key()), r);
                 }
 
-                List<Object[]> targetRows = new ArrayList<>();
-                for (Map<String, Object> row : subBatch) {
-                    Object keyValue = row.get(config.keyColumn());
-                    Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
-                    targetRow[0] = keyValue;
-                    int i = 1;
-                    for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
-                        String k = itemKey(keyValue, mapping.source());
-                        DekManager.UnpackedToken unpacked = unpackedByKey.get(k);
-                        SvcClient.UnwrapResult result = byKey.get(k);
-                        if (unpacked == null) {
-                            targetRow[i++] = null;
-                            continue;
-                        }
-                        if (result == null || !"success".equals(result.status())) {
-                            throw new IllegalStateException("dek/unwrap failed for key=" + keyValue + " column=" + mapping.source()
-                                    + ": " + (result == null ? "no result returned" : result.detail()));
-                        }
-                        byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
-                        try {
-                            byte[] plaintext = DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, svcConfig.appId());
-                            String decrypted = new String(plaintext, StandardCharsets.UTF_8);
-                            targetRow[i++] = convertForTarget(decrypted, mapping.targetType());
-                        } catch (AEADBadTagException e) {
-                            throw new IllegalStateException("AEAD tag verification failed for key=" + keyValue + " column=" + mapping.source(), e);
-                        } catch (IllegalArgumentException e) {
-                            // Date.valueOf/Timestamp.valueOf/NumberFormatException (a NumberFormatException
-                            // IS an IllegalArgumentException) all land here -- one catch covers every
-                            // TargetType's parse failure.
-                            throw new IllegalStateException("Decrypted value is not a valid " + mapping.targetType()
-                                    + " for key=" + keyValue + " column=" + mapping.source(), e);
-                        } finally {
-                            DekManager.zeroDek(dek);
+                Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+                try {
+                    for (Map.Entry<UUID, SvcClient.UnwrapResult> e : resultByEdekId.entrySet()) {
+                        if ("success".equals(e.getValue().status())) {
+                            dekByEdekId.put(e.getKey(), TransportWrapper.unwrap(
+                                    Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey));
                         }
                     }
-                    for (String col : passthroughColumns) {
-                        targetRow[i++] = row.get(col);
+
+                    List<Object[]> targetRows = new ArrayList<>();
+                    for (Map<String, Object> row : subBatch) {
+                        Object keyValue = row.get(config.keyColumn());
+                        Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
+                        targetRow[0] = keyValue;
+                        int i = 1;
+                        for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
+                            String k = itemKey(keyValue, mapping.source());
+                            DekManager.UnpackedToken unpacked = unpackedByKey.get(k);
+                            if (unpacked == null) {
+                                targetRow[i++] = null;
+                                continue;
+                            }
+                            SvcClient.UnwrapResult result = resultByEdekId.get(unpacked.edekId());
+                            byte[] dek = dekByEdekId.get(unpacked.edekId());
+                            if (result == null || !"success".equals(result.status()) || dek == null) {
+                                throw new IllegalStateException("dek/unwrap failed for key=" + keyValue + " column=" + mapping.source()
+                                        + ": " + (result == null ? "no result returned" : result.detail()));
+                            }
+                            try {
+                                byte[] plaintext = DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, svcConfig.appId());
+                                String decrypted = new String(plaintext, StandardCharsets.UTF_8);
+                                targetRow[i++] = convertForTarget(decrypted, mapping.targetType());
+                            } catch (AEADBadTagException e) {
+                                throw new IllegalStateException("AEAD tag verification failed for key=" + keyValue + " column=" + mapping.source(), e);
+                            } catch (IllegalArgumentException e) {
+                                // Date.valueOf/Timestamp.valueOf/NumberFormatException (a NumberFormatException
+                                // IS an IllegalArgumentException) all land here -- one catch covers every
+                                // TargetType's parse failure.
+                                throw new IllegalStateException("Decrypted value is not a valid " + mapping.targetType()
+                                        + " for key=" + keyValue + " column=" + mapping.source(), e);
+                            }
+                        }
+                        for (String col : passthroughColumns) {
+                            targetRow[i++] = row.get(col);
+                        }
+                        targetRows.add(targetRow);
                     }
-                    targetRows.add(targetRow);
+                    insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
+                } finally {
+                    dekByEdekId.values().forEach(DekManager::zeroDek);
                 }
-                insertRows(targetJdbc, targetTable, config.keyColumn(), targetColumns, targetRows);
             }
 
             totalRows += rows.size();
