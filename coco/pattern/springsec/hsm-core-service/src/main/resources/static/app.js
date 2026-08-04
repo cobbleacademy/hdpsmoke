@@ -62,6 +62,7 @@ const FIELD_EXPLAINERS = {
   plaintext: "The recovered original data",
   decrypted_as: "The app that made this decrypt call — may differ from owner_app_id if a grant exists",
   cache: "Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60 s",
+  reused: "true = this call reused the current DEK for dek_name below instead of minting a fresh one — Latest EDEK Records won't grow on reuse",
 };
 
 function showFieldBreakdown(el, fields, isError = false) {
@@ -82,13 +83,14 @@ function showFieldBreakdown(el, fields, isError = false) {
 async function encrypt() {
   const plaintext = $("plaintext").value;
   const data_classification = $("dataClassification").value || null;
+  const dek_name = $("dekName").value.trim() || null;
   const btn = $("encryptBtn");
   btn.disabled = true;
   try {
     const res = await fetch(`${API}/encrypt`, {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ plaintext, data_classification, end_user_id: $("encryptEndUserId").value || null, context: { source: "demo-ui" } }),
+      body: JSON.stringify({ plaintext, data_classification, dek_name, end_user_id: $("encryptEndUserId").value || null, context: { source: "demo-ui" } }),
     });
     const data = await res.json();
     if (!res.ok) { showResult($("encryptResult"), data, true); return; }
@@ -189,6 +191,7 @@ async function refreshEdekRecords() {
       <td>${r.algorithm}</td>
       <td>${r.encoding}</td>
       <td>${r.data_classification || "-"}</td>
+      <td>${r.dek_name || "-"}</td>
       <td>${r.rotation_status}</td>
       <td><code>${r.edek_blob_preview}</code></td>
       <td>${r.created_at ? new Date(r.created_at).toLocaleTimeString() : "-"}</td>
