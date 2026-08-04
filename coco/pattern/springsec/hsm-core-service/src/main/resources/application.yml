@@ -117,6 +117,13 @@ hsm:
   kek-rotation:
     cron: ${KEK_ROTATION_CRON:0 2 1 * *}
     enabled: ${KEK_ROTATION_ENABLED:true}
+  # Rotates named DEKs (edek_records rows with a non-null current_dek_name) once
+  # they've been current longer than max-age-hours -- age-based, not usage-count-based
+  # (see HsmProperties.NamedDekRotation's javadoc for why). Default cron: daily at 03:00.
+  named-dek-rotation:
+    cron: ${NAMED_DEK_ROTATION_CRON:0 3 * * *}
+    enabled: ${NAMED_DEK_ROTATION_ENABLED:true}
+    max-age-hours: ${NAMED_DEK_ROTATION_MAX_AGE_HOURS:720}
   redis:
     url: ${REDIS_URL:}
   dek-cache:
