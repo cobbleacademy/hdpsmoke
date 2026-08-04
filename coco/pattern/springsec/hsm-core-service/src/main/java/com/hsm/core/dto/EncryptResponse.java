@@ -18,6 +18,11 @@ public record EncryptResponse(
         // Clients should use ciphertextToken instead.
         String ivB64,
         String ciphertextB64,
-        String tagB64
+        String tagB64,
+
+        // true when this call reused an existing named DEK (dekName was set and
+        // already had a current row) rather than minting a fresh one -- observability/
+        // audit signal, not needed for decrypt. Always false when dekName was unset.
+        boolean reused
 ) {
 }

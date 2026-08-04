@@ -17,7 +17,8 @@ public record BatchEncryptItem(
         String encoding,
         String dataClassification,
         String endUserId,
-        Map<String, String> context
+        Map<String, String> context,
+        @Size(max = 256) String dekName
 ) {
     public BatchEncryptItem {
         if (encoding == null || encoding.isBlank()) {
