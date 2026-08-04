@@ -13,13 +13,14 @@ public record DekIssueResultItem(
         String status,
         UUID edekId,
         String wrappedDekB64,
-        String detail
+        String detail,
+        boolean reused
 ) {
-    public static DekIssueResultItem success(String key, UUID edekId, String wrappedDekB64) {
-        return new DekIssueResultItem(key, "success", edekId, wrappedDekB64, null);
+    public static DekIssueResultItem success(String key, UUID edekId, String wrappedDekB64, boolean reused) {
+        return new DekIssueResultItem(key, "success", edekId, wrappedDekB64, null, reused);
     }
 
     public static DekIssueResultItem error(String key, String detail) {
-        return new DekIssueResultItem(key, "error", null, null, detail);
+        return new DekIssueResultItem(key, "error", null, null, detail, false);
     }
 }
