@@ -31,11 +31,12 @@ const FIELD_EXPLAINERS = {
   plaintext:    'The recovered original data',
   decrypted_as: 'The app that made this decrypt call — may differ from owner_app_id if a grant exists',
   cache:        'Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60s',
+  reused:       'true = this call reused the current DEK for dek_name below instead of minting a fresh one — Latest EDEK Records won\'t grow on reuse',
 };
 
 // ciphertext_token leads — it's the only field a caller actually needs to
 // store; the rest is a breakdown of what the token bundles internally.
-const ENCRYPT_FIELD_ORDER = ['ciphertext_token', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version'];
+const ENCRYPT_FIELD_ORDER = ['ciphertext_token', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version', 'reused'];
 
 // Decodes the edek_id back out of a ciphertext_token, purely for this demo's
 // client-side "simulated cache" panel — ports hsm_project's own
@@ -137,16 +138,16 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 1320 1040" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (hsm-bulk-service/hsm-bulk-client) and dek_name reuse. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. hsm-bulk-service is a sibling service inside the subscription sharing the same Azure Key Vault and EDEK Store; hsm-bulk-client is an external batch job that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
 
-        <rect width="1320" height="1040" fill="#0f1117" />
+        <rect width="1320" height="1330" fill="#0f1117" />
 
         {/* ── AZURE SUBSCRIPTION BOUNDARY — everything below/left of this
             dashed rect is inside the HSM Service's own Azure subscription;
             Auditor SPN (far right) is deliberately outside it. ── */}
-        <rect x="5" y="165" width="895" height="865" rx="10" fill="none" stroke="#374151" strokeWidth="1.5" strokeDasharray="8,4" />
+        <rect x="5" y="165" width="895" height="1155" rx="10" fill="none" stroke="#374151" strokeWidth="1.5" strokeDasharray="8,4" />
         <rect x="5" y="157" width="160" height="16" rx="3" fill="#0f1117" />
         <text x="12" y="169" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">AZURE SUBSCRIPTION</text>
 
@@ -373,6 +374,50 @@ function ArchitectureDiagram() {
         <text x="820" y="375" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace">read-only · hsm_crypto</text>
         <line x1="975" y1="240" x2="882" y2="568" stroke="#f87171" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-red)" />
         <text x="940" y="430" textAnchor="middle" fill="#f87171" fontSize="8" fontFamily="monospace">read-only · hsm_access</text>
+
+        {/* ── TIER 3 BULK PoC (dek_name reuse) — added later round ──────── */}
+        <rect x="15" y="1032" width="230" height="16" rx="3" fill="#0f1117" />
+        <text x="22" y="1044" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">TIER 3 BULK PoC · dek_name REUSE</text>
+
+        {/* SVC: own service inside the subscription, sibling of CORE SERVICE */}
+        <rect x="440" y="1055" width="250" height="175" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <text x="565" y="1075" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm-bulk-service (SVC)</text>
+        <text x="565" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Spring Boot · separate deployable</text>
+        <rect x="455" y="1096" width="220" height="22" rx="4" fill="#22263a" stroke="#a78bfa" strokeWidth="1" />
+        <text x="565" y="1111" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">POST /dek/issue · /dek/unwrap</text>
+        <rect x="455" y="1122" width="220" height="34" rx="4" fill="#2d1b47" stroke="#e879f9" strokeWidth="1" />
+        <text x="565" y="1134" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">own Workload Identity → same</text>
+        <text x="565" y="1146" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">Azure Key Vault as CORE SERVICE</text>
+        <rect x="455" y="1160" width="220" height="22" rx="4" fill="#22263a" />
+        <text x="565" y="1175" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="monospace">writes SAME EDEK STORE above</text>
+        <rect x="455" y="1186" width="220" height="38" rx="4" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
+        <text x="565" y="1198" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">dek_name: reuse current DEK for</text>
+        <text x="565" y="1210" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">(app_id, name), else mint fresh</text>
+        <text x="565" y="1221" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">age-rotated · default 30d</text>
+
+        {/* Routed arrow: SVC → EDEK STORE, via the empty corridor right of the subscription boundary */}
+        <path d="M 690,1075 L 920,1075 L 920,590 L 640,590" fill="none" stroke="#38bdf8" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-cyan)" />
+        <text x="931" y="833" fill="#38bdf8" fontSize="7" fontFamily="monospace" transform="rotate(-90 931 833)">same edek_records table · zero coupling to /decrypt</text>
+
+        {/* CLNT: external caller, outside the subscription (same convention as MULTIPLE CLIENTS above) */}
+        <rect x="940" y="1055" width="340" height="175" rx="8" fill="#1a1d27" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="1110" y="1075" textAnchor="middle" fill="#3b82f6" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm-bulk-client (CLNT)</text>
+        <text x="1110" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">standalone batch job · BULK DB / BULK File</text>
+        <rect x="955" y="1096" width="310" height="30" rx="4" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
+        <text x="1110" y="1109" textAnchor="middle" fill="#3b82f6" fontSize="8" fontFamily="monospace">RSA-OAEP-256 unwrap → AES-256-GCM locally</text>
+        <text x="1110" y="1121" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">plaintext never leaves CLNT's host; real KEK never seen</text>
+        <rect x="955" y="1130" width="310" height="30" rx="4" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
+        <text x="1110" y="1143" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">dek-name on a column: ONE /dek/issue for</text>
+        <text x="1110" y="1155" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">the whole job run, not once per row</text>
+        <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a" />
+        <text x="1110" y="1177" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TokenProvider: static (demo) or Azure AD</text>
+        <text x="1110" y="1189" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">Workload Identity (jobs longer than a token's TTL)</text>
+        <text x="1110" y="1214" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">ciphertext_token format unchanged —</text>
+        <text x="1110" y="1225" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
+
+        {/* Arrow: CLNT → SVC, crossing the subscription boundary */}
+        <line x1="940" y1="1115" x2="690" y2="1115" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
+        <text x="815" y="1109" textAnchor="middle" fill="#3b82f6" fontSize="7" fontFamily="monospace">Bearer (static or Workload Identity) + X-App-ID</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
@@ -614,6 +659,31 @@ const FLOWS = [
       { from: 'kvsecrets', to: 'auditor', dashed: true, label: 'secret metadata (kv_version, content_type, attributes)', stepNum: 22 },
       { from: 'auditor', to: 'edek', dashed: true, label: 'SELECT * FROM hsm_crypto + hsm_access [read-only · outside subscription]', stepNum: 23 },
       { from: 'edek', to: 'auditor', dashed: true, label: 'edek records (wrapped blobs only)', stepNum: 24 },
+    ],
+  },
+  {
+    title: '6. Tier 3: dek_name Reuse (hsm-bulk-client → hsm-bulk-service — separate deployables, not on HSM Service above)',
+    color: '#a78bfa',
+    steps: [
+      'hsm-bulk-client (a standalone batch job, outside the subscription) calls hsm-bulk-service\'s POST /dek/issue once per job run — not once per row — with { key, data_classification, name: dek_name }.',
+      'hsm-bulk-service looks up (app_id, current_dek_name). If FOUND, it reuses the existing edek_blob (unwrapped via its own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If NOT FOUND, it mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — the same table the HSM Service itself writes to.',
+      'hsm-bulk-service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
+      'hsm-bulk-client unwraps the DEK locally (its private key never leaves the client) and AES-256-GCM encrypts each row with a fresh IV per call.',
+      'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext_token format is identical to the HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
+      'The ciphertext_token is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler on the HSM Service (age-based, default 30d) periodically retires "found" rows; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
+    ],
+    actors: [
+      { id: 'clnt', label: 'hsm-bulk-client' },
+      { id: 'svc',  label: 'hsm-bulk-service' },
+    ],
+    messages: [
+      { from: 'clnt', to: 'svc', label: 'POST /dek/issue { key, data_classification, name: dek_name }', stepNum: 25 },
+      { from: 'svc', to: 'svc', self: true, label: 'lookup (app_id, current_dek_name)', stepNum: 26 },
+      { from: 'svc', to: 'svc', self: true, variant: 'allow', label: '[FOUND] reuse: unwrap existing edek_blob [own Workload Identity · Managed HSM] — same edek_id every call, no mint, no INSERT', stepNum: '26a' },
+      { from: 'svc', to: 'svc', self: true, label: '[NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — same table HSM Service writes above', stepNum: '26b' },
+      { from: 'svc', to: 'clnt', dashed: true, label: '{ edek_id, wrapped_dek_b64, reused: true|false } [RSA-OAEP-256, wrapped for CLNT\'s own public key]', stepNum: 27 },
+      { from: 'clnt', to: 'clnt', self: true, label: 'RSA-OAEP-256 unwrap locally (private key never leaves CLNT) → AES-256-GCM encrypt (fresh IV every call)', stepNum: 28 },
+      { from: 'clnt', to: 'clnt', self: true, label: 'one edek_id → many rows/values, each with its OWN token (fresh IV per call) — token format identical to HSM Service\'s own', stepNum: 29 },
     ],
   },
 ];
@@ -1021,6 +1091,7 @@ export default function HsmDemo() {
   // ── Panel 2: Encrypt ─────────────────────────────────────────────────────────
   const [plaintext, setPlaintext]       = useState('');
   const [dataClass, setDataClass]       = useState('');
+  const [dekName, setDekName]           = useState('');
   const [encryptResult, setEncryptResult] = useState(null);
   const [encryptError, setEncryptError]   = useState(null);
   const [encrypting, setEncrypting]       = useState(false);
@@ -1039,7 +1110,7 @@ export default function HsmDemo() {
     const res = await callApi('/encrypt', {
       method: 'POST',
       app: selectedApp,
-      body: { plaintext, data_classification: dataClass || null, end_user_id: encryptEndUserId.trim() || undefined, context: { source: 'demo-ui' } },
+      body: { plaintext, data_classification: dataClass || null, dek_name: dekName.trim() || null, end_user_id: encryptEndUserId.trim() || undefined, context: { source: 'demo-ui' } },
     });
     setEncrypting(false);
     if (res.ok) {
@@ -1408,15 +1479,6 @@ export default function HsmDemo() {
               onChange={(e) => setPlaintext(e.target.value)}
             />
             <div style={s.formRow}>
-              <label style={s.label}>End User ID</label>
-              <input
-                style={s.input}
-                placeholder="end_user_id (optional)"
-                value={encryptEndUserId}
-                onChange={(e) => setEncryptEndUserId(e.target.value)}
-              />
-            </div>
-            <div style={s.formRow}>
               <label style={s.label}>Data classification</label>
               <select style={s.select} value={dataClass} onChange={(e) => setDataClass(e.target.value)}>
                 <option value="">none</option>
@@ -1424,6 +1486,24 @@ export default function HsmDemo() {
                 <option value="pci">pci</option>
                 <option value="internal">internal</option>
               </select>
+            </div>
+            <div style={s.formRow}>
+              <label style={s.label} title="Encrypt the same name twice and watch Latest EDEK Records stay at one row instead of growing — the second call reuses the DEK instead of minting a new one. Leave blank for the default: a fresh DEK every call.">DEK Name</label>
+              <input
+                style={s.input}
+                placeholder="e.g. customers.ssn (optional)"
+                value={dekName}
+                onChange={(e) => setDekName(e.target.value)}
+              />
+            </div>
+            <div style={s.formRow}>
+              <label style={s.label}>End User ID</label>
+              <input
+                style={s.input}
+                placeholder="end_user_id (optional)"
+                value={encryptEndUserId}
+                onChange={(e) => setEncryptEndUserId(e.target.value)}
+              />
               <button style={s.primaryBtn} onClick={handleEncrypt} disabled={encrypting || !plaintext.trim()}>
                 {encrypting ? 'Encrypting…' : 'Encrypt'}
               </button>
@@ -1583,7 +1663,7 @@ export default function HsmDemo() {
                 <tr>
                   <th style={s.th}>EDEK ID</th><th style={s.th}>Owner</th><th style={s.th}>KEK Ver</th>
                   <th style={s.th}>Algorithm</th><th style={s.th}>Encoding</th><th style={s.th}>Classification</th>
-                  <th style={s.th}>Status</th><th style={s.th}>Wrapped Blob</th><th style={s.th}>Created</th>
+                  <th style={s.th}>DEK Name</th><th style={s.th}>Status</th><th style={s.th}>Wrapped Blob</th><th style={s.th}>Created</th>
                 </tr>
               </thead>
               <tbody>
@@ -1595,6 +1675,7 @@ export default function HsmDemo() {
                     <td style={s.td}>{r.algorithm}</td>
                     <td style={s.td}>{r.encoding}</td>
                     <td style={s.td}>{r.data_classification || '—'}</td>
+                    <td style={s.td}>{r.dek_name || '—'}</td>
                     <td style={s.td}>{r.rotation_status}</td>
                     <td style={s.tdMono}>{truncate(r.edek_blob_preview, 24)}</td>
                     <td style={s.td}>{fmtTime(r.created_at)}</td>
@@ -1606,11 +1687,6 @@ export default function HsmDemo() {
 
           {/* Panel 7: Consumer application table */}
           <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext_token column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required.">
-            <div style={s.legend}>
-              <span>customer_name / email — <code>VARCHAR</code> (non-sensitive)</span>
-              <span>ciphertext_token — <code>VARCHAR(512)</code> (single opaque token — bundles EDEK ID, IV, tag, and ciphertext)</span>
-            </div>
-
             <div style={s.formGrid}>
               <input style={s.input} placeholder="Customer Name" value={custName} onChange={(e) => setCustName(e.target.value)} />
               <input style={s.input} placeholder="Email" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
@@ -1633,6 +1709,30 @@ export default function HsmDemo() {
                 value={revealEndUserId}
                 onChange={(e) => setRevealEndUserId(e.target.value)}
               />
+            </div>
+
+            <div style={s.schemaNote}>
+              <strong>Column plan for this table:</strong>
+              <table style={s.table}>
+                <thead>
+                  <tr><th style={s.th}>Column</th><th style={s.th}>Type</th><th style={s.th}>Sensitive?</th><th style={s.th}>Why this type</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={s.tdMono}>customer_name</td><td style={s.td}>VARCHAR(128)</td>
+                    <td style={{ ...s.td, color: 'var(--success)' }}>non-sensitive</td><td style={s.td}>Ordinary app data</td>
+                  </tr>
+                  <tr>
+                    <td style={s.tdMono}>email</td><td style={s.td}>VARCHAR(256)</td>
+                    <td style={{ ...s.td, color: 'var(--success)' }}>non-sensitive</td><td style={s.td}>Ordinary app data</td>
+                  </tr>
+                  <tr>
+                    <td style={s.tdMono}>ciphertext_token</td><td style={s.td}>VARCHAR(512)</td>
+                    <td style={{ ...s.td, color: 'var(--error)' }}>sensitive</td>
+                    <td style={s.td}>Single opaque token — bundles EDEK ID, IV, tag, and ciphertext; base64url (printable ASCII); ~60 byte fixed overhead + 1.4× plaintext</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             <table style={s.table}>
@@ -1928,10 +2028,9 @@ const s = {
     fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: '0.74rem',
   },
 
-  legend: {
-    display: 'flex', flexDirection: 'column', gap: 3, marginBottom: '0.75rem',
-    fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'var(--bg)',
-    border: '1px solid var(--border)', borderRadius: 8, padding: '0.6rem 0.75rem',
+  schemaNote: {
+    marginTop: '0.9rem', marginBottom: '0.9rem', fontSize: '0.8rem',
+    color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 6,
   },
 
   diagramWrap: { display: 'flex', justifyContent: 'center', padding: '0.5rem' },
