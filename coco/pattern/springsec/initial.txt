@@ -122,3 +122,33 @@ client:
       MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcw...
       (however many base64 lines)
       -----END PRIVATE KEY-----
+-----------------------------------------------------------------------------------------------------------
+
+Set these once per deployment:
+
+VAULT_NAME="<your-regular-vault-name>"
+Generate the two CEK values locally (32 raw bytes, base64-encoded) — don't let these land in shell history or CI logs:
+
+CEK_ALPHA=$(openssl rand -base64 32)
+CEK_BETA=$(openssl rand -base64 32)
+Write both key slots into vault #2:
+
+az keyvault secret set --vault-name "$VAULT_NAME" --name "cek-alpha" --value "$CEK_ALPHA" --output none
+az keyvault secret set --vault-name "$VAULT_NAME" --name "cek-beta" --value "$CEK_BETA" --output none
+Point the active-slot pointer at one of them — pick alpha as the starting active slot:
+
+az keyvault secret set --vault-name "$VAULT_NAME" --name "cek-current-key" --value "alpha" --output none
+Clear the plaintext values from your shell session:
+
+unset CEK_ALPHA CEK_BETA
+Verify all three landed (values are redacted by default in az output unless you --query value):
+
+az keyvault secret list --vault-name "$VAULT_NAME" --query "[?contains(name,'cek-')].name" --output table
+If you overrode the default names (CEK_CURRENT_KEY_SECRET_NAME/CEK_ALPHA_SECRET_NAME/CEK_BETA_SECRET_NAME in your env), substitute those in place of cek-current-key/cek-alpha/cek-beta above.
+
+Both cek-alpha and cek-beta need real values seeded up front — even though only alpha is active initially, CryptoBeansConfig.buildRedisDekCache() tries to read the inactive slot too (for the previous-CEK fallback window) and only swallows the error if that secret is missing entirely; leaving it present-but-empty would reproduce the exact 0-byte error you just diagnosed.
+
+-----------------------------------------------------------------------------------------------------------
+
+
+
