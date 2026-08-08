@@ -13,6 +13,10 @@ data:
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
   DEK_BATCH_MAX_ITEMS: {{ .Values.config.dekBatchMaxItems | quote }}
 
+  NAMED_DEK_ROTATION_CRON: {{ .Values.config.namedDekRotationCron | quote }}
+  NAMED_DEK_ROTATION_ENABLED: {{ .Values.config.namedDekRotationEnabled | quote }}
+  NAMED_DEK_ROTATION_MAX_AGE_HOURS: {{ .Values.config.namedDekRotationMaxAgeHours | quote }}
+
   AZURE_CLIENT_ID: {{ .Values.config.azureClientId | quote }}
   AZURE_TENANT_ID: {{ .Values.config.azureTenantId | quote }}
   AZURE_KEYVAULT_URL: {{ .Values.config.azureKeyVaultUrl | quote }}
