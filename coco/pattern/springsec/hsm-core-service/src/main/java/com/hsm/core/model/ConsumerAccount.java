@@ -34,6 +34,12 @@ public class ConsumerAccount {
     @Column(name = "ciphertext_token", nullable = false, length = 512)
     private String ciphertextToken;
 
+    // Every account created via DemoController.createConsumerAccount() shares the same
+    // dekName ("customers.account_number"), so this is null only for accounts created
+    // before that DEK-naming wiring landed (see V8 migration).
+    @Column(name = "dek_name", length = 256)
+    private String dekName;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
@@ -41,10 +47,11 @@ public class ConsumerAccount {
         // JPA
     }
 
-    public ConsumerAccount(String customerName, String email, String ciphertextToken) {
+    public ConsumerAccount(String customerName, String email, String ciphertextToken, String dekName) {
         this.customerName = customerName;
         this.email = email;
         this.ciphertextToken = ciphertextToken;
+        this.dekName = dekName;
         this.createdAt = OffsetDateTime.now();
     }
 
@@ -62,6 +69,10 @@ public class ConsumerAccount {
 
     public String getCiphertextToken() {
         return ciphertextToken;
+    }
+
+    public String getDekName() {
+        return dekName;
     }
 
     public OffsetDateTime getCreatedAt() {
