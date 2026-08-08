@@ -6,6 +6,7 @@ public record ConsumerAccountResponse(
         String customerName,     // non-sensitive
         String email,            // non-sensitive
         String ciphertextToken,  // opaque token -- store and echo back to /decrypt; never decode client-side
+        String dekName,          // "customers.account_number" for every account -- see DemoController
         String createdAt
 ) {
 }
