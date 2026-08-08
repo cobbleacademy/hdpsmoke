@@ -1687,7 +1687,7 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 7: Consumer application table */}
-          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext_token column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required.">
+          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext_token column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required. Every account here shares the same DEK Name (customers.account_number) — create a second account and watch Latest EDEK Records stay flat instead of growing, same reuse behavior as panel 2's DEK Name field.">
             <div style={s.formGrid}>
               <input style={s.input} placeholder="Customer Name" value={custName} onChange={(e) => setCustName(e.target.value)} />
               <input style={s.input} placeholder="Email" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
@@ -1740,7 +1740,7 @@ export default function HsmDemo() {
               <thead>
                 <tr>
                   <th style={s.th}>ID</th><th style={s.th}>Customer</th><th style={s.th}>Email</th>
-                  <th style={s.th}>ciphertext_token</th><th style={s.th}>Created</th><th style={s.th}></th>
+                  <th style={s.th}>ciphertext_token</th><th style={s.th}>DEK Name</th><th style={s.th}>Created</th><th style={s.th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -1752,6 +1752,7 @@ export default function HsmDemo() {
                     <td style={s.tdMono}>
                       {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.ciphertext_token, 18)}
                     </td>
+                    <td style={s.td}>{acc.dek_name || '—'}</td>
                     <td style={s.td}>{acc.created_at ? new Date(acc.created_at).toLocaleString() : '-'}</td>
                     <td style={s.td}>
                       <button style={s.primaryBtnSmall} disabled={revealBusyId === acc.id} onClick={() => handleReveal(acc.id)}>
