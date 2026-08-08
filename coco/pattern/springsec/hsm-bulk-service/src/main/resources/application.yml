@@ -65,6 +65,14 @@ hsm:
   service:
     api-v1-prefix: ${API_V1_PREFIX:/api/sensec/hsm/v1}
     dek-batch-max-items: ${DEK_BATCH_MAX_ITEMS:100}
+  # Rotates named DEKs issued via POST /dek/issue (DbBulkJob's per-column dek-name,
+  # FileBulkJob's per-job dek-name) once they've been current longer than
+  # max-age-hours -- same age-based reasoning as hsm-core-service's own
+  # named-dek-rotation (see HsmBulkProperties.NamedDekRotation's javadoc).
+  named-dek-rotation:
+    cron: ${NAMED_DEK_ROTATION_CRON:0 3 * * *}
+    enabled: ${NAMED_DEK_ROTATION_ENABLED:true}
+    max-age-hours: ${NAMED_DEK_ROTATION_MAX_AGE_HOURS:720}
   security:
     access-rules:
       - pattern: /dek/issue
