@@ -39,6 +39,13 @@ ttlSecondsAfterFinished: 3600  # 1h
 # roughly chunk-size-bytes per in-flight chunk (default 8MiB, see
 # hsm-bulk-client's application.yml) -- these defaults cover typical runs.
 # Re-tune per run for unusually large row-batch-size/chunk-size-bytes.
+#
+# client.db.parallelism / client.file.parallelism (in the mounted job.yml) is
+# a SEPARATE multiplier on top of the above -- each partition/worker runs the
+# full pipeline concurrently, so parallelism: N means roughly N x the working
+# set above, plus N+2 concurrent DB connections for a DB job (see DbBulkJob's
+# HikariCP pool sizing). These defaults assume parallelism: 1 (unset); bump
+# both requests and limits before running a job with parallelism > 1.
 resources:
   requests:
     cpu: 250m
