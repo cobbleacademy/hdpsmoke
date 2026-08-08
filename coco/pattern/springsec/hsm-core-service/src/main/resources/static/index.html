@@ -168,7 +168,10 @@ python scripts/provision_dek_cache_key.py \
         <code>/encrypt</code> for the <code>account_number</code> field only; everything
         else is plain non-sensitive data. A single <code>ciphertext_token</code> column
         stores everything needed for a future decrypt — no separate EDEK ID, IV, or tag
-        columns required.
+        columns required. Every account here shares the same DEK Name
+        (<code>customers.account_number</code>) — create a second account and watch
+        Latest EDEK Records stay flat instead of growing, same reuse behavior as panel 2's
+        DEK Name field.
       </p>
 
       <div class="grid">
@@ -207,6 +210,7 @@ python scripts/provision_dek_cache_key.py \
           <tr>
             <th>ID</th><th>Customer Name</th><th>Email</th>
             <th>ciphertext_token</th>
+            <th>DEK Name</th>
             <th>Created</th>
             <th></th>
           </tr>
@@ -810,7 +814,7 @@ python scripts/provision_dek_cache_key.py \
 
           <!-- SECTION 6 — TIER 3: dek_name REUSE (hsm-bulk-service / hsm-bulk-client) — added later round -->
           <!-- Local participants + lifelines, scoped to this section only — CLNT/SVC never appear in any earlier section -->
-          <rect x="10" y="994" width="1500" height="270" rx="5" fill="#1a0a2e" stroke="#a78bfa" stroke-width="0.6"/>
+          <rect x="10" y="994" width="1500" height="285" rx="5" fill="#1a0a2e" stroke="#a78bfa" stroke-width="0.6"/>
           <text x="18" y="1007" fill="#a78bfa" font-size="9" font-family="monospace" letter-spacing="1">TIER 3: dek_name REUSE  (hsm-bulk-client → hsm-bulk-service — separate deployables, not on HSM Service above)</text>
 
           <rect x="140" y="1016" width="170" height="28" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
@@ -840,7 +844,8 @@ python scripts/provision_dek_cache_key.py \
           <text x="365" y="1206" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">token format identical to HSM Service's own — its real /decrypt reads it with zero awareness of this flow</text>
 
           <text x="18" y="1236" fill="#555b7a" font-size="8" font-family="monospace">ciphertext_token written directly into CLNT's own target table/file — never sent back to SVC or HSM Service</text>
-          <text x="18" y="1250" fill="#555b7a" font-size="8" font-family="monospace">NamedDekRotationScheduler (HSM Service, age-based, default 30d) periodically retires "found" rows above — new lookups then fall to 26b</text>
+          <text x="18" y="1250" fill="#555b7a" font-size="8" font-family="monospace">NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above — new lookups then fall to 26b</text>
+          <text x="18" y="1263" fill="#555b7a" font-size="8" font-family="monospace">SVC runs its OWN copy of this scheduler (later round) — coverage of SVC-minted rows no longer depends on HSM Service being deployed too</text>
 
           </g><!-- /translate(0,120) -->
 

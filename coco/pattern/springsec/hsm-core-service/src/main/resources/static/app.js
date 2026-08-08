@@ -241,6 +241,7 @@ async function refreshConsumerAccounts() {
       <td>${a.customer_name}</td>
       <td>${a.email}</td>
       <td><code class="account-cell token-cell">${a.ciphertext_token}</code></td>
+      <td>${a.dek_name || "-"}</td>
       <td>${a.created_at ? new Date(a.created_at).toLocaleString() : "-"}</td>
       <td><button class="reveal-btn" data-id="${a.id}">Reveal</button></td>
     </tr>`).join("");
