@@ -461,8 +461,22 @@ required for a first version.
   written**: not only does real code exist (`hsm-bulk-service`,
   `hsm-bulk-client`, both verified working end-to-end locally), a later round
   also reintroduced the shared-DEK design this doc originally rejected (see
-  the "Update" note above) without that review ever having happened. This
-  review has still not happened.
+  the "Update" note above) without that review ever having happened. **A
+  further later round widened this again**: `dek-name` now also exists on the
+  File job (`hsm-bulk-client`'s `FileBulkJob`), scoped to a whole job/business
+  purpose rather than a single DB column — a coarser, larger blast radius per
+  name than the DB case (one column is one kind of data; one file job can
+  span many kinds of content under one source tree). This review has still
+  not happened.
+- ~~`hsm-bulk-service` has no rotation for DEKs issued via `dek_name`~~ —
+  **resolved, built (later round)**: `hsm-bulk-service` gained its own
+  `NamedDekRotationScheduler`/`RotationService`, mirroring `hsm-core-service`'s
+  exactly (`hsm.named-dek-rotation.*`, same age-based reasoning, same
+  Hibernate flush-order fix). This was a real, previously-unflagged gap — the
+  DB job's `dek-name` reuse had been shipping with no bound on how long a
+  reused DEK stayed current, and the new File-job `dek-name` (above) would
+  have made that gap worse, not better, since a persistent per-job name is
+  explicitly meant to live across every future run.
 - **(New, later round)** `app_decrypt_grants` cross-app authorization is
   app-to-app only (`(grantee_app_id, owner_app_id)`, no column/name scoping)
   — this predates `dek_name` and was already this coarse for ordinary
@@ -495,7 +509,10 @@ additive exceptions, not changes to the above: the audit log gained two new
 optional fields, `dek_name`/`reused`, on `encrypt`/`dek_issued` events — the
 event shapes and everything else about the audit trail are unchanged; and
 the grant/scope authorization model gap noted in "Open decisions" above is
-a documented gap, not a change that already happened.)*
+a documented gap, not a change that already happened. A still-later round
+extended `dek_name` to the File job too, at job/business-purpose granularity
+rather than per-column — the same two exceptions apply there unchanged, plus
+that round closed the previously-undocumented rotation gap noted above.)*
 
 ## Development plan for Tier 3 (if approved)
 

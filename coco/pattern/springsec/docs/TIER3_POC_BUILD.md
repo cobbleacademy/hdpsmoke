@@ -213,7 +213,7 @@ driving the benchmark's RSA-overhead cost above.
   blank-to-`null` in both `EncryptRequest`'s and `DekIssueItem`'s compact
   constructors, so it's impossible to construct either DTO with a blank (as
   opposed to genuinely absent) name.
-- **Rotation**: `NamedDekRotationScheduler` (`hsm-core-service`) mirrors
+- **Rotation** (`hsm-core-service`): `NamedDekRotationScheduler` mirrors
   `KekRotationScheduler`'s exact shape -- same `@PostConstruct` + `CronTrigger`
   pattern, same demo-mode guard. `RotationService.rotateNamedDeks(maxAgeHours)`
   sweeps `current`-status rows with a non-null `current_dek_name` older than
@@ -253,6 +253,94 @@ driving the benchmark's RSA-overhead cost above.
   → `DefaultAzureCredential`) already used by `AzureKeyVaultKekClient` and
   `AdlsFileStore`, kept as its own copy per this repo's no-shared-library
   convention. No client secret anywhere in this chain.
+
+## Performance, resume, and File-job parity (later round)
+
+Prompted by a real report: a 2M-row, 4-column `db encrypt` job took 4 hours.
+Diagnosis (not guesswork -- walked through the actual math against the reported
+config) found the DEK-issuance path was already using `dek-name` correctly, so
+the real cost was elsewhere: `DriverManagerDataSource` (unpooled -- every JDBC
+operation pays full connection-setup cost) and `subChunkByItemCap` artificially
+capping insert batches to `dek-batch-max-items` (100) even when there was no
+`/dek/issue` HTTP call left to cap for a fully-named run. Both fixed; a third
+lever (parallelism) and a fourth (crash/resume) came out of the same
+conversation, then ported to the File job for parity, since the same "one
+4-hour job, one crash" problem applies to a large file tree just as much as a
+large table.
+
+- **Connection pooling + batch-insert rewrite** (`DbBulkJob`): `HikariDataSource`
+  replaces `DriverManagerDataSource`, sized to `parallelism + 2` so every
+  concurrent worker (see below) gets its own connection without starving.
+  `reWriteBatchedInserts=true` auto-appended to Postgres JDBC URLs -- without it,
+  the driver's batch protocol is still N separate bind/execute messages per
+  flush, not a true multi-row `INSERT ... VALUES (...),(...),(...)`.
+- **`subChunkByItemCap` fix**: `columnsPerRow=0` (every column in a batch is
+  named, so no `/dek/issue` call happens for it at all) now returns the whole
+  page as one chunk instead of splitting it down to `dek-batch-max-items` rows
+  for no reason -- there's no HTTP item cap to respect when no HTTP call is
+  being made.
+- **`client.db.parallelism`** (default `1`, unchanged sequential behavior):
+  `>1` partitions the key range into that many pieces up front -- a bounded,
+  *one-time* set of `ORDER BY key_column OFFSET x LIMIT 1` boundary lookups
+  (`parallelism - 1` of them total), fundamentally different from using
+  `OFFSET` as the *per-page* pagination mechanism, which this design still
+  avoids. Each partition runs the identical fetch-issue-encrypt-insert pipeline
+  concurrently, on its own key range.
+- **`client.db.checkpoint`** (`enabled`/`resume`/`job-id`/`table-name`, default
+  `enabled: false` -- zero overhead unless opted in): a batch's data insert and
+  its checkpoint update commit in **one transaction**
+  (`TransactionTemplate`/`DataSourceTransactionManager` over the target
+  `DataSource`), so a resumed run can never skip rows that were never durably
+  written, nor re-process rows that were. Deliberately *not* built on top of
+  the earlier key-uniqueness discussion (an `ON CONFLICT` upsert on the actual
+  target table would need that) -- the checkpoint table owns its own
+  guaranteed-unique `job_id` key and is upserted independently, so resume works
+  correctly without requiring the source/target table's own key to be
+  provably unique. Under `parallelism > 1`, each partition gets its own
+  derived checkpoint (`job-id-p0`, `job-id-p1`, ...), so a parallel run resumes
+  per-partition, not as one unit.
+- **`hsm-bulk-service` gains its own `NamedDekRotationScheduler`**: closes a
+  real, pre-existing gap -- DEKs issued via `POST /dek/issue` with a name
+  (`DbBulkJob`'s per-column `dek-name`, and the new File-job `dek-name` below)
+  had **no rotation at all** until now, unlike `hsm-core-service`'s own
+  `/encrypt` `dek_name` path. Mirrors `hsm-core-service`'s scheduler and
+  `RotationService.rotateNamedDek()` exactly, including the same
+  `saveAndFlush`-before-`save` ordering fix for the same Hibernate
+  flush-order reason. New `HsmBulkProperties.NamedDekRotation`
+  (`hsm.named-dek-rotation.*`, same defaults: `enabled: true`, `720` max-age
+  hours, daily `03:00` cron).
+- **`client.file.dek-name`** (`FileBulkJob`): mirrors `DbBulkJob`'s per-column
+  `dek-name`, but scoped to the *whole job*, not a column -- because a file
+  job has no per-column concept, and (per an explicit discussion) the natural
+  reuse boundary for a file tree is "one business purpose, one DEK," matching
+  how source trees are actually organized in practice (all-customer-files,
+  all-product-files, etc., as separate jobs). Unlike `DbBulkJob`'s per-run-only
+  scoping, this name is meant to persist **across every future run** of that
+  job, which is exactly why `hsm-bulk-service`'s new rotation scheduler above
+  had to exist first -- an unrotated, indefinitely-reused DEK would otherwise
+  protect an unbounded amount of data across a job's entire lifetime.
+- **`client.file.parallelism`**: simpler than the DB case -- files are
+  independent, unordered work items, so partitioning is just an even,
+  contiguous split of the file list into that many groups, no boundary-key
+  math needed at all.
+- **`client.file.checkpoint`**: same `enabled`/`resume`/`job-id` shape as the
+  DB side, but backed by a single batched **manifest file** in the target
+  `FileStore` (a newline-delimited list of completed relative paths) instead
+  of a database table -- deliberately not a marker-per-file (would double
+  write/blob-create operations, a real added cost on ADLS specifically, which
+  bills and rate-limits per operation) and not a new external DB dependency
+  (keeps this job storage-agnostic, same as everything else in this module).
+  `FileStore` has no append primitive, so each flush rewrites the manifest in
+  full; `checkpoint.flush-interval` (default `1000`) controls how many
+  completions happen between flushes, and is deliberately its own setting, not
+  tied to `files-per-batch` (an unrelated HTTP-batching-size knob) -- see the
+  measured regression below for why that coupling mattered.
+- **`FileBulkJob.decryptSlice` dedup fix**: found while verifying the
+  `dek-name` addition above -- decrypt wasn't deduplicating by `edek_id` the
+  way `DbBulkJob`'s decrypt already does, so a job where many files share one
+  named DEK would have made one redundant `/dek/unwrap` call (and one
+  redundant RSA-OAEP unwrap) per file instead of per distinct id. Fixed to
+  dedupe per-batch, mirroring `DbBulkJob` exactly.
 
 ## Verified
 
@@ -313,3 +401,49 @@ driving the benchmark's RSA-overhead cost above.
      bytes, which is also the more semantically correct operation (wrapping a
      key, not encrypting arbitrary data) and needed no design change, just a
      different `Cipher` API.
+7. **Performance/resume round, all against real Postgres (throwaway Docker
+   containers, not H2) and real local files -- not simulated**:
+   - **Partition-boundary math**: a deliberately uneven 9,973-row table split
+     into 4 partitions computed as `2494/2493/2493/2493` -- sums to exactly
+     9,973. Verified twice: once reading each partition sequentially, once
+     running all 4 concurrently through the real Hikari pool (genuine parallel
+     threads, not simulated) -- both runs saw every id `1..9973` exactly once,
+     no gaps, no duplicates.
+   - **Checkpoint transactional coupling**: 12 checks against real Postgres,
+     including a simulated crash (an exception thrown mid-transaction, after
+     both the data insert and the checkpoint write had been issued but before
+     commit) -- confirmed neither the data row nor the checkpoint update
+     landed. A real successful batch landed both together; a second batch
+     correctly upserted (not duplicated) the checkpoint row.
+   - **`hsm-bulk-service`'s new rotation scheduler**: 13 checks, booting the
+     real Spring application and calling `RotationService` directly against
+     real Postgres. Confirmed the full cycle -- old row retires
+     (`rotation_status=rotated`, `current_dek_name` cleared, wrapped form left
+     untouched and still decryptable), a fresh row takes over reuse under the
+     same name -- and, importantly, that a freshly-rotated-in row is **not**
+     re-swept under a realistic 24-hour cutoff (only under the artificial
+     `maxAgeHours=0` used to force the first rotation deterministically),
+     confirming the age-based cutoff logic actually discriminates, not just
+     that the sweep runs.
+   - **File-job crash/resume, 60,000 real files, real kill -9**: killed the
+     process mid-run at 11,167 files actually written but only 687 flushed to
+     the manifest (the expected gap between "written" and "flushed" at any
+     given flush interval). Resumed with `resume: true` -- finished at exactly
+     60,000/60,000 files and 60,000/60,000 manifest entries, zero duplicate
+     manifest entries. No data loss, no corruption from the crash.
+   - **File-job `dek-name` + decrypt dedup, same 60,000 files**: `dek_issued`
+     audit events showed exactly 1 (all 60,000 files sharing one name, one
+     `/dek/issue` call for the whole job) instead of 60,000. After the decrypt
+     dedup fix, `dek_unwrapped` events showed 6,000 (one per 10-file batch --
+     `files-per-batch`), not 60,000. Decrypted output diffed byte-for-byte
+     identical against the original 60,000 source files.
+   - **`checkpoint.flush-interval` fix, measured, same 60,000 files**: before
+     decoupling the flush cadence from `files-per-batch` (effectively 10),
+     resuming from a crash took **58 seconds** (6,000 manifest rewrites, each
+     rewriting a growing list). After decoupling with the new default of
+     `1000`, the full 60,000-file job (not just the resumed portion) took
+     **10.9 seconds** (60 rewrites) -- re-verified with another real crash/resume
+     cycle at the new interval: killed mid-run, resumed, landed at exactly
+     60,000/60,000 files and manifest entries again, zero duplicates.
+   - `mvn test` across the full reactor -- 69/69 passing, unchanged, both
+     before and after every fix in this round.
