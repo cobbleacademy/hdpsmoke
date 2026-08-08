@@ -22,13 +22,19 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * BULK File job: one DEK per whole file, each chunk encrypted separately under that
- * DEK (DekManager.encrypt draws a fresh random IV per call, so this needs no new
- * crypto design). Chunks are stitched into a single output file via length-prefixed
- * binary framing -- immune to ciphertext content, unlike a newline delimiter.
+ * BULK File job: one DEK per whole file by default, each chunk encrypted separately
+ * under that DEK (DekManager.encrypt draws a fresh random IV per call, so this
+ * needs no new crypto design). Chunks are stitched into a single output file via
+ * length-prefixed binary framing -- immune to ciphertext content, unlike a newline
+ * delimiter.
  *
  * <p>Output file layout: [16 bytes edek_id] then repeated [4-byte chunk length]
  * [iv(12) + tag(16) + ciphertext(N)] until EOF. No explicit chunk-count field (a
@@ -37,6 +43,15 @@ import java.util.UUID;
  * up front -- important for FileStore.openWrite's push-style streaming (in
  * particular AdlsFileStore's pipe-based upload), which can't seek back to fill in a
  * count after the fact.
+ *
+ * <p>config.dekName() set -- one persistent DEK for the whole job (resolved once,
+ * reused across every future run using the same name), instead of each file
+ * minting its own. config.parallelism() &gt; 1 -- partitions the file list into
+ * that many groups and runs one worker per group concurrently (files are
+ * independent, unordered units, so this needs no key-range-style boundary math
+ * the way DbBulkJob's row partitioning does). config.checkpoint().enabled() --
+ * tracks completed files via FileCheckpointStore's single batched manifest, so a
+ * crashed/killed run can resume instead of reprocessing everything.
  */
 public class FileBulkJob {
 
@@ -48,6 +63,7 @@ public class FileBulkJob {
     private final PrivateKey privateKey;
     private final FileStore sourceStore;
     private final FileStore targetStore;
+    private final FileCheckpointStore checkpointStore;
 
     public FileBulkJob(ClientProperties.File config, ClientProperties.Svc svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -56,6 +72,15 @@ public class FileBulkJob {
         this.privateKey = TransportWrapper.parsePrivateKeyPem(svcConfig.privateKeyPem());
         this.sourceStore = buildStore(config.source());
         this.targetStore = buildStore(config.target());
+        this.checkpointStore = checkpointEnabled(config) ? new FileCheckpointStore() : null;
+    }
+
+    private static boolean checkpointEnabled(ClientProperties.File config) {
+        return config.checkpoint() != null && config.checkpoint().enabled();
+    }
+
+    private boolean checkpointEnabled() {
+        return checkpointStore != null;
     }
 
     private static FileStore buildStore(ClientProperties.File.StoreRef ref) {
@@ -65,39 +90,195 @@ public class FileBulkJob {
         };
     }
 
+    private static boolean isNamed(ClientProperties.File config) {
+        return config.dekName() != null && !config.dekName().isBlank();
+    }
+
+    private record NamedFileDek(UUID edekId, byte[] dek) {
+    }
+
+    /** One /dek/issue call for the whole job when config.dekName() is set -- resolved once, shared read-only across every worker. */
+    private NamedFileDek resolveJobDek() {
+        if (!isNamed(config)) {
+            return null;
+        }
+        List<SvcClient.IssueResult> issued = svcClient.issue(
+                List.of(new SvcClient.IssueItem(config.dekName(), null, config.dekName())));
+        SvcClient.IssueResult r = issued.get(0);
+        if (!"success".equals(r.status())) {
+            throw new IllegalStateException("dek/issue failed for dek-name=" + r.key() + ": " + r.detail());
+        }
+        byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(r.wrappedDekB64()), privateKey);
+        log.info("file_bulk_named_dek_resolved dek_name={} reused={}", r.key(), r.reused());
+        return new NamedFileDek(r.edekId(), dek);
+    }
+
+    /** Loads prior progress (resume=true) or clears it for a fresh start (resume=false); no-op entirely when checkpointing is disabled. */
+    private Set<String> resolveCheckpointStart() {
+        if (!checkpointEnabled()) {
+            return Set.of();
+        }
+        ClientProperties.File.Checkpoint cp = config.checkpoint();
+        if (!cp.resume()) {
+            checkpointStore.clear();
+            return Set.of();
+        }
+        Set<String> loaded = checkpointStore.loadCompleted(targetStore, cp.jobId());
+        if (!loaded.isEmpty()) {
+            log.info("file_bulk_resume job_id={} already_done={}", cp.jobId(), loaded.size());
+        }
+        return loaded;
+    }
+
     public void encrypt() {
         List<String> files = sourceStore.list(config.fileTypes());
         log.info("file_bulk_encrypt_start file_count={}", files.size());
 
+        NamedFileDek namedDek = resolveJobDek();
+        Set<String> alreadyDone = resolveCheckpointStart();
+        long startMs = System.currentTimeMillis();
+        AtomicLong doneCounter = new AtomicLong();
+        try {
+            runPartitioned(files, "encrypt", (slice, workerId) -> encryptSlice(slice, namedDek, alreadyDone, workerId, doneCounter));
+            logCompletion("encrypt", doneCounter.get(), startMs);
+        } finally {
+            if (namedDek != null) {
+                DekManager.zeroDek(namedDek.dek());
+            }
+        }
+    }
+
+    public void decrypt() {
+        List<String> files = sourceStore.list(config.fileTypes());
+        log.info("file_bulk_decrypt_start file_count={}", files.size());
+
+        Set<String> alreadyDone = resolveCheckpointStart();
+        long startMs = System.currentTimeMillis();
+        AtomicLong doneCounter = new AtomicLong();
+        runPartitioned(files, "decrypt", (slice, workerId) -> decryptSlice(slice, alreadyDone, workerId, doneCounter));
+        logCompletion("decrypt", doneCounter.get(), startMs);
+    }
+
+    private void logCompletion(String direction, long totalFiles, long startMs) {
+        long elapsedMs = System.currentTimeMillis() - startMs;
+        double filesPerSec = elapsedMs > 0 ? totalFiles * 1000.0 / elapsedMs : 0;
+        log.info("file_bulk_{}_complete total_files={} elapsed_ms={} files_per_sec={}",
+                direction, totalFiles, elapsedMs, String.format("%.1f", filesPerSec));
+    }
+
+    @FunctionalInterface
+    private interface SliceWorker {
+        void run(List<String> slice, String workerId);
+    }
+
+    /** parallelism &lt;= 1 (default): runs inline on the whole list, identical to before parallelism existed. parallelism &gt; 1: splits the (independent, unordered) file list into that many groups and runs one worker per group concurrently. */
+    private void runPartitioned(List<String> files, String direction, SliceWorker worker) {
+        int parallelism = Math.max(1, config.parallelism());
+        if (parallelism <= 1) {
+            worker.run(files, checkpointEnabled() ? config.checkpoint().jobId() : null);
+            return;
+        }
+
+        List<List<String>> groups = splitIntoGroups(files, parallelism);
+        log.info("file_bulk_{}_parallel_start partitions={}", direction, groups.size());
+        ExecutorService pool = Executors.newFixedThreadPool(groups.size());
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            String jobId = checkpointEnabled() ? config.checkpoint().jobId() : null;
+            for (List<String> group : groups) {
+                futures.add(pool.submit(() -> worker.run(group, jobId)));
+            }
+            RuntimeException firstFailure = null;
+            for (Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (Exception e) {
+                    RuntimeException wrapped = new IllegalStateException("parallel worker failed: " + e.getCause(), e.getCause());
+                    if (firstFailure == null) {
+                        firstFailure = wrapped;
+                    } else {
+                        firstFailure.addSuppressed(wrapped);
+                    }
+                }
+            }
+            if (firstFailure != null) {
+                throw firstFailure;
+            }
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /** Even, contiguous split -- files are independent, unordered work items, so no boundary math (unlike DbBulkJob's key-range partitioning) is needed. */
+    private static List<List<String>> splitIntoGroups(List<String> files, int groups) {
+        int actualGroups = Math.max(1, Math.min(groups, files.size()));
+        List<List<String>> result = new ArrayList<>();
+        int base = files.size() / actualGroups;
+        int remainder = files.size() % actualGroups;
+        int start = 0;
+        for (int g = 0; g < actualGroups; g++) {
+            int size = base + (g < remainder ? 1 : 0);
+            result.add(files.subList(start, start + size));
+            start += size;
+        }
+        return result;
+    }
+
+    private void encryptSlice(List<String> slice, NamedFileDek namedDek, Set<String> alreadyDone, String jobId, AtomicLong doneCounter) {
         int filesPerCall = Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
-        int done = 0;
-        for (List<String> batch : partition(files, filesPerCall)) {
-            List<SvcClient.IssueItem> issueItems = batch.stream()
-                    .map(path -> new SvcClient.IssueItem(path, null, null))
-                    .toList();
-            List<SvcClient.IssueResult> issued = svcClient.issue(issueItems);
-            Map<String, SvcClient.IssueResult> byKey = new LinkedHashMap<>();
-            for (SvcClient.IssueResult r : issued) {
-                byKey.put(r.key(), r);
+        long sinceFlush = 0;
+        for (List<String> batch : partition(slice, filesPerCall)) {
+            List<String> toProcess = batch.stream().filter(p -> !alreadyDone.contains(p)).toList();
+            if (toProcess.isEmpty()) {
+                continue;
             }
 
-            for (String path : batch) {
-                SvcClient.IssueResult result = byKey.get(path);
-                if (result == null || !"success".equals(result.status())) {
-                    throw new IllegalStateException("dek/issue failed for file " + path
-                            + ": " + (result == null ? "no result returned" : result.detail()));
+            if (namedDek != null) {
+                for (String path : toProcess) {
+                    encryptOneFile(path, namedDek.edekId(), namedDek.dek());
+                    onFileDone(path, jobId, doneCounter);
                 }
-                byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
-                try {
-                    encryptOneFile(path, result.edekId(), dek);
-                } finally {
-                    DekManager.zeroDek(dek);
+            } else {
+                List<SvcClient.IssueItem> issueItems = toProcess.stream()
+                        .map(path -> new SvcClient.IssueItem(path, null, null))
+                        .toList();
+                List<SvcClient.IssueResult> issued = svcClient.issue(issueItems);
+                Map<String, SvcClient.IssueResult> byKey = new LinkedHashMap<>();
+                for (SvcClient.IssueResult r : issued) {
+                    byKey.put(r.key(), r);
                 }
-                done++;
+                for (String path : toProcess) {
+                    SvcClient.IssueResult result = byKey.get(path);
+                    if (result == null || !"success".equals(result.status())) {
+                        throw new IllegalStateException("dek/issue failed for file " + path
+                                + ": " + (result == null ? "no result returned" : result.detail()));
+                    }
+                    byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
+                    try {
+                        encryptOneFile(path, result.edekId(), dek);
+                        onFileDone(path, jobId, doneCounter);
+                    } finally {
+                        DekManager.zeroDek(dek);
+                    }
+                }
             }
-            log.info("file_bulk_encrypt_progress files_done={}", done);
+            sinceFlush += toProcess.size();
+            if (checkpointEnabled() && sinceFlush >= config.checkpoint().flushInterval()) {
+                checkpointStore.flush(targetStore, jobId);
+                sinceFlush = 0;
+            }
+            log.info("file_bulk_encrypt_progress job_id={} files_done={}", jobId, doneCounter.get());
         }
-        log.info("file_bulk_encrypt_complete total_files={}", done);
+        if (checkpointEnabled()) {
+            checkpointStore.flush(targetStore, jobId);
+        }
+    }
+
+    private void onFileDone(String path, String jobId, AtomicLong doneCounter) {
+        doneCounter.incrementAndGet();
+        if (checkpointEnabled()) {
+            checkpointStore.markDone(path);
+        }
     }
 
     private void encryptOneFile(String relativePath, UUID edekId, byte[] dek) {
@@ -123,40 +304,66 @@ public class FileBulkJob {
         }
     }
 
-    public void decrypt() {
-        List<String> files = sourceStore.list(config.fileTypes());
-        log.info("file_bulk_decrypt_start file_count={}", files.size());
-
+    private void decryptSlice(List<String> slice, Set<String> alreadyDone, String jobId, AtomicLong doneCounter) {
         int filesPerCall = Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
-        int done = 0;
-        for (List<String> batch : partition(files, filesPerCall)) {
-            List<SvcClient.UnwrapItem> unwrapItems = new ArrayList<>();
-            for (String path : batch) {
-                unwrapItems.add(new SvcClient.UnwrapItem(path, readEdekIdHeader(path)));
-            }
-            List<SvcClient.UnwrapResult> unwrapped = svcClient.unwrap(unwrapItems);
-            Map<String, SvcClient.UnwrapResult> byKey = new LinkedHashMap<>();
-            for (SvcClient.UnwrapResult r : unwrapped) {
-                byKey.put(r.key(), r);
+        long sinceFlush = 0;
+        for (List<String> batch : partition(slice, filesPerCall)) {
+            List<String> toProcess = batch.stream().filter(p -> !alreadyDone.contains(p)).toList();
+            if (toProcess.isEmpty()) {
+                continue;
             }
 
-            for (String path : batch) {
-                SvcClient.UnwrapResult result = byKey.get(path);
-                if (result == null || !"success".equals(result.status())) {
-                    throw new IllegalStateException("dek/unwrap failed for file " + path
-                            + ": " + (result == null ? "no result returned" : result.detail()));
-                }
-                byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
-                try {
-                    decryptOneFile(path, dek);
-                } finally {
-                    DekManager.zeroDek(dek);
-                }
-                done++;
+            Map<String, UUID> edekIdByPath = new LinkedHashMap<>();
+            for (String path : toProcess) {
+                edekIdByPath.put(path, readEdekIdHeader(path));
             }
-            log.info("file_bulk_decrypt_progress files_done={}", done);
+            // Dedup by edek_id, not by file -- many files can share one id under a
+            // named (dek-name) DEK, same reasoning as DbBulkJob's decrypt path. One
+            // /dek/unwrap call AND one local RSA-OAEP unwrap per distinct id, not one
+            // per file.
+            List<UUID> distinctEdekIds = edekIdByPath.values().stream().distinct().toList();
+            List<SvcClient.UnwrapItem> unwrapItems = distinctEdekIds.stream()
+                    .map(id -> new SvcClient.UnwrapItem(id.toString(), id))
+                    .toList();
+            List<SvcClient.UnwrapResult> unwrapped = svcClient.unwrap(unwrapItems);
+            Map<UUID, SvcClient.UnwrapResult> resultByEdekId = new LinkedHashMap<>();
+            for (SvcClient.UnwrapResult r : unwrapped) {
+                resultByEdekId.put(UUID.fromString(r.key()), r);
+            }
+
+            Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+            try {
+                for (Map.Entry<UUID, SvcClient.UnwrapResult> e : resultByEdekId.entrySet()) {
+                    if ("success".equals(e.getValue().status())) {
+                        dekByEdekId.put(e.getKey(), TransportWrapper.unwrap(
+                                Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey));
+                    }
+                }
+
+                for (String path : toProcess) {
+                    UUID edekId = edekIdByPath.get(path);
+                    SvcClient.UnwrapResult result = resultByEdekId.get(edekId);
+                    byte[] dek = dekByEdekId.get(edekId);
+                    if (result == null || !"success".equals(result.status()) || dek == null) {
+                        throw new IllegalStateException("dek/unwrap failed for file " + path
+                                + ": " + (result == null ? "no result returned" : result.detail()));
+                    }
+                    decryptOneFile(path, dek);
+                    onFileDone(path, jobId, doneCounter);
+                }
+            } finally {
+                dekByEdekId.values().forEach(DekManager::zeroDek);
+            }
+            sinceFlush += toProcess.size();
+            if (checkpointEnabled() && sinceFlush >= config.checkpoint().flushInterval()) {
+                checkpointStore.flush(targetStore, jobId);
+                sinceFlush = 0;
+            }
+            log.info("file_bulk_decrypt_progress job_id={} files_done={}", jobId, doneCounter.get());
         }
-        log.info("file_bulk_decrypt_complete total_files={}", done);
+        if (checkpointEnabled()) {
+            checkpointStore.flush(targetStore, jobId);
+        }
     }
 
     private UUID readEdekIdHeader(String relativePath) {
