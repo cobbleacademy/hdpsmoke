@@ -44,6 +44,11 @@ public record ClientProperties(
             TableRef source,
             TableRef target,
             String keyColumn,
+            // Only used to parse a persisted checkpoint's last_key (stored as TEXT) back
+            // into the correct Java type for the WHERE key_column > ? resume parameter --
+            // irrelevant when checkpoint.enabled is false. Reuses ColumnMapping.TargetType
+            // rather than a second enum; null/unset -> STRING, same default as targetType.
+            ColumnMapping.TargetType keyColumnType,
             List<ColumnMapping> columns,
             // Non-sensitive columns copied source-to-target as-is, never encrypted/decrypted
             // -- same name in both tables (no renaming, unlike columns above). Deliberately
@@ -52,9 +57,58 @@ public record ClientProperties(
             // insertRows in DbBulkJob never reference it) rather than being silently
             // copied in plaintext into what may be a "secure" target table.
             List<String> passthroughColumns,
-            int rowBatchSize
+            int rowBatchSize,
+            Checkpoint checkpoint,
+            // 1 (default, and what an omitted/0 value means) -- today's exact
+            // sequential behavior, unchanged. >1 partitions the key range into that
+            // many pieces up front and runs one independent worker per partition
+            // concurrently; each worker does the identical fetch-issue-encrypt-insert
+            // pipeline scoped to its own key range. See DbBulkJob's class javadoc for
+            // how partitioning stays cheap (a bounded, one-time set of boundary
+            // lookups, not per-page OFFSET pagination).
+            int parallelism
     ) {
+        public Db {
+            if (parallelism <= 0) {
+                parallelism = 1;
+            }
+        }
+
         public record TableRef(String jdbcUrl, String username, String password, String schema, String table) {
+        }
+
+        /**
+         * Persists progress (the last successfully committed key-column value) so a
+         * crashed or killed run can resume past what was already written instead of
+         * restarting from the first row. Deliberately separate from the source/target
+         * key-uniqueness question discussed alongside this feature -- the checkpoint
+         * table owns its own guaranteed-unique job_id key, and DbBulkJob commits each
+         * data batch and its checkpoint update in one transaction, so this works without
+         * requiring an upsert (or a unique constraint) on the actual target table.
+         *
+         * <p>enabled=false (default, and what an omitted checkpoint block means) --
+         * unchanged pre-existing behavior, no checkpoint table touched at all.
+         * resume=true reads the last committed key and continues past it; resume=false
+         * ("override") clears any prior progress for jobId and starts from the
+         * beginning, then records progress going forward so a later resume=true run
+         * could pick up from here. jobId must be unique per distinct job pipeline --
+         * two different jobs sharing one checkpoint table must not reuse the same
+         * jobId or they will clobber each other's progress. No separate "complete"
+         * flag is needed: resuming after a fully-finished run just fetches zero rows
+         * past the last key and exits immediately, same as a fresh run of an empty
+         * table would.
+         */
+        public record Checkpoint(
+                boolean enabled,
+                boolean resume,
+                String jobId,
+                String tableName
+        ) {
+            public Checkpoint {
+                if (tableName == null || tableName.isBlank()) {
+                    tableName = "hsm_bulk_checkpoint";
+                }
+            }
         }
 
         /**
@@ -89,11 +143,60 @@ public record ClientProperties(
             StoreRef target,
             List<String> fileTypes,
             int chunkSizeBytes,
-            int filesPerBatch
+            int filesPerBatch,
+            // Unset (default) -- today's exact behavior, every file mints its own DEK.
+            // Set -- one persistent DEK for this job's business purpose, resolved once
+            // via /dek/issue and reused across every future run that uses the same
+            // name (not just within one run, unlike DbBulkJob's per-column dek-name).
+            // Needs hsm-bulk-service's own named-DEK rotation (see
+            // com.hsm.bulk.scheduler.NamedDekRotationScheduler) to bound how much data
+            // one long-lived name ends up protecting.
+            String dekName,
+            // 1 (default) -- today's exact sequential behavior. >1 partitions the file
+            // list into that many groups and runs one independent worker per group
+            // concurrently, each running the same per-file pipeline.
+            int parallelism,
+            Checkpoint checkpoint
     ) {
+        public File {
+            if (parallelism <= 0) {
+                parallelism = 1;
+            }
+        }
+
         public record StoreRef(StoreType type, String root) {
         }
 
         public enum StoreType { LOCAL, ADLS }
+
+        /**
+         * Tracks per-file completion via a single batched manifest file in the target
+         * FileStore (not a marker-per-file, which would double write/blob-create
+         * operations -- real added cost on ADLS specifically -- and not a new external
+         * DB dependency, keeping this job storage-agnostic same as everything else
+         * here). Same enabled/resume/job-id shape and semantics as Db.Checkpoint --
+         * enabled=false (default) touches no manifest at all.
+         */
+        public record Checkpoint(
+                boolean enabled,
+                boolean resume,
+                String jobId,
+                // How many file completions between manifest rewrites. Deliberately its
+                // own setting, not tied to filesPerBatch (that's an HTTP-batching-size
+                // knob, unrelated) -- each flush rewrites the whole manifest (FileStore
+                // has no append primitive), so its cost grows with total completed count.
+                // A too-small interval multiplies that cost badly at scale: measured
+                // directly at filesPerBatch=10 on 60k files, that coupling made a resume
+                // take 58s instead of the ~1s the same file count takes uncoupled. 1000
+                // (default, unset/<=0 falls back to it) keeps the number of rewrites, and
+                // therefore their total cost, bounded regardless of filesPerBatch.
+                int flushInterval
+        ) {
+            public Checkpoint {
+                if (flushInterval <= 0) {
+                    flushInterval = 1000;
+                }
+            }
+        }
     }
 }
