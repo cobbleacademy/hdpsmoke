@@ -135,6 +135,15 @@ config:
   # this same value client-side so it never sends an oversized batch.
   dekBatchMaxItems: "100"
 
+  # Rotates named DEKs issued via /dek/issue (DbBulkJob's per-column dek-name,
+  # FileBulkJob's per-job dek-name) once they've been current longer than
+  # maxAgeHours -- see com.hsm.bulk.scheduler.NamedDekRotationScheduler. Same
+  # cron/enabled/maxAgeHours shape and defaults as hsm-core-service's own
+  # namedDekRotation config.
+  namedDekRotationCron: "0 3 * * *"
+  namedDekRotationEnabled: "true"
+  namedDekRotationMaxAgeHours: "720"
+
   azureClientId: ""    # managed identity client ID; auto-read from token JWT if empty
   azureTenantId: ""    # Azure AD tenant ID; read from AZURE_TENANT_ID env var if empty
   azureKeyVaultUrl: "https://<your-vault>.managedhsm.azure.net/"
