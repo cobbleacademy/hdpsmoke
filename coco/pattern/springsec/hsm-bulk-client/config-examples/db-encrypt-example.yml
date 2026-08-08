@@ -42,7 +42,30 @@ client:
       schema: "secure"
       table: customers_encrypted
     key-column: id
+    # Only needed for checkpoint resume -- parses the persisted last_key text back
+    # into the right Java type for the WHERE id > ? resume parameter. Leave unset
+    # (defaults to STRING) if checkpoint is disabled or resume is never used.
+    key-column-type: INTEGER
     row-batch-size: 100
+    # 1 (default) = today's exact sequential behavior. >1 partitions the key range
+    # into that many pieces up front and runs one independent worker per partition
+    # concurrently -- each worker does the same fetch-issue-encrypt-insert pipeline
+    # scoped to its own key range. Also raises the JDBC connection pool size to
+    # cover every concurrent worker. Combine with checkpoint below for safe
+    # crash-resume of a parallel run too -- each partition gets its own
+    # job-id-p0/p1/... checkpoint automatically.
+    parallelism: 4
+    # Persists progress so a crashed/killed run can resume instead of restarting
+    # from row 1. Omit this whole block for the pre-existing, zero-overhead
+    # behavior. Requires a real, unique key-column -- see the design notes in
+    # ClientProperties.Db.Checkpoint's javadoc for exactly why and how this stays
+    # safe (batch + checkpoint commit in one transaction) without needing an
+    # upsert on the actual target table.
+    checkpoint:
+      enabled: true
+      resume: true          # false = override: clear prior progress, start from row 1
+      job-id: customers-encrypt-2024   # must be unique per distinct job pipeline
+      table-name: hsm_bulk_checkpoint  # auto-created if missing; default shown
     columns:
       - source: ssn
         target: ssn_ciphertext_token

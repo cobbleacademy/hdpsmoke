@@ -31,7 +31,17 @@ client:
       schema: "raw"
       table: customers_decrypted
     key-column: id
+    key-column-type: INTEGER   # only needed for checkpoint resume, see below
     row-batch-size: 100
+    parallelism: 4   # see db-encrypt-example.yml for what this does
+    # Use a different job-id than the ENCRYPT job's checkpoint (or a different
+    # table-name) -- these are two distinct pipelines even against the same
+    # source id column, and sharing one job-id would clobber shared progress.
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: customers-decrypt-2024
+      table-name: hsm_bulk_checkpoint
     columns:
       - source: ssn_ciphertext_token
         target: ssn

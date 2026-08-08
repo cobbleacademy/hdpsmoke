@@ -32,3 +32,26 @@ client:
     file-types: []   # e.g. [".png", ".txt", ".pdf"] -- empty means all files
     chunk-size-bytes: 8388608   # 8 MiB
     files-per-batch: 10
+    # Unset (default) -- every file mints its own DEK, unchanged pre-existing
+    # behavior. Set -- one persistent DEK for this job's business purpose (e.g.
+    # "all customer files"), reused across every future run using the same name,
+    # not just within one run. Needs hsm-bulk-service's named-DEK rotation to
+    # bound how much data one long-lived name ends up protecting -- see
+    # NAMED_DEK_ROTATION_* on that service.
+    dek-name: customer-files-2024
+    # 1 (default) -- sequential, unchanged. >1 partitions the file list into that
+    # many groups and runs one worker per group concurrently.
+    parallelism: 4
+    # Persists progress via a single batched manifest file in the target store,
+    # so a crashed/killed run can resume instead of reprocessing everything.
+    # Omit this whole block for the pre-existing, zero-overhead behavior.
+    checkpoint:
+      enabled: true
+      resume: true             # false = override: clear prior progress, start from file 1
+      job-id: customer-files-job   # must be unique per distinct job pipeline
+      # How many file completions between manifest rewrites -- deliberately
+      # separate from files-per-batch (an HTTP-batching-size knob, unrelated).
+      # Each flush rewrites the whole manifest, so too-small a value multiplies
+      # that cost badly at scale; 1000 (default, shown here) keeps it bounded
+      # regardless of files-per-batch or total file count.
+      flush-interval: 1000

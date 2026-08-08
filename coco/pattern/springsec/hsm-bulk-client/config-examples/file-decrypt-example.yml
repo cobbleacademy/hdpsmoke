@@ -25,3 +25,12 @@ client:
     file-types: []
     chunk-size-bytes: 8388608
     files-per-batch: 10
+    # dek-name is not needed here even though the ENCRYPT config set one --
+    # DECRYPT always resolves by the edek_id embedded in each file's own header,
+    # never by name (mirrors DbBulkJob's columns.dek-name behavior exactly).
+    parallelism: 4
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: customer-files-decrypt-job   # distinct from the encrypt job's job-id
+      flush-interval: 1000
