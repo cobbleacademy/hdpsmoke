@@ -114,12 +114,20 @@ public class EdekRecord {
         return rotationStatus;
     }
 
+    public void setRotationStatus(RotationStatus rotationStatus) {
+        this.rotationStatus = rotationStatus;
+    }
+
     public OffsetDateTime getCreatedAt() {
         return createdAt;
     }
 
     public OffsetDateTime getRotatedAt() {
         return rotatedAt;
+    }
+
+    public void setRotatedAt(OffsetDateTime rotatedAt) {
+        this.rotatedAt = rotatedAt;
     }
 
     public String getFingerprint() {
@@ -137,5 +145,10 @@ public class EdekRecord {
     /** Only ever called to backfill a previously-unset classification on a named DEK's first explicit value -- see DekIssueService. */
     public void setDataClassification(String dataClassification) {
         this.dataClassification = dataClassification;
+    }
+
+    /** Retires this row from named-DEK reuse eligibility -- see RotationService.rotateNamedDek(). */
+    public void clearCurrentDekName() {
+        this.currentDekName = null;
     }
 }
