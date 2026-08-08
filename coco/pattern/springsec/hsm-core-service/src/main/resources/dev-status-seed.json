@@ -329,6 +329,36 @@
       "item": "app_decrypt_grants: per-dek_name grant scoping",
       "status": "N",
       "notes": "app_decrypt_grants is app-to-app only ((grantee_app_id, owner_app_id), no column/name scoping) -- this predates dek_name and was already this coarse for ordinary DEK-per-record data, so it's not a new gap in kind. But dek_name now gives the system a real taxonomy (customers.ssn vs. customers.account_number) that grant scoping could use but doesn't -- an auditor could reasonably ask why access control doesn't distinguish what DEK issuance already does. Natural fix: extend AppDecryptGrant's key with an optional, nullable dek_name (NULL = today's blanket grant, unchanged; a value scopes to just that name). Not required to ship dek_name reuse itself -- tracked separately."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "hsm-bulk-client: DbBulkJob connection pooling, batch-insert fix, and parallelism",
+      "status": "C",
+      "notes": "Prompted by a real report: a 2M-row, 4-column db encrypt job took 4 hours. Root causes, diagnosed against the actual reported config, not guesswork: DriverManagerDataSource (unpooled -- every JDBC op pays full connection-setup cost) and subChunkByItemCap capping insert batches to dek-batch-max-items even when no /dek/issue HTTP call remained to cap. Fixed: HikariDataSource (pool sized to parallelism+2), reWriteBatchedInserts=true auto-appended to Postgres URLs, subChunkByItemCap returns the whole page as one chunk when columnsPerRow=0. New client.db.parallelism (default 1, unchanged): partitions the key range via a bounded, one-time set of OFFSET boundary lookups (not per-page OFFSET, which this design still avoids), one worker per partition. Verified against real Postgres: 9,973-row table split into 4 partitions (2494/2493/2493/2493), every id seen exactly once under real concurrent access."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "hsm-bulk-client: DbBulkJob checkpoint/resume",
+      "status": "C",
+      "notes": "New client.db.checkpoint (enabled/resume/job-id/table-name, default disabled -- zero overhead unless opted in). A batch's data insert and its checkpoint update commit in one transaction (TransactionTemplate/DataSourceTransactionManager), so a resumed run can never skip un-written rows nor re-process written ones. Deliberately not built on an ON CONFLICT upsert against the actual target table -- the checkpoint table owns its own guaranteed-unique job_id key, so resume works without requiring the source/target key to be provably unique. Under parallelism>1 each partition gets its own derived checkpoint (job-id-p0, p1...). Verified against real Postgres, 12 checks including a simulated mid-transaction crash: confirmed neither the data row nor the checkpoint landed; a real commit landed both; a second batch upserted (not duplicated) the checkpoint row."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "hsm-bulk-service: Named-DEK rotation scheduler",
+      "status": "C",
+      "notes": "Closes a real, previously-unflagged gap: DEKs issued via POST /dek/issue with a name (DbBulkJob's per-column dek-name, and the new File-job dek-name below) had no rotation at all -- unlike hsm-core-service's own /encrypt dek_name path. New NamedDekRotationScheduler/RotationService, mirroring hsm-core-service's exactly (hsm.named-dek-rotation.*, same age-based reasoning, same saveAndFlush-before-save Hibernate flush-order fix). Verified booting the real Spring app against real Postgres, 13 checks: old row retires (rotated, current_dek_name cleared, wrapped form untouched and still decryptable), a fresh row takes over reuse under the same name, and -- importantly -- a freshly-rotated-in row is NOT re-swept under a realistic 24h cutoff, confirming the age-based logic actually discriminates, not just that the sweep runs."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "hsm-bulk-client: FileBulkJob dek-name, parallelism, checkpoint/resume, and decrypt dedup fix",
+      "status": "C",
+      "notes": "client.file.dek-name mirrors DbBulkJob's dek-name but scoped to the whole job (one business purpose, e.g. all-customer-files), not a column -- and persists across every future run, which is why the rotation scheduler above had to exist first. client.file.parallelism splits the file list into even groups (files are independent/unordered, no boundary-key math needed). client.file.checkpoint uses a single batched manifest file in the target store (no per-file marker -- doubles ADLS operation cost; no new DB dependency); flush-interval (default 1000) decoupled from files-per-batch after measuring the coupling cost directly (58s to 10.9s on 60k files, 6000 to 60 rewrites). Found and fixed while verifying: decrypt wasn't deduping by edek_id like DbBulkJob's decrypt does. Verified with a genuine kill -9 mid-run on 60,000 real files: resumed to exactly 60,000/60,000 files/manifest entries, zero duplicates; dek_issued showed 1 event not 60,000; decrypted output byte-for-byte identical to source."
+    },
+    {
+      "category": "Backlog",
+      "item": "Tier 3 security/crypto review -- now spans two shared-DEK surfaces, not one",
+      "status": "N",
+      "notes": "Already-open item (see BULK_OPERATIONS.md Open Decisions) made more pressing by this round: dek-name now also exists on the File job, scoped to a whole job/business purpose rather than a single DB column -- a coarser, larger blast radius per name than the DB case (one column is one kind of data; one file job can span many kinds of content under one source tree). Real code exists and is verified working end-to-end for both surfaces; the dedicated security/crypto review this doc has called for since before any of Tier 3 was built has still not happened."
     }
   ]
 }
