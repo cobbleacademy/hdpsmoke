@@ -670,7 +670,8 @@ const FLOWS = [
       'hsm-bulk-service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
       'hsm-bulk-client unwraps the DEK locally (its private key never leaves the client) and AES-256-GCM encrypts each row with a fresh IV per call.',
       'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext_token format is identical to the HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
-      'The ciphertext_token is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler on the HSM Service (age-based, default 30d) periodically retires "found" rows; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
+      'The ciphertext_token is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
+      'hsm-bulk-service runs its own copy of this scheduler, independent of the HSM Service\'s copy — so coverage of SVC-minted rows no longer depends on the HSM Service being deployed at all.',
     ],
     actors: [
       { id: 'clnt', label: 'hsm-bulk-client' },
