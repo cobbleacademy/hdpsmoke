@@ -26,7 +26,8 @@ public record HsmBulkProperties(
         Azure azure,
         Database database,
         Jwt jwt,
-        Service service
+        Service service,
+        NamedDekRotation namedDekRotation
 ) {
 
     public record Azure(
@@ -56,6 +57,21 @@ public record HsmBulkProperties(
     public record Service(
             String apiV1Prefix,
             int dekBatchMaxItems
+    ) {
+    }
+
+    /**
+     * Mirrors com.hsm.core.config.HsmProperties.NamedDekRotation exactly -- same
+     * age-based (not usage-count) reasoning applies here: this service has no more
+     * visibility into a caller's actual usage pattern than hsm-core-service does.
+     * Closes a real gap: DEKs issued here via a name (DbBulkJob/FileBulkJob's
+     * dek-name) previously had no rotation at all, unlike hsm-core-service's own
+     * /encrypt dek_name path.
+     */
+    public record NamedDekRotation(
+            String cron,
+            boolean enabled,
+            int maxAgeHours
     ) {
     }
 }
