@@ -46,6 +46,10 @@ import java.util.Map;
 public class DemoController {
 
     private static final String CONSUMER_OWNER_APP_ID = "payments-svc";
+    // Every consumer account's account_number goes through this one name -- illustrates
+    // named-DEK reuse live: after the first account, every subsequent /encrypt call here
+    // reuses the same DEK instead of minting a fresh one (see EncryptionService.resolveDek()).
+    private static final String CONSUMER_ACCOUNT_NUMBER_DEK_NAME = "customers.account_number";
 
     private final RecentEventsBuffer recentEvents;
     private final KekClient kekClient;
@@ -130,9 +134,11 @@ public class DemoController {
     public ResponseEntity<ConsumerAccountResponse> createConsumerAccount(@Valid @RequestBody ConsumerAccountCreateRequest body) {
         // In real life this would be an HTTP call from payments-svc to this service;
         // done in-process here purely to avoid a self-referential network call in the demo.
-        EncryptRequest encryptRequest = new EncryptRequest(body.accountNumber(), "utf8", "pci", null, Map.of(), null);
+        EncryptRequest encryptRequest = new EncryptRequest(body.accountNumber(), "utf8", "pci", null, Map.of(),
+                CONSUMER_ACCOUNT_NUMBER_DEK_NAME);
         EncryptResponse enc = encryptionService.encrypt(encryptRequest, CONSUMER_OWNER_APP_ID, "demo-consumer-app", "");
-        ConsumerAccount account = new ConsumerAccount(body.customerName(), body.email(), enc.ciphertextToken());
+        ConsumerAccount account = new ConsumerAccount(body.customerName(), body.email(), enc.ciphertextToken(),
+                CONSUMER_ACCOUNT_NUMBER_DEK_NAME);
         consumerAccountRepository.save(account);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(account));
     }
@@ -167,6 +173,6 @@ public class DemoController {
     private ConsumerAccountResponse toResponse(ConsumerAccount account) {
         String createdAt = account.getCreatedAt() != null ? account.getCreatedAt().toString() : null;
         return new ConsumerAccountResponse(account.getId(), account.getCustomerName(), account.getEmail(),
-                account.getCiphertextToken(), createdAt);
+                account.getCiphertextToken(), account.getDekName(), createdAt);
     }
 }
