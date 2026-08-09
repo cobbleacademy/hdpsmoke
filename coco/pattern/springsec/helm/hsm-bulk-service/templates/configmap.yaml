@@ -12,6 +12,7 @@ data:
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
   DEK_BATCH_MAX_ITEMS: {{ .Values.config.dekBatchMaxItems | quote }}
+  DB_POOL_MAX_SIZE: {{ .Values.config.dbPoolMaxSize | quote }}
 
   NAMED_DEK_ROTATION_CRON: {{ .Values.config.namedDekRotationCron | quote }}
   NAMED_DEK_ROTATION_ENABLED: {{ .Values.config.namedDekRotationEnabled | quote }}
