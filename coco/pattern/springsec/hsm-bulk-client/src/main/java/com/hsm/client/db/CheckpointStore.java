@@ -27,7 +27,23 @@ class CheckpointStore {
         this.tableName = tableName;
     }
 
+    /**
+     * Checks existence via to_regclass first, and only issues CREATE TABLE when it's
+     * genuinely missing -- deliberately not a blind "CREATE TABLE IF NOT EXISTS".
+     * Postgres checks the CREATE privilege on the schema *before* checking whether
+     * the table already exists, so IF NOT EXISTS does not, by itself, avoid a
+     * permission error on a table a DBA already pre-created -- a role can easily
+     * have full INSERT/SELECT/UPDATE/DELETE on this exact table (granted directly,
+     * object-level) without ever having schema-level CREATE, which is a completely
+     * separate privilege and commonly withheld from application roles. to_regclass
+     * only needs the role to be able to see the table in the catalog (implied by
+     * already having any privilege on it), never CREATE.
+     */
     void ensureTable(JdbcTemplate jdbc) {
+        Boolean exists = jdbc.queryForObject("SELECT to_regclass(?) IS NOT NULL", Boolean.class, tableName);
+        if (Boolean.TRUE.equals(exists)) {
+            return;
+        }
         jdbc.execute("CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                 "job_id VARCHAR(256) PRIMARY KEY, " +
                 "last_key VARCHAR(512), " +

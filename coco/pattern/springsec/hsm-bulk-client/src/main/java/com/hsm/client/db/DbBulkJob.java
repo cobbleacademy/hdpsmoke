@@ -95,7 +95,8 @@ public class DbBulkJob {
 
     private static HikariDataSource dataSource(ClientProperties.Db.TableRef ref, int poolSize) {
         HikariConfig hc = new HikariConfig();
-        hc.setJdbcUrl(withReWriteBatchedInserts(ref.jdbcUrl()));
+        String url = withReWriteBatchedInserts(ref.jdbcUrl());
+        hc.setJdbcUrl(url);
         if (ref.username() != null && !ref.username().isBlank()) {
             hc.setUsername(ref.username());
         }
@@ -103,6 +104,10 @@ public class DbBulkJob {
             hc.setPassword(ref.password());
         }
         hc.setMaximumPoolSize(poolSize);
+        // Never logs the password -- url/username only, and url itself never carries
+        // credentials in this module's config shape (see TableRef: username/password
+        // are always separate fields, never embedded in jdbcUrl).
+        log.info("db_bulk_pool_configured url={} username={} pool_size={}", url, ref.username(), poolSize);
         return new HikariDataSource(hc);
     }
 
