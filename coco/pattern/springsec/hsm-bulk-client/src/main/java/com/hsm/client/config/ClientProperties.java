@@ -102,7 +102,16 @@ public record ClientProperties(
                 boolean enabled,
                 boolean resume,
                 String jobId,
-                String tableName
+                String tableName,
+                // Unqualified (default/unset) means CREATE TABLE hsm_bulk_checkpoint
+                // resolves against whatever schema is first in the connecting role's
+                // default search_path -- which is not guaranteed to be one that role
+                // can actually create in (a real failure mode: "permission denied for
+                // schema X" for some X that isn't source/target.schema at all). Set
+                // this explicitly, typically matching target.schema, to control
+                // exactly where the checkpoint table lands instead of relying on the
+                // connection's default search_path.
+                String schema
         ) {
             public Checkpoint {
                 if (tableName == null || tableName.isBlank()) {

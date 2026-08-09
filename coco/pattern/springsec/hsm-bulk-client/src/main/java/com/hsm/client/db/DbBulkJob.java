@@ -77,7 +77,7 @@ public class DbBulkJob {
                 || config.target().jdbcUrl().equals(config.source().jdbcUrl());
         this.targetJdbc = sameTarget ? sourceJdbc : new JdbcTemplate(dataSource(config.target(), poolSize));
         if (checkpointEnabled(config)) {
-            this.checkpointStore = new CheckpointStore(config.checkpoint().tableName());
+            this.checkpointStore = new CheckpointStore(qualify(config.checkpoint().schema(), config.checkpoint().tableName()));
             this.targetTxTemplate = new TransactionTemplate(new DataSourceTransactionManager(targetJdbc.getDataSource()));
         } else {
             this.checkpointStore = null;
