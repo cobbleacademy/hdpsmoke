@@ -42,6 +42,7 @@ client:
       resume: true
       job-id: customers-decrypt-2024
       table-name: hsm_bulk_checkpoint
+      schema: "raw"   # see db-encrypt-example.yml for why this should be set explicitly
     columns:
       - source: ssn_ciphertext_token
         target: ssn

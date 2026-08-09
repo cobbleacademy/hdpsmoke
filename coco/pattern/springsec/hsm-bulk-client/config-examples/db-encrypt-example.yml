@@ -66,6 +66,11 @@ client:
       resume: true          # false = override: clear prior progress, start from row 1
       job-id: customers-encrypt-2024   # must be unique per distinct job pipeline
       table-name: hsm_bulk_checkpoint  # auto-created if missing; default shown
+      # Unqualified (unset) means CREATE TABLE resolves against whatever schema
+      # is first in your DB role's default search_path -- not guaranteed to be
+      # one that role can create in. Set explicitly (typically matching
+      # target.schema above) rather than relying on the connection default.
+      schema: "secure"
     columns:
       - source: ssn
         target: ssn_ciphertext_token
