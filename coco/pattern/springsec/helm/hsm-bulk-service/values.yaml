@@ -134,6 +134,15 @@ config:
   # Item-count cap per /dek/issue or /dek/unwrap call -- hsm-bulk-client mirrors
   # this same value client-side so it never sends an oversized batch.
   dekBatchMaxItems: "100"
+  # Hikari max connections to DATABASE_URL. Spring Boot's unconfigured default
+  # is 10 -- fine for hsm-core-service's normal per-request traffic, but a bulk
+  # DB job whose columns aren't using dek-name reuse issues/persists one
+  # EdekRecord per row, sequentially per request; several concurrent
+  # client.db.parallelism workers hitting unnamed columns can queue behind a
+  # too-small pool here instead of actually running concurrently. Named-DEK
+  # columns barely touch this (one issue/unwrap per column per job), so this
+  # mainly matters for genuinely per-row DEK traffic at volume.
+  dbPoolMaxSize: "20"
 
   # Rotates named DEKs issued via /dek/issue (DbBulkJob's per-column dek-name,
   # FileBulkJob's per-job dek-name) once they've been current longer than
