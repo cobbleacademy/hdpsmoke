@@ -36,6 +36,15 @@ spring:
     url: ${DATABASE_URL:jdbc:h2:file:./demo_hsm_h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE}
     username: ${DATABASE_USERNAME:sa}
     password: ${DATABASE_PASSWORD:}
+    # Spring Boot's unconfigured default is 10. /dek/issue and /dek/unwrap persist/read
+    # one EdekRecord row per unnamed (non-dek-name) item, sequentially within the
+    # request thread -- a bulk-client run with several concurrent db.parallelism
+    # workers, on columns that aren't using dek-name reuse, can otherwise queue behind
+    # that default instead of actually running concurrently. Named-DEK columns barely
+    # touch this pool at all (one issue/unwrap per column per job), so raise this only
+    # matters for genuinely per-row DEK traffic.
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
 
 hsm:
   # true (default here, unlike hsm-core-service's production-shaped default)
