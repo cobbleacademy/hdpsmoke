@@ -150,5 +150,55 @@ Both cek-alpha and cek-beta need real values seeded up front — even though onl
 
 -----------------------------------------------------------------------------------------------------------
 
+POST /encrypt — end to end
+Entry point: EncryptController.java:32-39 receives the request and calls straight into encryptionService.encrypt(...).
 
+1. edek_id — minted before anything else
+EncryptionService.java:132-168 resolveDek() decides where the DEK and its edek_id come from:
 
+Named + already exists (line 135): edekRecordRepository.findByAppIdAndCurrentDekName(appId, dekName) — reuses the existing row's edekId (line 156), unwraps its stored edekBlob via kekClient.unwrapDek(...) (line 153) or pulls the raw DEK from DekCache if cached (line 147-150).
+Otherwise (line 160-167): mints fresh —
+byte[] dek = DekManager.generateDek() (line 160) → DekManager.java:69-73: 32 random bytes (DEK_LENGTH_BYTES = 32, AES-256) from RANDOM.nextBytes(raw), where RANDOM (line 57) is BC-FIPS's approved-mode DRBG (CryptoServicesRegistrar.getSecureRandom()), not plain java.security.SecureRandom.
+UUID edekId = UUID.randomUUID() (line 162) — this is the edek_id, generated client-side (in hsm-core-service, i.e. server-side relative to the caller), not by the KEK/HSM.
+kekClient.wrapDek(dek) (line 161) → in demo mode, MockKekClient.java:54-68: generates a fresh 12-byte nonce (line 58), AES-256-GCM-encrypts the raw DEK bytes under the current KEK version's key (gcmEncrypt, line 60 → 143-151), then prepends the nonce to the ciphertext+tag to form edek (lines 61-63) — this concatenated blob is what gets base64-encoded and stored as edek_blob in edek_records (not the raw DEK, ever).
+    public static byte[] generateDek() {
+        byte[] raw = new byte[DEK_LENGTH_BYTES];
+        RANDOM.nextBytes(raw);
+        return raw;
+    }
+        KekClient.WrapResult wrapResult = kekClient.wrapDek(dek);
+        UUID edekId = UUID.randomUUID();
+        if (named) {
+            dekCache.set(edekId.toString(), dek, dataClassification);
+        }
+2. iv — fresh, per call, never reused
+Back in EncryptionService.java:85-90: DekManager.encrypt(plaintextBytes, resolved.dek(), appId) → DekManager.java:80-95:
+
+Line 81: byte[] iv = IvFactory.generate() → IvFactory.java:21-25: 12 random bytes (96-bit, the NIST SP 800-38D §8.2 recommended AES-GCM nonce size), same BC-FIPS DRBG. A fresh IV every single call — this is exactly why DEK reuse (via dek-name) is safe: GCM's security only breaks if the same (key, IV) pair repeats, and it never does here, even across thousands of calls sharing one DEK.
+3. ciphertext + tag — AES-256-GCM over the plaintext
+Still in DekManager.encrypt (lines 82-91):
+
+Line 82: byte[] aad = makeAad(appId) → line 206-208: "hsm-svc:app_id=" + appId as UTF-8 bytes — the Additional Authenticated Data. This binds the ciphertext to the calling app's identity: decrypt with the wrong appId and GCM's tag check fails even with the correct DEK, because AAD is covered by the authentication tag but not encrypted itself.
+Lines 84-87: Cipher.getInstance("AES/GCM/NoPadding", "BCFIPS"), initialized with the DEK as an AES SecretKeySpec and a GCMParameterSpec(128, iv) (128-bit tag), updateAAD(aad), then cipher.doFinal(plaintext) — the JCE API returns ciphertext with the 16-byte tag appended.
+Lines 88-90: split that combined output — ciphertext = combined[0 .. len-16], tag = combined[len-16 .. len] (TAG_LENGTH = 16 bytes / 128 bits, line 43-44) — stored as two separate fields going forward, mirroring how the original Python cryptography library's GCM output shape worked (per the class comment, line 76-78).
+4. ciphertext_token — the one opaque string the caller stores
+Back in encrypt(), line 116: DekManager.packToken(edekId, result.iv(), result.tag(), result.ciphertext()) → DekManager.java:129-138:
+
+Binary layout (documented in the class javadoc, lines 29-36, and TOKEN_FIXED_BYTES = 1+16+12+16 = 45 bytes, line 54):
+
+bytes	field
+1	format version (0x01, line 52)
+16	edek_id as two big-endian longs (putLong(msb), putLong(lsb), lines 132-133 — this is just UUID's own 128-bit layout, not a custom encoding)
+12	iv
+16	tag
+N	ciphertext (variable length)
+That whole byte buffer is base64url-encoded (Base64.getUrlEncoder(), line 137, so it's safe in URLs/JSON without further escaping) and prefixed with "v1." (line 137, TOKEN_PREFIX) — giving the v1.AQJ5niUF_Ub-... strings you've seen in the demo UI. The "v1." prefix is what lets a future format change be detected before parsing (line 37-38 comment; enforced on decode at line 145-148 and 162-167).
+
+5. What actually lands in edek_records
+Only on a fresh mint (!resolved.reused(), line 93) — a reused named DEK skips this entirely, since the row already exists:
+
+Line 101: fingerprint — null if named (a shared DEK legitimately produces a different iv/tag every reuse, so no single fingerprint could validate every future token referencing this id), otherwise DekManager.makeFingerprint(iv, tag) → DekManager.java:194-204: first 8 bytes of SHA-256(iv || tag) as 16 hex chars — a consistency check DecryptionService uses to catch element mix-ups before running AES-GCM, not a secret/MAC (the GCM tag itself is the real authentication).
+Lines 102-106: new EdekRecord(edekId, appId, resolved.edekBlobB64(), resolved.kekVersion(), "AES-256-GCM", encoding, dataClassification, fingerprint, dekName) → persisted via edekRecordRepository.save(record). Note: iv, tag, and ciphertext are never stored server-side — they only exist inside the ciphertext_token the caller holds. The server only ever persists edek_blob (the KEK-wrapped DEK) plus metadata.
+6. The HTTP response
+Lines 115-122: EncryptResponse bundles the ciphertext_token string, edek_id, appId, algorithm, encoding, kek_version, and — separately, base64-encoded individually — iv, ciphertext, and tag again (redundant with what's packed in the token, kept for the demo UI's own display/debugging convenience), plus the reused boolean (line 121) telling the caller whether this call minted a new DEK or reused an existing named one.
+-----------------------------------------------------------------------------------------------------------
