@@ -147,7 +147,50 @@ az keyvault secret list --vault-name "$VAULT_NAME" --query "[?contains(name,'cek
 If you overrode the default names (CEK_CURRENT_KEY_SECRET_NAME/CEK_ALPHA_SECRET_NAME/CEK_BETA_SECRET_NAME in your env), substitute those in place of cek-current-key/cek-alpha/cek-beta above.
 
 Both cek-alpha and cek-beta need real values seeded up front — even though only alpha is active initially, CryptoBeansConfig.buildRedisDekCache() tries to read the inactive slot too (for the previous-CEK fallback window) and only swallows the error if that secret is missing entirely; leaving it present-but-empty would reproduce the exact 0-byte error you just diagnosed.
+-----------------------------------------------------------------------------------------------------------
+Create the key — one-time setup
+Managed HSM (documented default):
 
+az keyvault key create \
+  --hsm-name <your-managed-hsm-name> \
+  --name hsm-master-kek \
+  --kty RSA-HSM \
+  --size 3072 \
+  --ops wrapKey unwrapKey
+Regular Key Vault (if you're not using Managed HSM):
+
+az keyvault key create \
+  --vault-name <your-vault-name> \
+  --name hsm-master-kek \
+  --kty RSA \
+  --size 3072 \
+  --ops wrapKey unwrapKey
+
+
+Grant your identity access to it
+Managed HSM uses its own local RBAC, not standard Azure RBAC:
+
+az keyvault role assignment create \
+  --hsm-name <your-managed-hsm-name> \
+  --role "Managed HSM Crypto User" \
+  --assignee <client-id-or-object-id-of-your-identity> \
+  --scope /keys/hsm-master-kek
+Regular Key Vault uses standard Azure RBAC:
+
+az role assignment create \
+  --role "Key Vault Crypto User" \
+  --assignee <client-id-or-object-id-of-your-identity> \
+  --scope $(az keyvault show --name <your-vault-name> --query id -o tsv)
+<client-id-or-object-id-of-your-identity> is whichever identity AzureKeyVaultKekClient ends up authenticating as — the Workload Identity federated identity, the App Registration from the client_secret setup we just added, or a Managed Identity, depending on which path you're using.
+
+Config wiring
+AZURE_KEYVAULT_URL=https://<your-managed-hsm-name>.managedhsm.azure.net/
+AZURE_KEK_NAME=hsm-master-kek
+AZURE_KEK_VERSION=          # leave blank -- always resolves to current/latest
+AZURE_KEYVAULT_SECRET_URL=https://<your-regular-vault>.vault.azure.net/   # for CEK/Splunk secrets, separate from the HSM
+
+One thing worth knowing before you flip this on
+This app's own "Rotate Master Key" button / KekRotationScheduler (RotationService.rotateKek()) does not mint a new key version itself — it only reads whatever version is currently "current" in the vault (RotationService.java:58: kekClient.getCurrentKekVersion()) and re-wraps every stored EDEK to catch up to it. Actually rotating the key material — creating a genuinely new RSA key version — is a separate action: either Azure Key Vault's own built-in rotation policy on a schedule, or manually via az keyvault key rotate --name hsm-master-kek --vault-name <vault> (or --hsm-name for Managed HSM). So: create the key once with the commands above, and rotation from there is a vault-side operation this app just reacts to, not something it drives.
 -----------------------------------------------------------------------------------------------------------
 
 POST /encrypt — end to end
