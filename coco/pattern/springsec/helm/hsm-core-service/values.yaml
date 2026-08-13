@@ -279,6 +279,11 @@ secrets:
     databaseUsername: ""
     databasePassword: ""
     jwtPublicKeyPem: ""
+    # Optional -- only needed for explicit App Registration client-secret auth
+    # to Key Vault (config.azureClientId must also be set to that App
+    # Registration's client ID). Leave empty to keep using Workload
+    # Identity/Managed Identity, which need no static secret at all.
+    azureClientSecret: ""
     splunkHecToken: ""
     # Redis connection string for the DEK cache — credential-shaped, never in ConfigMap.
     # Use rediss:// (TLS) for production. Empty disables the cache even if dekCacheEnabled=true.
