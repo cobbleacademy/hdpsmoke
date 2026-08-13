@@ -1,6 +1,7 @@
 package com.hsm.bulk.crypto;
 
 import com.azure.core.credential.TokenCredential;
+import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
 import com.azure.identity.WorkloadIdentityCredentialBuilder;
@@ -147,6 +148,17 @@ public class AzureKeyVaultKekClient implements KekClient {
                     .tenantId(tenantId)
                     .clientId(clientId)
                     .tokenFilePath(tokenFile)
+                    .build();
+        }
+
+        // Explicit App Registration secret, only when configured -- checked before the
+        // Managed Identity/IMDS fallback below since a caller who set a client-secret
+        // clearly intends to use it, not fall through to node-identity resolution.
+        if (!azureProps.clientSecret().isBlank() && clientId != null && tenantId != null) {
+            return new ClientSecretCredentialBuilder()
+                    .tenantId(tenantId)
+                    .clientId(clientId)
+                    .clientSecret(azureProps.clientSecret())
                     .build();
         }
 
