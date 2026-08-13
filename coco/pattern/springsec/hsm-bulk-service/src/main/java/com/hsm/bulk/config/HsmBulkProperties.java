@@ -33,6 +33,12 @@ public record HsmBulkProperties(
     public record Azure(
             String clientId,
             String tenantId,
+            // Optional. Unset (default) -- credential resolution stays federation-only
+            // (Workload Identity / Managed Identity), never touching a static secret.
+            // Set -- explicit App Registration client-secret auth, tried before the
+            // Managed Identity/IMDS fallback (see AzureKeyVaultKekClient.buildCredential).
+            // Credential-shaped: must come from a Kubernetes Secret, never a ConfigMap.
+            String clientSecret,
             String keyvaultUrl,
             String kekName,
             String kekVersion,
