@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -64,6 +65,14 @@ public class FileBulkJob {
     private final FileStore sourceStore;
     private final FileStore targetStore;
     private final FileCheckpointStore checkpointStore;
+    // Shared across every partition worker for the lifetime of one decrypt() call,
+    // same reasoning and same config-driven gate as DbBulkJob's decrypt-side DEK
+    // cache: only populated/consulted when config.dekName() is set on the decrypt
+    // job's own config (a job-level, not per-file, signal here -- File jobs have no
+    // per-column granularity like DB's ColumnMapping does). Unset config.dekName()
+    // means every file's DEK is genuinely one-off by design -- unchanged per-batch
+    // behavior, no persistent cache, no benefit to caching a one-off value anyway.
+    private final Map<UUID, byte[]> namedDekCache;
 
     public FileBulkJob(ClientProperties.File config, ClientProperties.Svc svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -73,6 +82,7 @@ public class FileBulkJob {
         this.sourceStore = buildStore(config.source());
         this.targetStore = buildStore(config.target());
         this.checkpointStore = checkpointEnabled(config) ? new FileCheckpointStore() : null;
+        this.namedDekCache = isNamed(config) ? new ConcurrentHashMap<>() : null;
     }
 
     private static boolean checkpointEnabled(ClientProperties.File config) {
@@ -155,8 +165,14 @@ public class FileBulkJob {
         Set<String> alreadyDone = resolveCheckpointStart();
         long startMs = System.currentTimeMillis();
         AtomicLong doneCounter = new AtomicLong();
-        runPartitioned(files, "decrypt", (slice, workerId) -> decryptSlice(slice, alreadyDone, workerId, doneCounter));
-        logCompletion("decrypt", doneCounter.get(), startMs);
+        try {
+            runPartitioned(files, "decrypt", (slice, workerId) -> decryptSlice(slice, alreadyDone, workerId, doneCounter));
+            logCompletion("decrypt", doneCounter.get(), startMs);
+        } finally {
+            if (namedDekCache != null) {
+                namedDekCache.values().forEach(DekManager::zeroDek);
+            }
+        }
     }
 
     private void logCompletion(String direction, long totalFiles, long startMs) {
@@ -322,29 +338,43 @@ public class FileBulkJob {
             // /dek/unwrap call AND one local RSA-OAEP unwrap per distinct id, not one
             // per file.
             List<UUID> distinctEdekIds = edekIdByPath.values().stream().distinct().toList();
-            List<SvcClient.UnwrapItem> unwrapItems = distinctEdekIds.stream()
+
+            Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+            if (namedDekCache != null) {
+                for (UUID id : distinctEdekIds) {
+                    byte[] cached = namedDekCache.get(id);
+                    if (cached != null) {
+                        dekByEdekId.put(id, cached);
+                    }
+                }
+            }
+            List<UUID> toFetch = distinctEdekIds.stream().filter(id -> !dekByEdekId.containsKey(id)).toList();
+            List<SvcClient.UnwrapItem> unwrapItems = toFetch.stream()
                     .map(id -> new SvcClient.UnwrapItem(id.toString(), id))
                     .toList();
-            List<SvcClient.UnwrapResult> unwrapped = svcClient.unwrap(unwrapItems);
+            List<SvcClient.UnwrapResult> unwrapped = unwrapItems.isEmpty() ? List.of() : svcClient.unwrap(unwrapItems);
             Map<UUID, SvcClient.UnwrapResult> resultByEdekId = new LinkedHashMap<>();
             for (SvcClient.UnwrapResult r : unwrapped) {
                 resultByEdekId.put(UUID.fromString(r.key()), r);
             }
 
-            Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
             try {
                 for (Map.Entry<UUID, SvcClient.UnwrapResult> e : resultByEdekId.entrySet()) {
                     if ("success".equals(e.getValue().status())) {
-                        dekByEdekId.put(e.getKey(), TransportWrapper.unwrap(
-                                Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey));
+                        byte[] dek = TransportWrapper.unwrap(
+                                Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey);
+                        dekByEdekId.put(e.getKey(), dek);
+                        if (namedDekCache != null) {
+                            namedDekCache.put(e.getKey(), dek);
+                        }
                     }
                 }
 
                 for (String path : toProcess) {
                     UUID edekId = edekIdByPath.get(path);
-                    SvcClient.UnwrapResult result = resultByEdekId.get(edekId);
                     byte[] dek = dekByEdekId.get(edekId);
-                    if (result == null || !"success".equals(result.status()) || dek == null) {
+                    if (dek == null) {
+                        SvcClient.UnwrapResult result = resultByEdekId.get(edekId);
                         throw new IllegalStateException("dek/unwrap failed for file " + path
                                 + ": " + (result == null ? "no result returned" : result.detail()));
                     }
@@ -352,7 +382,14 @@ public class FileBulkJob {
                     onFileDone(path, jobId, doneCounter);
                 }
             } finally {
-                dekByEdekId.values().forEach(DekManager::zeroDek);
+                // Only zero DEKs NOT retained in namedDekCache -- those are the same
+                // byte[] instances the cache holds for future batches, zeroing them
+                // here would corrupt the cache for later reuse.
+                for (Map.Entry<UUID, byte[]> e : dekByEdekId.entrySet()) {
+                    if (namedDekCache == null || !namedDekCache.containsKey(e.getKey())) {
+                        DekManager.zeroDek(e.getValue());
+                    }
+                }
             }
             sinceFlush += toProcess.size();
             if (checkpointEnabled() && sinceFlush >= config.checkpoint().flushInterval()) {
