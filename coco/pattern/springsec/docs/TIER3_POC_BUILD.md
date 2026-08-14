@@ -342,6 +342,86 @@ large table.
   redundant RSA-OAEP unwrap) per file instead of per distinct id. Fixed to
   dedupe per-batch, mirroring `DbBulkJob` exactly.
 
+## Operational robustness, client-secret auth, and decrypt-side DEK caching (later round)
+
+Prompted by a run of real environment issues, worked through one at a time:
+a Postgres permission error that survived an apparent fix, a live-service
+stability question, an Azure Managed Identity auth failure, and finally a slow
+`db decrypt` job that turned out to have the same root cause as an equally
+slow `file decrypt` job.
+
+- **`CheckpointStore` check-before-create fix**: `CREATE TABLE IF NOT EXISTS`
+  still throws a permission error in Postgres even when the table already
+  exists, if the connecting role lacks schema-level `CREATE` -- Postgres
+  checks that privilege *before* checking existence. A DBA-provisioned
+  checkpoint table (object-level DML grants only, matching how `source`/
+  `target` tables are already provisioned in locked-down environments) hit
+  this every time checkpointing was enabled, independent of the earlier
+  `checkpoint.schema` fix. Fixed by checking existence first via
+  `SELECT to_regclass(?) IS NOT NULL` (needs only catalog visibility, not
+  `CREATE`), only issuing `CREATE TABLE` when genuinely missing. `DbBulkJob`'s
+  Hikari pool construction also now logs the JDBC URL and username (never the
+  password) it's actually connecting with, to make exactly this kind of
+  environment mismatch diagnosable from the logs alone.
+- **`hsm-bulk-service` Hikari pool size**: was running on Spring Boot's
+  unconfigured default of 10 connections. `/dek/issue`/`/dek/unwrap` persist
+  or read one `EdekRecord` row per *unnamed* item, sequentially inside the
+  request thread -- several concurrent `client.db.parallelism` workers
+  hitting unnamed (non-`dek-name`) columns at volume could queue behind that
+  default instead of running concurrently. Now configurable via
+  `DB_POOL_MAX_SIZE` (default `20`); named-DEK columns barely touch this pool
+  at all (one issue/unwrap per column per job), so this mainly matters for
+  genuinely per-row DEK traffic.
+- **`FileStore` checkpoint-manifest exclusion bug**: `LocalFileStore.list()`
+  and `AdlsFileStore.list()` did a plain recursive listing with no exclusion
+  for `FileCheckpointStore`'s own `.hsm_bulk_checkpoint/` manifest directory.
+  With checkpointing enabled and `fileTypes` empty (a documented "match all"
+  mode) or otherwise matching the manifest name, a decrypt job whose `source`
+  pointed at a prior encrypt job's `target` (the normal operational pattern)
+  would try to decrypt the manifest file itself as if it were data --
+  its plain-text bytes decode into a fabricated `edek_id` that was never
+  actually issued, failing with `"EDEK not found"`. Fixed by promoting
+  `MANIFEST_DIR` to a shared `FileStore` constant and excluding it from both
+  `list()` implementations unconditionally.
+- **`ClientSecretCredential` support** (`AzureKeyVaultKekClient`, both
+  `hsm-core-service` and `hsm-bulk-service`): the existing credential chain
+  (Workload Identity -> Managed Identity via IMDS -> `DefaultAzureCredential`)
+  had no explicit path for a plain App Registration client secret, and worse,
+  once `client-id` was configured the chain would unconditionally fall into
+  `ManagedIdentityCredentialBuilder` -- a fundamentally different mechanism
+  than Workload Identity (it only vends tokens for identities actually
+  attached to the node/VMSS at the infrastructure level, not a federated
+  identity), so a client-id meant for Workload Identity would always fail
+  there with `"Managed Identity authentication failed"`, even after adding
+  `AZURE_CLIENT_SECRET`, since the old chain never reached
+  `DefaultAzureCredential`'s own client-secret handling. New explicit
+  `ClientSecretCredentialBuilder` branch, checked after Workload Identity but
+  before the Managed Identity fallback, gated on `clientId`/`tenantId` also
+  being resolved. `HsmProperties.Azure`/`HsmBulkProperties.Azure` gained
+  `clientSecret`; wired into both Helm charts' `Secret` (never the
+  ConfigMap -- credential-shaped, same treatment as `databasePassword`).
+- **Decrypt-side persistent DEK cache** (`DbBulkJob`, `FileBulkJob`): the
+  existing per-`/dek/unwrap`-call dedup (see "DEK naming & reuse" above) only
+  deduplicated *within* one sub-batch/batch -- the unwrapped DEK was zeroed
+  at the end of that batch and never reused, so a column or job using
+  `dek-name` (every row/file sharing one `edek_id` by design) still paid one
+  redundant `/dek/unwrap` HTTP call *and* one redundant RSA-OAEP-256 unwrap
+  (the dominant cost per the original bulk-vs-batch benchmark) per batch,
+  for the exact same id, for the whole run. Root cause of a real "`db decrypt`
+  is very slow" report. Fixed with a persistent cache shared across every
+  partition worker for the life of one `decrypt()` call -- deliberately
+  config-driven, not a blanket cache of every `edek_id` decrypt ever sees:
+  `DbBulkJob` caches only `edek_id`s seen under a column with `dek-name` set
+  (mirroring the encrypt path's existing `isNamed(ColumnMapping)` check);
+  `FileBulkJob` gates the whole cache on the decrypt job's own
+  `config.dekName()`, since File jobs have no per-column granularity to key
+  off. An unnamed column's (or a not-`dek-name`d file job's) DEK stays
+  genuinely one-off by config-level guarantee, so it's never cached -- no
+  memory growth for zero reuse benefit. DEKs are zeroed once, when the whole
+  job completes, not per-batch; per-batch zeroing now only applies to DEKs
+  that were never cache-eligible in the first place, so it can't corrupt a
+  cache entry another batch still needs.
+
 ## Verified
 
 1. `mvn -pl hsm-bulk-service -am test` -- 9/9 passing (7 original + 2 new:
@@ -436,7 +516,10 @@ large table.
      `/dek/issue` call for the whole job) instead of 60,000. After the decrypt
      dedup fix, `dek_unwrapped` events showed 6,000 (one per 10-file batch --
      `files-per-batch`), not 60,000. Decrypted output diffed byte-for-byte
-     identical against the original 60,000 source files.
+     identical against the original 60,000 source files. **Superseded by the
+     persistent decrypt-side DEK cache below** -- this 6,000 figure was the
+     per-batch-only dedup's ceiling (still one redundant `/dek/unwrap` call
+     per batch for the same shared id), not the final state.
    - **`checkpoint.flush-interval` fix, measured, same 60,000 files**: before
      decoupling the flush cadence from `files-per-batch` (effectively 10),
      resuming from a crash took **58 seconds** (6,000 manifest rewrites, each
@@ -447,3 +530,43 @@ large table.
      60,000/60,000 files and manifest entries again, zero duplicates.
    - `mvn test` across the full reactor -- 69/69 passing, unchanged, both
      before and after every fix in this round.
+8. **Operational robustness + decrypt-side DEK caching round, verified against
+   real Postgres and the live local demo services (not simulated)**:
+   - **`CheckpointStore` check-before-create fix**: reproduced the exact
+     failure first -- a Postgres role (`app_role`) with object-level
+     `SELECT`/`INSERT`/`UPDATE`/`DELETE` grants on a DBA-pre-created checkpoint
+     table but zero schema-level `CREATE`, against `secure.hsm_bulk_checkpoint`.
+     Confirmed the old blind `CREATE TABLE IF NOT EXISTS` fails there even
+     though the table already exists. After the `to_regclass` fix: same role,
+     same pre-created table -- `ensureTable()` succeeds. Regression-checked the
+     opposite case too (a schema where the role *does* have `CREATE`, table
+     genuinely missing) -- still auto-creates correctly.
+   - **`hsm-bulk-service` Hikari pool size**: rebuilt and restarted the live
+     local service with `DB_POOL_MAX_SIZE=20`; confirmed via a one-off
+     debug-logging pass that Hikari's own `HikariConfig` dump showed
+     `maximumPoolSize.................20`, on the same connection pool whose
+     `url`/`user` log line already matched `DATABASE_URL`/`DATABASE_USERNAME`
+     -- same pool, not a disconnected setting.
+   - **`FileStore` checkpoint-manifest exclusion fix**: reproduced first --
+     checkpoint enabled, `fileTypes: []` (match-all), encrypt then decrypt
+     pointed at the same shared directory. Before the fix, `list()` on the
+     encrypt target (now containing the manifest alongside 3 real files)
+     returned all 4 paths, and decrypting the manifest itself failed with
+     "EDEK not found" exactly as reported. After the fix: `file_count=3` at
+     decrypt start (manifest correctly excluded from a 4-physical-file
+     directory), all 3 files round-tripped correctly.
+   - **Decrypt-side DEK cache, `DbBulkJob`**: 300 rows, one `dek-name`'d
+     column, `row-batch-size`/`dek-batch-max-items` tuned to force exactly 30
+     sub-batches all sharing one `edek_id`. Before this round's fix that's 30
+     separate `/dek/unwrap` calls for the same id; measured **exactly 1**
+     `dek_unwrapped` audit event for the whole run. All 300/300 decrypted
+     values matched the source exactly.
+   - **Decrypt-side DEK cache, `FileBulkJob`**: same shape, file jobs -- 60
+     files, one job-wide `dek-name`, forced into 12 sub-batches
+     (`dek-batch-max-items=5`). Measured **exactly 1** new `dek_unwrapped`
+     event for the whole run (was would-have-been 12). All 60/60 files
+     round-tripped correctly.
+   - `mvn clean compile` across the full reactor -- exit 0, confirming neither
+     the new `HsmProperties.Azure`/`HsmBulkProperties.Azure` field nor any
+     other change in this round broke a positional record construction
+     anywhere else in the codebase.

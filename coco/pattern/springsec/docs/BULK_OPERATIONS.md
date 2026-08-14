@@ -467,7 +467,16 @@ required for a first version.
   purpose rather than a single DB column — a coarser, larger blast radius per
   name than the DB case (one column is one kind of data; one file job can
   span many kinds of content under one source tree). This review has still
-  not happened.
+  not happened. **A still-further later round widened this again**:
+  `hsm-bulk-client`'s decrypt path (both `DbBulkJob` and `FileBulkJob`) now
+  caches unwrapped DEKs in client process memory for the *whole job run*
+  (not just one row/file batch) whenever `dek-name` is in play — a
+  performance fix for a real "decrypt is very slow" report, but it also
+  means a `dek-name`'d DEK's plaintext bytes now live in the client's memory
+  for materially longer than before. Deliberately scoped (only cached for
+  columns/jobs that already opted into `dek-name` reuse, never for
+  genuinely per-row/per-file DEKs), but it's one more way this system's
+  blast radius has grown since this review was last deferred.
 - ~~`hsm-bulk-service` has no rotation for DEKs issued via `dek_name`~~ —
   **resolved, built (later round)**: `hsm-bulk-service` gained its own
   `NamedDekRotationScheduler`/`RotationService`, mirroring `hsm-core-service`'s
