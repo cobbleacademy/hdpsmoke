@@ -23,9 +23,12 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -63,6 +66,20 @@ public class DbBulkJob {
     // of truth callers check, not a null-check on config.checkpoint() directly.
     private final CheckpointStore checkpointStore;
     private final TransactionTemplate targetTxTemplate;
+    // Shared across every partition worker for the lifetime of one decrypt() call --
+    // without this, a column configured with dek-name (a config-level guarantee that
+    // every row's edek_id for that column is the SAME shared DEK) gets re-fetched via
+    // /dek/unwrap AND re-unwrapped (RSA-OAEP-256, the dominant cost per the original
+    // bulk-vs-batch benchmark) on every single row sub-batch, even though the exact
+    // same edek_id was already unwrapped moments earlier -- the existing per-sub-batch
+    // dedup only helps within one sub-batch, never across them. Deliberately scoped to
+    // ONLY dek-name columns, not every edek_id decrypt ever sees: an unnamed column's
+    // DEK is genuinely one-off per row by design, so caching it here would just grow
+    // memory for zero reuse benefit -- see isNamed(ColumnMapping) for the same
+    // named/unnamed distinction the encrypt path already makes. Plain, unbounded map
+    // is fine (not LRU) -- its size is bounded by the config's own distinct dek-name
+    // count, typically a handful, the same assumption issueNamedColumnDeks() makes.
+    private final Map<UUID, byte[]> namedColumnDekCache = new ConcurrentHashMap<>();
 
     public DbBulkJob(ClientProperties.Db config, ClientProperties.Svc svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -153,9 +170,13 @@ public class DbBulkJob {
 
         long startMs = System.currentTimeMillis();
         AtomicLong rowsDone = new AtomicLong();
-        runPartitioned(sourceTable, "decrypt", rowsDone,
-                (rangeStart, rangeEnd, jobId) -> decryptRange(sourceTable, targetTable, rangeStart, rangeEnd, jobId, rowsDone));
-        logCompletion("decrypt", rowsDone.get(), startMs);
+        try {
+            runPartitioned(sourceTable, "decrypt", rowsDone,
+                    (rangeStart, rangeEnd, jobId) -> decryptRange(sourceTable, targetTable, rangeStart, rangeEnd, jobId, rowsDone));
+            logCompletion("decrypt", rowsDone.get(), startMs);
+        } finally {
+            namedColumnDekCache.values().forEach(DekManager::zeroDek);
+        }
     }
 
     private void logCompletion(String direction, long totalRows, long startMs) {
@@ -430,14 +451,23 @@ public class DbBulkJob {
 
             for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, sourceColumns.size())) {
                 Map<String, DekManager.UnpackedToken> unpackedByKey = new LinkedHashMap<>();
+                // Tracks which edek_ids showed up under a dek-name-configured column --
+                // only those are eligible for the persistent namedColumnDekCache. An
+                // unnamed column's DEK is genuinely one-off per row by config-level
+                // guarantee, so it never touches the cache, same as before this change.
+                Set<UUID> namedColumnEdekIds = new HashSet<>();
                 for (Map<String, Object> row : subBatch) {
                     Object keyValue = row.get(config.keyColumn());
-                    for (String col : sourceColumns) {
-                        String token = Objects.toString(row.get(col), null);
+                    for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
+                        String token = Objects.toString(row.get(mapping.source()), null);
                         if (token == null) {
                             continue;
                         }
-                        unpackedByKey.put(itemKey(keyValue, col), DekManager.unpackToken(token));
+                        DekManager.UnpackedToken unpacked = DekManager.unpackToken(token);
+                        unpackedByKey.put(itemKey(keyValue, mapping.source()), unpacked);
+                        if (isNamed(mapping)) {
+                            namedColumnEdekIds.add(unpacked.edekId());
+                        }
                     }
                 }
                 if (unpackedByKey.isEmpty()) {
@@ -453,21 +483,35 @@ public class DbBulkJob {
                         .map(DekManager.UnpackedToken::edekId)
                         .distinct()
                         .toList();
-                List<SvcClient.UnwrapItem> unwrapItems = distinctEdekIds.stream()
+
+                Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+                for (UUID id : distinctEdekIds) {
+                    if (namedColumnEdekIds.contains(id)) {
+                        byte[] cached = namedColumnDekCache.get(id);
+                        if (cached != null) {
+                            dekByEdekId.put(id, cached);
+                        }
+                    }
+                }
+                List<UUID> toFetch = distinctEdekIds.stream().filter(id -> !dekByEdekId.containsKey(id)).toList();
+                List<SvcClient.UnwrapItem> unwrapItems = toFetch.stream()
                         .map(id -> new SvcClient.UnwrapItem(id.toString(), id))
                         .toList();
-                List<SvcClient.UnwrapResult> unwrapped = svcClient.unwrap(unwrapItems);
+                List<SvcClient.UnwrapResult> unwrapped = unwrapItems.isEmpty() ? List.of() : svcClient.unwrap(unwrapItems);
                 Map<UUID, SvcClient.UnwrapResult> resultByEdekId = new LinkedHashMap<>();
                 for (SvcClient.UnwrapResult r : unwrapped) {
                     resultByEdekId.put(UUID.fromString(r.key()), r);
                 }
 
-                Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
                 try {
                     for (Map.Entry<UUID, SvcClient.UnwrapResult> e : resultByEdekId.entrySet()) {
                         if ("success".equals(e.getValue().status())) {
-                            dekByEdekId.put(e.getKey(), TransportWrapper.unwrap(
-                                    Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey));
+                            byte[] dek = TransportWrapper.unwrap(
+                                    Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey);
+                            dekByEdekId.put(e.getKey(), dek);
+                            if (namedColumnEdekIds.contains(e.getKey())) {
+                                namedColumnDekCache.put(e.getKey(), dek);
+                            }
                         }
                     }
 
@@ -484,9 +528,9 @@ public class DbBulkJob {
                                 targetRow[i++] = null;
                                 continue;
                             }
-                            SvcClient.UnwrapResult result = resultByEdekId.get(unpacked.edekId());
                             byte[] dek = dekByEdekId.get(unpacked.edekId());
-                            if (result == null || !"success".equals(result.status()) || dek == null) {
+                            if (dek == null) {
+                                SvcClient.UnwrapResult result = resultByEdekId.get(unpacked.edekId());
                                 throw new IllegalStateException("dek/unwrap failed for key=" + keyValue + " column=" + mapping.source()
                                         + ": " + (result == null ? "no result returned" : result.detail()));
                             }
@@ -514,7 +558,14 @@ public class DbBulkJob {
                     Object subBatchLastKey = subBatch.get(subBatch.size() - 1).get(config.keyColumn());
                     insertRowsWithCheckpoint(jobId, targetTable, config.keyColumn(), targetColumns, targetRows, subBatchLastKey, partitionRowsDone);
                 } finally {
-                    dekByEdekId.values().forEach(DekManager::zeroDek);
+                    // Only zero DEKs NOT retained in namedColumnDekCache -- those are the
+                    // same byte[] instances the cache holds for future sub-batches/pages,
+                    // zeroing them here would corrupt the cache for later reuse.
+                    for (Map.Entry<UUID, byte[]> e : dekByEdekId.entrySet()) {
+                        if (!namedColumnEdekIds.contains(e.getKey())) {
+                            DekManager.zeroDek(e.getValue());
+                        }
+                    }
                 }
             }
 
