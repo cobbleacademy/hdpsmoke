@@ -421,6 +421,21 @@ slow `file decrypt` job.
   job completes, not per-batch; per-batch zeroing now only applies to DEKs
   that were never cache-eligible in the first place, so it can't corrupt a
   cache entry another batch still needs.
+- **`DbBulkJob` decrypt sub-chunking fix (found immediately after the cache
+  above, from a real "decrypt is still 8x slower than encrypt" follow-up
+  report)**: the DEK cache alone wasn't enough. `decryptRange`'s
+  `subChunkByItemCap` call was still capping sub-batch size using the
+  *total* source-column count, unconditionally -- unlike `encryptRange`,
+  which already excluded named columns from that same cap (`columnsPerRow=0`
+  for a fully-named batch returns the whole page as one chunk, see "DEK
+  naming & reuse" above). So even with every `/dek/unwrap` after the first
+  now a cache hit, decrypt kept artificially splitting every page into tiny
+  sub-batches for no remaining reason -- far more, smaller `INSERT`/checkpoint
+  calls than encrypt's single-chunk-per-page fast path for the identical
+  fully-named data. Fixed by computing decrypt's cap from only the *unnamed*
+  column count (`config.columns().stream().filter(m -> !isNamed(m)).count()`),
+  mirroring `encryptRange` exactly -- a fully-named decrypt run now also
+  collapses to one sub-batch per page.
 
 ## Verified
 
@@ -566,6 +581,13 @@ slow `file decrypt` job.
      (`dek-batch-max-items=5`). Measured **exactly 1** new `dek_unwrapped`
      event for the whole run (was would-have-been 12). All 60/60 files
      round-tripped correctly.
+   - **Decrypt sub-chunking fix, `DbBulkJob`**: 5,000 rows, one `dek-name`'d
+     column, `row-batch-size=1000` (5 pages), `dek-batch-max-items=20` (the
+     pre-fix cap would have forced `5000/20=250` sub-batches). Measured
+     **exactly 5** `db_bulk_decrypt_progress` lines -- one sub-batch per page,
+     matching encrypt's already-existing fast path for the identical
+     fully-named case. Decrypt completed in 315ms (16,130 rows/sec); all
+     5,000/5,000 decrypted values matched the source exactly.
    - `mvn clean compile` across the full reactor -- exit 0, confirming neither
      the new `HsmProperties.Azure`/`HsmBulkProperties.Azure` field nor any
      other change in this round broke a positional record construction
