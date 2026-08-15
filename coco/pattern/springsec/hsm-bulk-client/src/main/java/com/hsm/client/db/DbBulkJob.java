@@ -440,6 +440,15 @@ public class DbBulkJob {
         List<String> passthroughColumns = passthroughColumns();
         List<String> selectColumns = concat(sourceColumns, passthroughColumns);
         List<String> targetColumns = concat(config.columns().stream().map(ClientProperties.Db.ColumnMapping::target).toList(), passthroughColumns);
+        // Same fast-path reasoning as encrypt's unnamedSourceColumns (see encryptRange):
+        // once namedColumnDekCache is warm, a dek-name'd column needs zero further
+        // /dek/unwrap calls for the rest of the job, so it shouldn't count toward the
+        // item cap that exists purely to bound the SIZE of an actual HTTP call. Using
+        // the full sourceColumns.size() here regardless of naming was an oversight --
+        // it kept artificially sub-chunking every page (smaller inserts, smaller
+        // checkpoint commits, more round trips) even for a fully-named run where, after
+        // the first page, not a single sub-batch needs a real network call at all.
+        long unnamedColumnCount = config.columns().stream().filter(m -> !isNamed(m)).count();
 
         Object lastKey = resolveInitialLastKey(jobId, rangeStart);
         long partitionRowsDone = 0;
@@ -449,7 +458,7 @@ public class DbBulkJob {
                 break;
             }
 
-            for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, sourceColumns.size())) {
+            for (List<Map<String, Object>> subBatch : subChunkByItemCap(rows, (int) unnamedColumnCount)) {
                 Map<String, DekManager.UnpackedToken> unpackedByKey = new LinkedHashMap<>();
                 // Tracks which edek_ids showed up under a dek-name-configured column --
                 // only those are eligible for the persistent namedColumnDekCache. An
