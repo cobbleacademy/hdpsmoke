@@ -359,6 +359,18 @@
       "item": "Tier 3 security/crypto review -- now spans two shared-DEK surfaces, not one",
       "status": "N",
       "notes": "Already-open item (see BULK_OPERATIONS.md Open Decisions) made more pressing by this round: dek-name now also exists on the File job, scoped to a whole job/business purpose rather than a single DB column -- a coarser, larger blast radius per name than the DB case (one column is one kind of data; one file job can span many kinds of content under one source tree). Real code exists and is verified working end-to-end for both surfaces; the dedicated security/crypto review this doc has called for since before any of Tier 3 was built has still not happened."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "Operational robustness round: checkpoint CREATE-privilege fix, Hikari pool size, manifest-exclusion fix, client-secret auth",
+      "status": "C",
+      "notes": "Four real environment issues fixed in one round. CheckpointStore: Postgres checks CREATE privilege before table existence, so CREATE TABLE IF NOT EXISTS still fails for a role with only object-level grants on a DBA-pre-created checkpoint table -- fixed via to_regclass existence check first. hsm-bulk-service's Hikari pool was on Spring Boot's default of 10 -- now DB_POOL_MAX_SIZE (default 20). FileStore.list() had no exclusion for FileCheckpointStore's own manifest dir -- a decrypt job could try to decrypt its own manifest as data, failing with EDEK not found. AzureKeyVaultKekClient's credential chain unconditionally fell into Managed-Identity-via-IMDS once client-id was set, even for a Workload-Identity-only identity -- new explicit ClientSecretCredential branch added, both services. Verified against real Postgres, live Hikari config (maximumPoolSize=20 confirmed), and a real encrypt/decrypt cycle reproducing then fixing the manifest bug."
+    },
+    {
+      "category": "Bulk (Tier 3) PoC",
+      "item": "hsm-bulk-client: DB/File decrypt-side persistent DEK cache + sub-chunking fix",
+      "status": "C",
+      "notes": "Root cause of a real 'db decrypt is very slow' / '8x slower than encrypt' report. The existing dedup-by-edek_id only worked within one sub-batch -- the unwrapped DEK was zeroed at batch end and never reused, so a dek-name'd column/job still paid one redundant /dek/unwrap call and RSA-OAEP-256 unwrap (the dominant cost per the earlier benchmark) per batch, for the whole run. Fixed with a persistent cache shared across every partition worker, gated on config (DbBulkJob: per-column dek-name; FileBulkJob: the job's own dek-name) so a genuinely one-off DEK is never cached. Second bug found via a real follow-up report: decryptRange's sub-chunking still capped batch size using the total column count regardless of naming, unlike encryptRange -- fixed to mirror it exactly. Verified live: DbBulkJob (300 rows/30 forced sub-batches -> 1 unwrap event; 5,000 rows/250 forced sub-batches -> 5, one per page, 315ms) and FileBulkJob (60 files/12 forced sub-batches -> 1 unwrap event), all data round-tripped correctly."
     }
   ]
 }
