@@ -241,7 +241,17 @@ public class FileBulkJob {
     }
 
     private void encryptSlice(List<String> slice, NamedFileDek namedDek, Set<String> alreadyDone, String jobId, AtomicLong doneCounter) {
-        int filesPerCall = Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
+        // Same reasoning as DbBulkJob's decrypt sub-chunking fix: dekBatchMaxItems
+        // exists purely to bound the size of a real /dek/issue call. When namedDek
+        // is already resolved (whole job shares one DEK, see resolveJobDek), no
+        // per-batch network call ever happens at all -- every file in the batch
+        // uses namedDek.dek() directly -- so capping the batch size for that reason
+        // is pure overhead (more, smaller batches: more log lines, more small map
+        // allocations) with zero benefit. Only cap by dekBatchMaxItems when each
+        // file genuinely needs its own /dek/issue item.
+        int filesPerCall = namedDek != null
+                ? Math.max(1, config.filesPerBatch())
+                : Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
         long sinceFlush = 0;
         for (List<String> batch : partition(slice, filesPerCall)) {
             List<String> toProcess = batch.stream().filter(p -> !alreadyDone.contains(p)).toList();
@@ -321,7 +331,16 @@ public class FileBulkJob {
     }
 
     private void decryptSlice(List<String> slice, Set<String> alreadyDone, String jobId, AtomicLong doneCounter) {
-        int filesPerCall = Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
+        // Same reasoning as encryptSlice above and as DbBulkJob's decrypt
+        // sub-chunking fix. File dek-name is job-wide (see isNamed(ClientProperties.
+        // File)), not per-file, so when namedDekCache is active every file in the
+        // job shares exactly one edek_id -- distinctEdekIds is always size 1
+        // regardless of batch size, even on the very first batch, so
+        // dekBatchMaxItems never bounds anything real here and shouldn't shrink
+        // the batch.
+        int filesPerCall = namedDekCache != null
+                ? Math.max(1, config.filesPerBatch())
+                : Math.max(1, Math.min(config.filesPerBatch(), svcConfig.dekBatchMaxItems()));
         long sinceFlush = 0;
         for (List<String> batch : partition(slice, filesPerCall)) {
             List<String> toProcess = batch.stream().filter(p -> !alreadyDone.contains(p)).toList();
