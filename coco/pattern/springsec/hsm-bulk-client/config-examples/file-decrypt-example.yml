@@ -25,9 +25,14 @@ client:
     file-types: []
     chunk-size-bytes: 8388608
     files-per-batch: 10
-    # dek-name is not needed here even though the ENCRYPT config set one --
-    # DECRYPT always resolves by the edek_id embedded in each file's own header,
-    # never by name (mirrors DbBulkJob's columns.dek-name behavior exactly).
+    # dek-name isn't needed here for correctness -- DECRYPT always resolves by
+    # the edek_id embedded in each file's own header, never by name. But DO
+    # set it to match the ENCRYPT job's value anyway: it's also what gates
+    # FileBulkJob's persistent decrypt-side DEK cache for the whole job run.
+    # Leaving it unset on a job whose files really do share one DEK costs one
+    # full /dek/unwrap round trip (and one RSA-OAEP unwrap) per batch instead
+    # of once per job.
+    dek-name: customer-files-2024   # matches file-encrypt-example.yml's value
     parallelism: 4
     checkpoint:
       enabled: true

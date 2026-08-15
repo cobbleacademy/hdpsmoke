@@ -46,11 +46,17 @@ client:
     columns:
       - source: ssn_ciphertext_token
         target: ssn
-      # dek-name is not needed here even though the ENCRYPT config set one for
-      # this column -- DECRYPT always resolves by the edek_id embedded in each
-      # row's own token, never by name.
+      # dek-name isn't needed here for correctness -- DECRYPT always resolves
+      # by the edek_id embedded in each row's own token, never by name. But
+      # DO set it to match the ENCRYPT job's column anyway: it's also what
+      # gates DbBulkJob's persistent decrypt-side DEK cache (an unwrapped DEK
+      # is cached for the whole job run only for columns marked dek-name here,
+      # matching what the data actually is). Leaving it unset on a column
+      # whose data really is dek-name-reused costs one full /dek/unwrap round
+      # trip (and one RSA-OAEP unwrap) per sub-batch instead of once per job.
       - source: account_number_ciphertext_token
         target: account_number
+        dek-name: customers.account_number   # matches db-encrypt-example.yml's column
       # target-type: the decrypted plaintext is always a String out of
       # DekManager.decrypt() -- this says what SQL type to parse it into
       # before insertion, since `dob` here is a real DATE column, not
