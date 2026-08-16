@@ -137,7 +137,7 @@ public class DemoController {
         EncryptRequest encryptRequest = new EncryptRequest(body.accountNumber(), "utf8", "pci", null, Map.of(),
                 CONSUMER_ACCOUNT_NUMBER_DEK_NAME);
         EncryptResponse enc = encryptionService.encrypt(encryptRequest, CONSUMER_OWNER_APP_ID, "demo-consumer-app", "");
-        ConsumerAccount account = new ConsumerAccount(body.customerName(), body.email(), enc.ciphertextToken(),
+        ConsumerAccount account = new ConsumerAccount(body.customerName(), body.email(), enc.ciphertext(),
                 CONSUMER_ACCOUNT_NUMBER_DEK_NAME);
         consumerAccountRepository.save(account);
         return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(account));
@@ -165,7 +165,7 @@ public class DemoController {
         // Relies entirely on decryptionService.decrypt to raise 403 (no grant) or
         // 422 (tag/element mismatch) -- exercises the same grant model as /decrypt,
         // deliberately without an extra "decrypt" scope check here.
-        DecryptRequest decryptRequest = new DecryptRequest(account.getCiphertextToken(), null, null, null, null, body.endUserId());
+        DecryptRequest decryptRequest = new DecryptRequest(account.getCiphertext(), null, null, null, null, body.endUserId());
         DecryptResponse dec = decryptionService.decrypt(decryptRequest, body.revealAs(), "demo-consumer-ui", revealScopes, "");
         return new ConsumerRevealResponse(account.getId(), dec.plaintext());
     }
@@ -173,6 +173,6 @@ public class DemoController {
     private ConsumerAccountResponse toResponse(ConsumerAccount account) {
         String createdAt = account.getCreatedAt() != null ? account.getCreatedAt().toString() : null;
         return new ConsumerAccountResponse(account.getId(), account.getCustomerName(), account.getEmail(),
-                account.getCiphertextToken(), account.getDekName(), createdAt);
+                account.getCiphertext(), account.getDekName(), createdAt);
     }
 }
