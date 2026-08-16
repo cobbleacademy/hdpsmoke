@@ -37,9 +37,9 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * BULK DB job: reads plaintext from configured source columns, gets DEKs from SVC in
  * bulk (one DEK per column value, not per row -- preserves DEK-per-record isolation),
- * encrypts each value locally, writes ciphertext_token into the configured target
+ * encrypts each value locally, writes the ciphertext token into the configured target
  * columns. decrypt() reverses it -- same config shape, source/target column meaning
- * flips (source = ciphertext_token column, target = plaintext column).
+ * flips (source = ciphertext column, target = plaintext column).
  *
  * <p>Keyset pagination (WHERE key_column &gt; ? ORDER BY key_column LIMIT ?), not
  * OFFSET -- avoids OFFSET's well-known large-table slowdown for big source tables.
