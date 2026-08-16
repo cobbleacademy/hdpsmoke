@@ -207,7 +207,7 @@ function ArchitectureDiagram() {
         <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
         <text x="540" y="243" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt · /batch</text>
         <text x="540" y="258" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
-        <text x="540" y="270" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">random IV → wrap DEK</text>
+        <text x="540" y="270" textAnchor="middle" fill="#10b981" fontSize="9" fontFamily="monospace">or reuse via dek_name</text>
         <rect x="455" y="285" width="170" height="58" rx="5" fill="#22263a" stroke="#f87171" strokeWidth="1" />
         <text x="540" y="301" textAnchor="middle" fill="#f87171" fontSize="10" fontFamily="monospace">POST /decrypt · /batch</text>
         <text x="540" y="315" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">grant check → cache lookup</text>
@@ -323,7 +323,7 @@ function ArchitectureDiagram() {
         <text x="36" y="690" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
         <rect x="36" y="698" width="365" height="60" rx="4" fill="#22263a" />
         <text x="50" y="712" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, data_classification, end_user_id, context {'}'}</text>
-        <text x="50" y="726" fill="#555b7a" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
+        <text x="50" y="726" fill="#10b981" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)  (or reuse via dek_name)</text>
         <text x="50" y="740" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="752" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
         <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext {'}'}  ← only field client stores</text>
