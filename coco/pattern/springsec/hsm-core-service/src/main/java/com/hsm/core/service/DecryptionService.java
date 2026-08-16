@@ -16,8 +16,10 @@ import com.hsm.core.dto.DecryptResponse;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.web.ApiException;
+import com.hsm.core.web.CorrelationIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +33,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 /** Ported from app/services/decryption_service.py. */
 @Service
@@ -45,10 +50,12 @@ public class DecryptionService {
     private final PbacClient pbacClient;
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
+    private final ExecutorService batchExecutor;
 
     public DecryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository,
                               AppRegistryService appRegistry, DekCache dekCache,
-                              PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties) {
+                              PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
+                              ExecutorService batchExecutor) {
         this.kekClient = kekClient;
         this.edekRecordRepository = edekRecordRepository;
         this.appRegistry = appRegistry;
@@ -56,6 +63,7 @@ public class DecryptionService {
         this.pbacClient = pbacClient;
         this.auditLogger = auditLogger;
         this.properties = properties;
+        this.batchExecutor = batchExecutor;
     }
 
     public DecryptResponse decrypt(DecryptRequest request, String appId, String callerSub, List<String> callerScopes, String callerIp) {
@@ -65,10 +73,10 @@ public class DecryptionService {
         byte[] resolvedTag;
         byte[] resolvedCiphertext;
 
-        if (request.ciphertextToken() != null) {
+        if (request.ciphertext() != null) {
             DekManager.UnpackedToken unpacked;
             try {
-                unpacked = DekManager.unpackToken(request.ciphertextToken());
+                unpacked = DekManager.unpackToken(request.ciphertext());
             } catch (IllegalArgumentException e) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
             }
@@ -79,12 +87,12 @@ public class DecryptionService {
         } else {
             if (request.edekId() == null) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
-                        "Provide either 'ciphertext_token' (recommended) or the legacy fields "
+                        "Provide either 'ciphertext' (recommended) or the legacy fields "
                                 + "'edek_id', 'iv_b64', 'ciphertext_b64', 'tag_b64'");
             }
             if (request.ivB64() == null || request.ciphertextB64() == null || request.tagB64() == null) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
-                        "Legacy decrypt is missing required fields. Use 'ciphertext_token' instead to avoid this.");
+                        "Legacy decrypt is missing required fields. Use 'ciphertext' instead to avoid this.");
             }
             resolvedEdekId = request.edekId();
             try {
@@ -127,7 +135,7 @@ public class DecryptionService {
 
         // -- Pre-flight: fixed-size parameter checks (legacy path only) --
         // Token path: iv/tag sizes are guaranteed by pack_token -- no check needed.
-        if (request.ciphertextToken() == null) {
+        if (request.ciphertext() == null) {
             if (resolvedIv.length != DekManager.IV_LENGTH) {
                 auditFail(appId, callerSub, edekIdStr, callerIp, "invalid_iv_length", request.endUserId(), null);
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
@@ -180,14 +188,19 @@ public class DecryptionService {
                 "app_id", appId, "owner_app_id", ownerAppId, "sub", callerSub, "end_user_id", request.endUserId(),
                 "edek_id", edekIdStr, "kek_version", record.getKekVersion(), "caller_ip", callerIp, "status", "success");
 
-        return new DecryptResponse(new String(plaintext, StandardCharsets.UTF_8), ownerAppId, record.getAlgorithm(), record.getEncoding());
+        return new DecryptResponse(new String(plaintext, StandardCharsets.UTF_8), ownerAppId, record.getAlgorithm(), record.getEncoding(),
+                "success", "DECRYPT_SUCCESS", "Decryption completed successfully",
+                MDC.get(CorrelationIdFilter.MDC_KEY));
     }
 
     /**
-     * Decrypts every item, reusing {@link #decrypt} unmodified per item --
-     * sequential, same rationale as EncryptionService.encryptBatch (see
-     * java/docs/BULK_OPERATIONS.md). Unlike batch encrypt, the "token or
-     * legacy fields" either-or check is not expressible as a static Bean
+     * Decrypts every item, reusing {@link #decrypt} unmodified per item.
+     * Item-level work is fanned out onto the shared, bounded batchExecutor
+     * (hsm.service.batch-executor-pool-size -- see BatchExecutorConfig and
+     * java/docs/BULK_OPERATIONS.md), same pattern as
+     * EncryptionService.encryptBatch; results are collected back in
+     * original item order. Unlike batch encrypt, the "token or legacy
+     * fields" either-or check is not expressible as a static Bean
      * Validation constraint -- it lives inside decrypt() itself -- so a
      * malformed item there naturally becomes that item's error rather than
      * a whole-batch rejection, on top of the same rejection for a truly
@@ -211,22 +224,21 @@ public class DecryptionService {
             }
         }
 
+        List<Future<BatchDecryptResultItem>> futures = new ArrayList<>(items.size());
+        for (BatchDecryptItem item : items) {
+            futures.add(batchExecutor.submit(
+                    MdcPropagatingCallable.wrap(() -> decryptBatchItem(item, appId, callerSub, callerScopes, callerIp))));
+        }
+
         List<BatchDecryptResultItem> results = new ArrayList<>(items.size());
         int successCount = 0;
         int failureCount = 0;
-        for (BatchDecryptItem item : items) {
-            try {
-                DecryptRequest single = new DecryptRequest(
-                        item.ciphertextToken(), item.edekId(), item.ivB64(), item.ciphertextB64(), item.tagB64(), item.endUserId());
-                DecryptResponse response = decrypt(single, appId, callerSub, callerScopes, callerIp);
-                results.add(BatchDecryptResultItem.success(item.key(), response));
+        for (Future<BatchDecryptResultItem> future : futures) {
+            BatchDecryptResultItem result = awaitBatchItem(future);
+            results.add(result);
+            if ("success".equals(result.status())) {
                 successCount++;
-            } catch (ApiException e) {
-                results.add(BatchDecryptResultItem.error(item.key(), e.getMessage()));
-                failureCount++;
-            } catch (RuntimeException e) {
-                log.error("batch_decrypt_item_unexpected_error app_id={} key={} error={}", appId, item.key(), e.getMessage(), e);
-                results.add(BatchDecryptResultItem.error(item.key(), "Internal error processing this item"));
+            } else {
                 failureCount++;
             }
         }
@@ -236,6 +248,33 @@ public class DecryptionService {
                 "success_count", successCount, "failure_count", failureCount, "caller_ip", callerIp, "status", "success");
 
         return new BatchDecryptResponse(results);
+    }
+
+    private BatchDecryptResultItem decryptBatchItem(BatchDecryptItem item, String appId, String callerSub,
+                                                      List<String> callerScopes, String callerIp) {
+        try {
+            DecryptRequest single = new DecryptRequest(
+                    item.ciphertext(), item.edekId(), item.ivB64(), item.ciphertextB64(), item.tagB64(), item.endUserId());
+            DecryptResponse response = decrypt(single, appId, callerSub, callerScopes, callerIp);
+            return BatchDecryptResultItem.success(item.key(), response);
+        } catch (ApiException e) {
+            return BatchDecryptResultItem.error(item.key(), e.getMessage());
+        } catch (RuntimeException e) {
+            log.error("batch_decrypt_item_unexpected_error app_id={} key={} error={}", appId, item.key(), e.getMessage(), e);
+            return BatchDecryptResultItem.error(item.key(), "Internal error processing this item");
+        }
+    }
+
+    /** decryptBatchItem() catches every RuntimeException itself, so ExecutionException here only ever wraps a JVM-level Error (OOM, etc) -- not a normal per-item failure path. */
+    private static BatchDecryptResultItem awaitBatchItem(Future<BatchDecryptResultItem> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "batch processing was interrupted");
+        } catch (ExecutionException e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "batch item processing failed: " + e.getCause());
+        }
     }
 
     private void auditFail(String appId, String sub, String edekId, String ip, String reason, String endUserId, String ownerAppId) {

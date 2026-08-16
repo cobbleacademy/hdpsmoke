@@ -15,8 +15,10 @@ import com.hsm.core.dto.EncryptResponse;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.web.ApiException;
+import com.hsm.core.web.CorrelationIdFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +31,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 /** Ported from app/services/encryption_service.py. */
 @Service
@@ -43,15 +48,18 @@ public class EncryptionService {
     private final PbacClient pbacClient;
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
+    private final ExecutorService batchExecutor;
 
     public EncryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository, DekCache dekCache,
-                              PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties) {
+                              PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
+                              ExecutorService batchExecutor) {
         this.kekClient = kekClient;
         this.edekRecordRepository = edekRecordRepository;
         this.dekCache = dekCache;
         this.pbacClient = pbacClient;
         this.auditLogger = auditLogger;
         this.properties = properties;
+        this.batchExecutor = batchExecutor;
     }
 
     /** Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or from DekCache) or a newly minted one (reused=false, not yet persisted). */
@@ -59,6 +67,10 @@ public class EncryptionService {
     }
 
     public EncryptResponse encrypt(EncryptRequest request, String appId, String callerSub, String callerIp) {
+        long requestStart = System.nanoTime();
+        log.info("encrypt_request_received app_id={} caller_sub={} caller_ip={} classification={}",
+                appId, callerSub, callerIp, request.dataClassification());
+
         byte[] plaintextBytes = request.plaintext().getBytes(StandardCharsets.UTF_8);
         if (plaintextBytes.length > MAX_PLAINTEXT_BYTES) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
@@ -80,7 +92,12 @@ public class EncryptionService {
         }
 
         String dekName = request.dekName();
+        long resolveDekStart = System.nanoTime();
+        log.info("resolve_dek_started app_id={} dek_name={}", appId, dekName);
         ResolvedDek resolved = resolveDek(appId, dekName, request.dataClassification());
+        long resolveDekMs = (System.nanoTime() - resolveDekStart) / 1_000_000;
+        log.info("resolve_dek_completed app_id={} dek_name={} reused={} duration_ms={}",
+                appId, dekName, resolved.reused(), resolveDekMs);
 
         DekManager.EncryptResult result;
         try {
@@ -112,13 +129,19 @@ public class EncryptionService {
                 "data_classification", request.dataClassification(), "caller_ip", callerIp,
                 "context", request.context(), "dek_name", dekName, "reused", resolved.reused(), "status", "success");
 
+        long totalMs = (System.nanoTime() - requestStart) / 1_000_000;
+        log.info("encrypt_request_completed app_id={} edek_id={} reused={} total_duration_ms={}",
+                appId, edekId, resolved.reused(), totalMs);
+
         return new EncryptResponse(
                 DekManager.packToken(edekId, result.iv(), result.tag(), result.ciphertext()),
                 edekId, appId, DekManager.ALGORITHM, request.encoding(), resolved.kekVersion(),
                 Base64.getEncoder().encodeToString(result.iv()),
                 Base64.getEncoder().encodeToString(result.ciphertext()),
                 Base64.getEncoder().encodeToString(result.tag()),
-                resolved.reused()
+                resolved.reused(),
+                "success", "ENCRYPT_SUCCESS", "Encryption completed successfully",
+                MDC.get(CorrelationIdFilter.MDC_KEY)
         );
     }
 
@@ -179,11 +202,12 @@ public class EncryptionService {
     }
 
     /**
-     * Encrypts every item, reusing {@link #encrypt} unmodified per item --
-     * sequential, not concurrent (see java/docs/BULK_OPERATIONS.md: bounded
-     * concurrent fan-out is deliberately deferred until real Managed HSM
-     * throughput numbers exist; firing items in parallel today risks
-     * self-inflicted HSM throttling with no data to size a worker pool by).
+     * Encrypts every item, reusing {@link #encrypt} unmodified per item.
+     * Item-level work is fanned out onto the shared, bounded batchExecutor
+     * (hsm.service.batch-executor-pool-size, default 1 -- see
+     * BatchExecutorConfig and java/docs/BULK_OPERATIONS.md) rather than run
+     * inline; results are collected back in original item order regardless
+     * of completion order, since Future#get() is called in submission order.
      *
      * <p>Structural violations (blank/oversized plaintext, blank/duplicate
      * key, an empty or over-limit batch) reject the whole request via
@@ -209,22 +233,21 @@ public class EncryptionService {
             }
         }
 
+        List<Future<BatchEncryptResultItem>> futures = new ArrayList<>(items.size());
+        for (BatchEncryptItem item : items) {
+            futures.add(batchExecutor.submit(
+                    MdcPropagatingCallable.wrap(() -> encryptBatchItem(item, appId, callerSub, callerIp))));
+        }
+
         List<BatchEncryptResultItem> results = new ArrayList<>(items.size());
         int successCount = 0;
         int failureCount = 0;
-        for (BatchEncryptItem item : items) {
-            try {
-                EncryptRequest single = new EncryptRequest(
-                        item.plaintext(), item.encoding(), item.dataClassification(), item.endUserId(), item.context(), item.dekName());
-                EncryptResponse response = encrypt(single, appId, callerSub, callerIp);
-                results.add(BatchEncryptResultItem.success(item.key(), response));
+        for (Future<BatchEncryptResultItem> future : futures) {
+            BatchEncryptResultItem result = awaitBatchItem(future);
+            results.add(result);
+            if ("success".equals(result.status())) {
                 successCount++;
-            } catch (ApiException e) {
-                results.add(BatchEncryptResultItem.error(item.key(), e.getMessage()));
-                failureCount++;
-            } catch (RuntimeException e) {
-                log.error("batch_encrypt_item_unexpected_error app_id={} key={} error={}", appId, item.key(), e.getMessage(), e);
-                results.add(BatchEncryptResultItem.error(item.key(), "Internal error processing this item"));
+            } else {
                 failureCount++;
             }
         }
@@ -234,6 +257,32 @@ public class EncryptionService {
                 "success_count", successCount, "failure_count", failureCount, "caller_ip", callerIp, "status", "success");
 
         return new BatchEncryptResponse(results);
+    }
+
+    private BatchEncryptResultItem encryptBatchItem(BatchEncryptItem item, String appId, String callerSub, String callerIp) {
+        try {
+            EncryptRequest single = new EncryptRequest(
+                    item.plaintext(), item.encoding(), item.dataClassification(), item.endUserId(), item.context(), item.dekName());
+            EncryptResponse response = encrypt(single, appId, callerSub, callerIp);
+            return BatchEncryptResultItem.success(item.key(), response);
+        } catch (ApiException e) {
+            return BatchEncryptResultItem.error(item.key(), e.getMessage());
+        } catch (RuntimeException e) {
+            log.error("batch_encrypt_item_unexpected_error app_id={} key={} error={}", appId, item.key(), e.getMessage(), e);
+            return BatchEncryptResultItem.error(item.key(), "Internal error processing this item");
+        }
+    }
+
+    /** encryptBatchItem() catches every RuntimeException itself, so ExecutionException here only ever wraps a JVM-level Error (OOM, etc) -- not a normal per-item failure path. */
+    private static BatchEncryptResultItem awaitBatchItem(Future<BatchEncryptResultItem> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "batch processing was interrupted");
+        } catch (ExecutionException e) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "batch item processing failed: " + e.getCause());
+        }
     }
 
     private static String nullToEmpty(String s) {
