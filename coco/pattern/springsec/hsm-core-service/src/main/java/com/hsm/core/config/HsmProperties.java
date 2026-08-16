@@ -72,7 +72,8 @@ public record HsmProperties(
             String env,
             String logLevel,
             String apiV1Prefix,
-            int batchMaxItems
+            int batchMaxItems,
+            int batchExecutorPoolSize
     ) {
     }
 
