@@ -128,6 +128,71 @@ never steady-state traffic). The moment a bulk window closes:
   `app_registrations.allowed_scopes` that the change actually took effect
   before treating the window as closed.
 
+## Tracing a slow or failing single request (later round)
+
+Every request gets one correlation ID (`CorrelationIdFilter`) — reused from
+an incoming `X-Correlation-Id` header if the caller supplied one, otherwise
+a fresh UUID. It's echoed back on the `X-Correlation-Id` response header and
+placed in MDC, so it appears on every plain log line for that request
+(`logging.pattern.level` in `application.yml`) without grepping timestamps
+across concurrent traffic to reconstruct one request's story.
+
+To trace a specific slow/failing request end to end:
+
+1. Get its correlation ID — from the caller (they received it on the
+   response header even if the call failed), or from the audit log entry if
+   you only have an `app_id`/`edek_id`/timestamp to start from (the audit
+   stream doesn't carry the correlation ID today — cross-reference by
+   timestamp/app_id instead).
+2. `grep "correlationId=<id>"` the service log. For `/encrypt` and
+   `/decrypt`, you'll see, in order:
+   - `encrypt_request_received` / the start of `decrypt(...)` — request
+     accepted, caller/classification logged.
+   - `resolve_dek_started` / `resolve_dek_completed duration_ms=<n>` —
+     encrypt only; how long DEK resolution (cache hit, or KEK unwrap on a
+     miss) took. Not AOP-covered — `resolveDek` is a private method called
+     via self-invocation, which Spring AOP proxies cannot intercept, so
+     it's timed manually instead.
+   - `component_call_started` / `component_call_completed component=<..>
+     method=<..> duration_ms=<n> status=success|error` — one pair per call
+     into `PbacClient.check`, `KekClient.wrapDek`/`unwrapDek`, or
+     `EdekRecordRepository.save` (`ComponentTimingAspect`). These are the
+     four collaborators Spring AOP can actually intercept here: each sits
+     behind an interface implemented by a distinct Spring bean, called from
+     a *different* bean than the one invoking it — proxy-based AOP only
+     sees calls that cross a bean boundary. `DekManager` (a `static`
+     utility on a non-bean `final` class) is never covered this way for the
+     same underlying reason as `resolveDek` above.
+   - `encrypt_request_completed .../..._completed total_duration_ms=<n>` —
+     full request wall-clock time.
+   - A slow request shows up as a large gap between two adjacent lines,
+     pointing at exactly which collaborator (PBAC check, KEK
+     wrap/unwrap, EDEK save, or DEK resolution) is the bottleneck, rather
+     than only knowing the request overall was slow.
+3. For `/encrypt/batch` and `/decrypt/batch`, the same log lines repeat once
+   per item, but on `batch-executor-N` threads (see `BatchExecutorConfig` in
+   `BULK_OPERATIONS.md`) rather than the original `nio-*-exec-N` request
+   thread — the correlation ID is deliberately propagated onto those pooled
+   worker threads (`MdcPropagatingCallable`) since MDC is thread-local and
+   would otherwise be lost the instant work leaves the original request
+   thread, making a batch item's logs impossible to correlate back to its
+   parent request.
+4. Every `/encrypt` and `/decrypt` response also carries `status`, `code`,
+   `message`, and `correlation_id` fields directly in the JSON body (a
+   caller doesn't have to read a response header to get the ID back) —
+   e.g. `{"status": "success", "code": "ENCRYPT_SUCCESS", "message":
+   "Encryption completed successfully", "correlation_id": "..."}` alongside
+   `ciphertext`/`edek_id`/etc. Note: `ciphertext_token` was the field's
+   original name (see the additive-envelope round); a later, explicit
+   follow-up decision renamed it to `ciphertext` across the whole system
+   (core, bulk, client, demo UI, diagrams) — a deliberate breaking wire
+   change, not additive. `EncryptResponse`/`DecryptResponse`
+   (`com.hsm.core.dto`) are the source of truth for the full field list.
+   Error responses (4xx/5xx) go through a separate, unchanged
+   `{"detail": "..."}` shape (`GlobalExceptionHandler`) — the caller can
+   already always find the correlation ID for a failed call on the
+   `X-Correlation-Id` response header regardless.
+
 ## `TODO`: fill in before this is a real on-call doc
 
 - [ ] Escalation path / on-call rotation for each failure mode above

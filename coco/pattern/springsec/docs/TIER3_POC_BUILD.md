@@ -55,7 +55,7 @@ the real numbers from running it, not just the design.
     (DECIMAL/NUMERIC-family), or `INTEGER` (INT/BIGINT/SMALLINT-family).
     Omitted/`STRING` (default) matches the pre-existing behavior and is
     correct for `VARCHAR`/`TEXT` targets. `target-type` is ignored on ENCRYPT
-    jobs -- the target there is always the `ciphertext_token` `VARCHAR`/`TEXT`
+    jobs -- the target there is always the `ciphertext` `VARCHAR`/`TEXT`
     column, regardless of the source column's type. `Date.valueOf`/
     `Timestamp.valueOf` are used directly (not via `LocalDate`/
     `LocalDateTime.parse`) because they accept exactly the format
@@ -449,7 +449,7 @@ slow `file decrypt` job.
    `cek-rotation-service`, `hsm-bulk-service`, `hsm-bulk-client`) -- exit 0,
    all 4 module jars built, 69/69 tests passing.
 4. **Token-format compatibility** (the hard requirement): a DEK issued via
-   `/dek/issue`, unwrapped and used locally to build a `ciphertext_token` via
+   `/dek/issue`, unwrapped and used locally to build a `ciphertext` token via
    `DekManager.packToken`, decrypted correctly through `hsm-core-service`'s real,
    unmodified `/decrypt` endpoint. Confirmed live, not just by test.
 5. **Benchmark, live run, 200 records, both services local/mocked**:
@@ -473,7 +473,7 @@ slow `file decrypt` job.
 6. **`hsm-bulk-client`, live run, both jobs, against real `hsm-core-service` +
    `hsm-bulk-service`** (shared H2 file, `demo-mode: true`):
    - **BULK DB**: seeded a 3-row `customers` table (`ssn`, `account_number`),
-     ran `db encrypt` -- `customers_encrypted`'s two `ciphertext_token` columns
+     ran `db encrypt` -- `customers_encrypted`'s two `ciphertext` columns
      populated correctly (6 separate DEKs issued, one per column value). Spot
      checked one row's tokens directly through `hsm-core-service`'s real
      `/decrypt`: `111-22-3333` and `ACCT-0001` came back exactly. Ran

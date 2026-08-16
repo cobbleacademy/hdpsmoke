@@ -33,7 +33,7 @@ applies to *process*, not just data at rest:
   needs zero knowledge of where the caller's data lives; a bulk-job
   service reaching into it would need exactly that.
 - De-boarding's crypto-shred case makes this obvious in the limit:
-  deleting a `ciphertext_token` row is *already* effective crypto-shredding
+  deleting a `ciphertext` row is *already* effective crypto-shredding
   (see `DEMO.md` §6), entirely within the app's own database. There is
   nothing for a "bulk service" to do there — it was never
   `hsm-core-service`'s job to begin with.
@@ -63,8 +63,8 @@ POST ${API_V1_PREFIX}/encrypt/batch   -- requires the "encrypt" authority, same 
 
 → 200 OK   (always 200 -- see "partial failure semantics" below)
 { "items": [
-    { "key": "app-side-id-1", "status": "success", "result": { "ciphertext_token": "v1....", ... } },
-    { "key": "app-side-id-2", "status": "success", "result": { "ciphertext_token": "v1....", ... } }
+    { "key": "app-side-id-1", "status": "success", "result": { "ciphertext": "v1....", ... } },
+    { "key": "app-side-id-2", "status": "success", "result": { "ciphertext": "v1....", ... } }
 ] }
 ```
 
@@ -72,10 +72,23 @@ Implementation notes:
 
 - `EncryptionService.encryptBatch` reuses `encrypt(...)` unmodified, once
   per item — no new crypto logic, no new EDEK-writing path.
-- **Sequential, not concurrent**, for v1 — bounded concurrent fan-out is
-  still deferred pending real HSM throughput numbers (see "Open decisions"
-  below); a batch of 100 items today means 100 sequential HSM wrap calls,
-  correct but not yet optimized for latency.
+- **Bounded concurrent fan-out (later round)**: item-level work is now
+  submitted to one shared `ExecutorService` bean (`BatchExecutorConfig`),
+  sized via `hsm.service.batch-executor-pool-size`
+  (`BATCH_EXECUTOR_POOL_SIZE` env var, default `1`). The pool is shared
+  across *every* `/encrypt/batch` and `/decrypt/batch` request in the pod —
+  not one pool per request — so this is an aggregate cap on concurrent
+  HSM-bound calls, not a per-batch degree of parallelism; it's the same
+  knob raising the ceiling on the concern originally noted below (bounded
+  fan-out risking self-inflicted HSM throttling with no data to size a
+  worker pool by). Default `1` reproduces the original strictly-sequential
+  behavior exactly — one worker thread, items processed one at a time, no
+  behavior change until the value is deliberately raised once real Managed
+  HSM throughput numbers justify it. Results are still collected back in
+  original item order regardless of completion order. MDC (correlation ID)
+  is explicitly propagated onto each pooled worker thread
+  (`MdcPropagatingCallable`) since MDC is thread-local and would otherwise
+  be lost the moment work moves off the original HTTP request thread.
 - Item-count cap: `hsm.service.batch-max-items` (`ENCRYPT_BATCH_MAX_ITEMS`
   env var), default 100 — a conservative starting point, not a measured one.
 - Structural violations (empty batch, over-cap batch, duplicate key, any
@@ -91,7 +104,7 @@ Implementation notes:
 - Audit logging: one event per item (`encrypt`, same as today) plus one
   `batch_encrypt` summary event (item/success/failure counts).
 - Verified end-to-end in `BatchEncryptIntegrationTest`: multi-item
-  correlation by key, a batch result's `ciphertext_token` genuinely
+  correlation by key, a batch result's `ciphertext` genuinely
   decrypts via the existing `/decrypt` endpoint (not just shaped
   correctly), duplicate-key/empty/over-cap/blank-plaintext rejection, and
   scope enforcement.
@@ -102,7 +115,7 @@ Implementation notes:
 POST ${API_V1_PREFIX}/decrypt/batch   -- requires the "decrypt" authority, same as /decrypt
 
 { "items": [
-    { "key": "row-1", "ciphertext_token": "v1...." },
+    { "key": "row-1", "ciphertext": "v1...." },
     { "key": "row-2", "edek_id": "...", "iv_b64": "...", "ciphertext_b64": "...", "tag_b64": "..." }
 ] }
 
@@ -114,11 +127,13 @@ POST ${API_V1_PREFIX}/decrypt/batch   -- requires the "decrypt" authority, same 
 ```
 
 - `DecryptionService.decryptBatch` reuses `decrypt(...)` unmodified, once
-  per item — same pattern as encrypt, same sequential-not-concurrent
-  choice, same `hsm.service.batch-max-items` cap (shared with encrypt, not
-  a separate knob), same duplicate-key/empty/over-cap rejection.
+  per item — same pattern as encrypt, same bounded-concurrent-fan-out
+  choice (same shared `batchExecutor`, same `batch-executor-pool-size`
+  knob — not a separate pool per service), same `hsm.service.batch-max-items`
+  cap (shared with encrypt, not a separate knob), same duplicate-key/
+  empty/over-cap rejection.
 - **The one real difference from batch encrypt**: the "provide either
-  `ciphertext_token` or all four legacy fields" check is *not* expressible
+  `ciphertext` or all four legacy fields" check is *not* expressible
   as a static Bean Validation constraint — it's a runtime check inside
   `decrypt()` itself. So a malformed item there (missing both, or a
   corrupt token) surfaces as **that item's error**, not a whole-batch
@@ -185,7 +200,7 @@ repo builds.
 
 - Page through your own data source, call `/encrypt/batch` with chunks of
   up to `hsm.service.batch-max-items` records, write the returned
-  `ciphertext_token` back into your own schema per `key`.
+  `ciphertext` back into your own schema per `key`.
 - Size your own concurrency (how many batch calls in flight at once)
   against Azure Managed HSM's actual throughput — the same constraint
   `CACHING_AND_ROTATION.md` describes for this service's own internal
@@ -230,7 +245,7 @@ assuming it, not speculative.
 
 **Manifest — your own record, in your own storage**, not something this
 service creates or stores: `file_id`, original filename, total size, chunk
-count, the ordered list of `ciphertext_token`s per chunk, and a whole-file
+count, the ordered list of `ciphertext`s per chunk, and a whole-file
 digest (SHA-256 over the plaintext) computed on your side before encrypting.
 You may optionally encrypt the manifest itself through the same batch/single
 endpoint if it contains sensitive metadata — that's just one more item
@@ -246,7 +261,7 @@ tampered with, not that your stitching logic assembled them correctly.
 
 ### Bulk crypto-shred (de-boarding) needs no new capability at all
 
-Per `DEMO.md` §6: deleting the `ciphertext_token` value from your own table
+Per `DEMO.md` §6: deleting the `ciphertext` value from your own table
 is immediately effective crypto-shredding, since the wrapped DEK alone
 (still sitting in this service's EDEK store) is useless without it. At
 scale, this is just your own bulk `DELETE`/update against your own schema
@@ -384,7 +399,7 @@ whichever side performs the AES-GCM operation, which in this tier is always
 CLNT, for both encrypt and decrypt.
 
 **Token-format compatibility — a hard requirement, not a nice-to-have.**
-CLNT must produce the exact same `ciphertext_token` byte format `/encrypt`
+CLNT must produce the exact same `ciphertext` byte format `/encrypt`
 produces. This guarantees any record encrypted locally by CLNT can still be
 decrypted through the normal `/decrypt` or `/decrypt/batch` endpoint on
 `hsm-core-service`, with no dependency on CLNT, the app's keypair, or
@@ -393,7 +408,7 @@ optimization for the bulk case — never a second, divergent format only
 CLNT can read back.
 
 **Files:** the same manifest-based chunking approach already documented
-above for Tier 2 (ordered `ciphertext_token`s per chunk, whole-file
+above for Tier 2 (ordered `ciphertext`s per chunk, whole-file
 SHA-256, stitch-back with a digest check) — each chunk gets its own DEK via
 `/dek/issue`, same as a record. Do not use inline newline-delimited framing
 for chunk boundaries: raw AEAD ciphertext can contain a literal newline
@@ -486,6 +501,30 @@ required for a first version.
   reused DEK stayed current, and the new File-job `dek-name` (above) would
   have made that gap worse, not better, since a persistent per-job name is
   explicitly meant to live across every future run.
+- ~~Bounded concurrent fan-out for `/encrypt/batch`/`/decrypt/batch` was
+  deliberately deferred until real Managed HSM throughput numbers exist~~ —
+  **resolved, built (later round)**: `BatchExecutorConfig` adds one shared,
+  pod-wide `ExecutorService` sized by `hsm.service.batch-executor-pool-size`
+  (default `1`, i.e. no behavior change until deliberately raised) — see
+  the batch-encrypt/decrypt implementation notes above. Deliberately scoped
+  to item-level concurrency *within* a batch call; true async processing
+  with job tracking (a `referenceId` a caller polls) is a separate, larger
+  change and is still not built — a caller still gets its full batch result
+  synchronously in one HTTP response, just with bounded parallel item
+  processing behind it now instead of a strict for-loop.
+- **(New, later round, still open)** A design review considered hoisting
+  the per-item PBAC check in `decryptBatch` up to once-per-`data_classification`
+  (cached across items sharing a classification) as a batch-latency
+  optimization, and rejected it: `DecryptionService.decrypt()`'s ownership/
+  grant check (`appRegistry.isGranted(appId, ownerAppId)`) is per-`edek_id`,
+  independent of `data_classification` — `dek_name → classification` is a
+  one-way binding, so multiple differently-owned `dek_name`s can share one
+  classification label. Caching authorization by classification would let
+  an unauthorized item ride through on an earlier, differently-owned item's
+  cached "classification is authorized" result — a genuine privilege-
+  escalation risk specific to decrypt (encrypt's PBAC check has no
+  pre-existing owner to check, so it doesn't have this problem). Parked,
+  not implemented.
 - **(New, later round)** `app_decrypt_grants` cross-app authorization is
   app-to-app only (`(grantee_app_id, owner_app_id)`, no column/name scoping)
   — this predates `dek_name` and was already this coarse for ordinary
@@ -557,7 +596,7 @@ the existing `KekClient` interface), reusing `DekManager`'s DEK-generation
 and KEK-wrap/EDEK-persistence logic unmodified, plus the new public-key
 transport-wrap step. Wire `dek_issue` against the shared `app_registrations`
 table. No decrypt path yet. The single most important test in this phase:
-a CLNT-produced `ciphertext_token` must decrypt correctly through the
+a CLNT-produced `ciphertext` must decrypt correctly through the
 *existing, unmodified* `/decrypt` endpoint on `hsm-core-service` —
 this is the token-format-compatibility requirement from the design section
 above, and it's the one thing that has to be proven before anything else
