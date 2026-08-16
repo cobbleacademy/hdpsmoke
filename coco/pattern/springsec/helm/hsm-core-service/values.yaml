@@ -181,6 +181,14 @@ config:
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
+  # Bounds concurrent item-level work WITHIN a batch, via one shared
+  # ExecutorService used across every /encrypt/batch and /decrypt/batch
+  # request in the pod -- an aggregate cap on concurrent HSM-bound calls,
+  # not a per-batch degree of parallelism. Default "1" reproduces the
+  # original strictly-sequential batch behavior (see BULK_OPERATIONS.md:
+  # bounded concurrent fan-out was deliberately deferred until real Managed
+  # HSM throughput numbers exist). Raise only once real numbers justify it.
+  batchExecutorPoolSize: "1"
   # Only read when demoMode=true. Must point inside the writable tmpVolume
   # mount (/tmp) — readOnlyRootFilesystem makes everywhere else on disk
   # unwritable, and demo mode's H2 store needs to create this file at
