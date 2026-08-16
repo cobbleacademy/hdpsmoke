@@ -80,10 +80,10 @@ class NamedDekIntegrationTest {
         assertEquals(first.get("edek_id"), second.get("edek_id"));
 
         // Both tokens still decrypt independently and correctly despite sharing a DEK.
-        for (Map.Entry<String, String> e : Map.of((String) first.get("ciphertext_token"), "value one",
-                (String) second.get("ciphertext_token"), "value two").entrySet()) {
+        for (Map.Entry<String, String> e : Map.of((String) first.get("ciphertext"), "value one",
+                (String) second.get("ciphertext"), "value two").entrySet()) {
             HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                    Map.of("ciphertext_token", e.getKey()), headers("demo-token-payments-svc", "payments-svc"));
+                    Map.of("ciphertext", e.getKey()), headers("demo-token-payments-svc", "payments-svc"));
             ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
             assertEquals(HttpStatus.OK, decResp.getStatusCode());
             assertEquals(e.getValue(), decResp.getBody().get("plaintext"));
@@ -152,7 +152,7 @@ class NamedDekIntegrationTest {
         // The old token still decrypts (unwrap doesn't care about rotation_status),
         // and a fresh /encrypt call for the same name now resolves to the new row.
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", first.get("ciphertext_token")), headers("demo-token-payments-svc", "payments-svc"));
+                Map.of("ciphertext", first.get("ciphertext")), headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
         assertEquals(HttpStatus.OK, decResp.getStatusCode());
         assertEquals("rotation subject", decResp.getBody().get("plaintext"));

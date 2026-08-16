@@ -34,7 +34,7 @@ class BatchDecryptIntegrationTest {
     @DynamicPropertySource
     static void overrideDatasource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
-                () -> "jdbc:h2:mem:hsmbdec-" + System.nanoTime() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
+                () -> "jdbc:h2:mem:hsmbdec-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
     @Autowired
@@ -55,7 +55,7 @@ class BatchDecryptIntegrationTest {
         HttpEntity<Map<String, Object>> req = new HttpEntity<>(Map.of("plaintext", plaintext), headers());
         ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/encrypt", req, Map.class);
         assertEquals(HttpStatus.CREATED, resp.getStatusCode());
-        return (String) resp.getBody().get("ciphertext_token");
+        return (String) resp.getBody().get("ciphertext");
     }
 
     private ResponseEntity<Map> postBatchDecrypt(List<Map<String, Object>> items) {
@@ -63,8 +63,8 @@ class BatchDecryptIntegrationTest {
         return rest.postForEntity("/api/sensec/hsm/v1/decrypt/batch", req, Map.class);
     }
 
-    private static Map<String, Object> item(String key, String ciphertextToken) {
-        return Map.of("key", key, "ciphertext_token", ciphertextToken);
+    private static Map<String, Object> item(String key, String ciphertext) {
+        return Map.of("key", key, "ciphertext", ciphertext);
     }
 
     @Test

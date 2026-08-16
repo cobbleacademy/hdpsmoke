@@ -34,7 +34,7 @@ class BatchEncryptIntegrationTest {
     @DynamicPropertySource
     static void overrideDatasource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
-                () -> "jdbc:h2:mem:hsmbatch-" + System.nanoTime() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
+                () -> "jdbc:h2:mem:hsmbatch-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
     @Autowired
@@ -79,18 +79,18 @@ class BatchEncryptIntegrationTest {
         assertEquals("success", byKey.get("row-3").get("status"));
 
         Map row1Result = (Map) byKey.get("row-1").get("result");
-        assertNotNull(row1Result.get("ciphertext_token"));
-        assertTrue(((String) row1Result.get("ciphertext_token")).startsWith("v1."));
+        assertNotNull(row1Result.get("ciphertext"));
+        assertTrue(((String) row1Result.get("ciphertext")).startsWith("v1."));
     }
 
     @Test
     void batchResultDecryptsToOriginalPlaintext() {
         ResponseEntity<Map> resp = postBatch(List.of(item("only-item", "round trip me")));
         Map result = (Map) ((List<Map>) resp.getBody().get("items")).get(0).get("result");
-        String token = (String) result.get("ciphertext_token");
+        String token = (String) result.get("ciphertext");
 
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", token), headers("demo-token-payments-svc", "payments-svc"));
+                Map.of("ciphertext", token), headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 
         assertEquals(HttpStatus.OK, decResp.getStatusCode());

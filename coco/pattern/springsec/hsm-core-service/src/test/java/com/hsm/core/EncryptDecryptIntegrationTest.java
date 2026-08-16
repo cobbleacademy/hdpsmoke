@@ -38,7 +38,7 @@ class EncryptDecryptIntegrationTest {
     @DynamicPropertySource
     static void overrideDatasource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
-                () -> "jdbc:h2:mem:hsmit-" + System.nanoTime() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
+                () -> "jdbc:h2:mem:hsmit-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
     @Autowired
@@ -56,7 +56,7 @@ class EncryptDecryptIntegrationTest {
         HttpEntity<Map<String, Object>> req = new HttpEntity<>(Map.of("plaintext", plaintext), headers(token, appId));
         ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/encrypt", req, Map.class);
         assertEquals(HttpStatus.CREATED, resp.getStatusCode());
-        return (String) resp.getBody().get("ciphertext_token");
+        return (String) resp.getBody().get("ciphertext");
     }
 
     @Test
@@ -65,7 +65,7 @@ class EncryptDecryptIntegrationTest {
         assertTrue(ciphertextToken.startsWith("v1."));
 
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", ciphertextToken), headers("demo-token-payments-svc", "payments-svc"));
+                Map.of("ciphertext", ciphertextToken), headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 
         assertEquals(HttpStatus.OK, decResp.getStatusCode());
@@ -98,7 +98,7 @@ class EncryptDecryptIntegrationTest {
         String ciphertextToken = encryptAs("demo-token-payments-svc", "payments-svc", "cross-app secret");
 
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", ciphertextToken), headers("demo-token-ops-admin", "ops-admin"));
+                Map.of("ciphertext", ciphertextToken), headers("demo-token-ops-admin", "ops-admin"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 
         assertEquals(HttpStatus.FORBIDDEN, decResp.getStatusCode());
@@ -110,7 +110,7 @@ class EncryptDecryptIntegrationTest {
         String ciphertextToken = encryptAs("demo-token-payments-svc", "payments-svc", "reporting-app should read this");
 
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", ciphertextToken), headers("demo-token-reporting-app", "reporting-app"));
+                Map.of("ciphertext", ciphertextToken), headers("demo-token-reporting-app", "reporting-app"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 
         assertEquals(HttpStatus.OK, decResp.getStatusCode());
@@ -154,7 +154,7 @@ class EncryptDecryptIntegrationTest {
         String tampered = new String(chars);
 
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(
-                Map.of("ciphertext_token", tampered), headers("demo-token-payments-svc", "payments-svc"));
+                Map.of("ciphertext", tampered), headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 
         assertTrue(decResp.getStatusCode().is4xxClientError());
