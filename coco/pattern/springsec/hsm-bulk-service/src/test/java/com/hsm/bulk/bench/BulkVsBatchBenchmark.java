@@ -143,7 +143,7 @@ public final class BulkVsBatchBenchmark {
         System.out.println("Provisioned '" + APP_ID + "' with dek_issue/dek_unwrap scopes and a public key.");
     }
 
-    /** BULK_OPERATIONS.md's Tier 3 hard requirement: a /dek/issue-derived ciphertext_token must decrypt through hsm-core-service's real, unmodified /decrypt. */
+    /** BULK_OPERATIONS.md's Tier 3 hard requirement: a /dek/issue-derived ciphertext token must decrypt through hsm-core-service's real, unmodified /decrypt. */
     private static void verifyTokenFormatCompatibility(PrivateKey privateKey) throws Exception {
         ObjectNode issueBody = MAPPER.createObjectNode();
         ArrayNode items = issueBody.putArray("items");
@@ -165,11 +165,11 @@ public final class BulkVsBatchBenchmark {
         } finally {
             DekManager.zeroDek(dek);
         }
-        String ciphertextToken = DekManager.packToken(
+        String ciphertext = DekManager.packToken(
                 java.util.UUID.fromString(edekId), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
 
         ObjectNode decryptBody = MAPPER.createObjectNode();
-        decryptBody.put("ciphertext_token", ciphertextToken);
+        decryptBody.put("ciphertext", ciphertext);
         JsonNode decryptResponse = postJson(CORE_SERVICE_URL + API_PREFIX + "/decrypt", decryptBody);
         String decrypted = decryptResponse.get("plaintext").asText();
         if (!plaintext.equals(decrypted)) {
