@@ -7,6 +7,7 @@ import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.JwtValidator;
 import com.hsm.core.auth.TokenValidationException;
 import com.hsm.core.web.AuthenticatedCaller;
+import com.hsm.core.web.ClientIpResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -78,7 +79,7 @@ public class JwtAppIdAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String callerIp = request.getRemoteAddr() != null ? request.getRemoteAddr() : "";
+        String callerIp = ClientIpResolver.resolve(request);
         String authorization = request.getHeader("Authorization");
         String xAppId = request.getHeader("X-App-ID");
 

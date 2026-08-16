@@ -4,6 +4,7 @@ import com.hsm.core.audit.AuditLogger;
 import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.JwtValidator;
 import com.hsm.core.config.HsmProperties;
+import com.hsm.core.web.CorrelationIdFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,6 +27,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     @Bean
+    public CorrelationIdFilter correlationIdFilter() {
+        return new CorrelationIdFilter();
+    }
+
+    @Bean
     public JwtAppIdAuthenticationFilter jwtAppIdAuthenticationFilter(
             JwtValidator jwtValidator,
             AppRegistryService appRegistry,
@@ -46,6 +52,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
+            CorrelationIdFilter correlationIdFilter,
             JwtAppIdAuthenticationFilter authFilter,
             HsmAccessDeniedHandler accessDeniedHandler,
             HsmSecurityProperties securityProperties,
@@ -75,7 +82,8 @@ public class SecurityConfig {
                         .authenticationEntryPoint(new HsmAuthenticationEntryPoint())
                         .accessDeniedHandler(accessDeniedHandler)
                 )
-                .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(correlationIdFilter, JwtAppIdAuthenticationFilter.class);
 
         return http.build();
     }
