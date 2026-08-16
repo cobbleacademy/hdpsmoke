@@ -5,7 +5,7 @@ import java.util.UUID;
 /** Ported from app/models/schemas.py's EncryptResponse. */
 public record EncryptResponse(
         // Preferred: single opaque token, store and echo back as-is
-        String ciphertextToken, // "v1.<base64url(version|edek_id|iv|tag|ciphertext)>"
+        String ciphertext, // "v1.<base64url(version|edek_id|iv|tag|ciphertext)>"
 
         // Informational fields -- useful for logging/audit, not needed for decrypt
         UUID edekId,
@@ -15,7 +15,7 @@ public record EncryptResponse(
         String kekVersion,
 
         // Deprecated: individual binary fields, kept for backward compatibility.
-        // Clients should use ciphertextToken instead.
+        // Clients should use ciphertext instead.
         String ivB64,
         String ciphertextB64,
         String tagB64,
@@ -23,6 +23,16 @@ public record EncryptResponse(
         // true when this call reused an existing named DEK (dekName was set and
         // already had a current row) rather than minting a fresh one -- observability/
         // audit signal, not needed for decrypt. Always false when dekName was unset.
-        boolean reused
+        boolean reused,
+
+        // Additive response envelope (requirement 6) -- all existing fields above are
+        // unchanged, nothing renamed. Error responses go through GlobalExceptionHandler's
+        // separate {"detail": "..."} shape untouched by this; these fields only appear on
+        // a successful 2xx body. No referenceId here -- that has nothing to reference
+        // until true async processing (requirement 7b) exists.
+        String status,
+        String code,
+        String message,
+        String correlationId
 ) {
 }

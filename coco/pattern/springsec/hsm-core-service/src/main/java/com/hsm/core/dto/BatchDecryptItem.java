@@ -8,7 +8,7 @@ import java.util.UUID;
 /**
  * One item of a batch decrypt request. {@code key} is a caller-supplied
  * identifier echoed back in {@link BatchDecryptResultItem} for correlation.
- * Provide either {@code ciphertextToken}, or the legacy
+ * Provide either {@code ciphertext} (opaque packed token), or the legacy
  * {@code edekId}/{@code ivB64}/{@code ciphertextB64}/{@code tagB64} fields --
  * same either-or contract as {@link DecryptRequest}. The check itself lives
  * in {@code DecryptionService.decrypt}, not here, so a malformed item
@@ -18,7 +18,7 @@ import java.util.UUID;
  */
 public record BatchDecryptItem(
         @NotBlank @Size(max = 256) String key,
-        String ciphertextToken,
+        String ciphertext,
         UUID edekId,
         String ivB64,
         String ciphertextB64,
