@@ -34,7 +34,7 @@ public class DecryptController {
             @AuthenticationPrincipal AuthenticatedCaller caller,
             HttpServletRequest request
     ) {
-        String callerIp = request.getRemoteAddr();
+        String callerIp = ClientIpResolver.resolve(request);
         return decryptionService.decrypt(body, caller.appId(), caller.sub(), caller.scopes(), callerIp);
     }
 
@@ -49,7 +49,7 @@ public class DecryptController {
             @AuthenticationPrincipal AuthenticatedCaller caller,
             HttpServletRequest request
     ) {
-        String callerIp = request.getRemoteAddr();
+        String callerIp = ClientIpResolver.resolve(request);
         return decryptionService.decryptBatch(body, caller.appId(), caller.sub(), caller.scopes(), callerIp);
     }
 }

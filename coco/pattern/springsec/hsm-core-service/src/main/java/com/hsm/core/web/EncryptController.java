@@ -35,7 +35,7 @@ public class EncryptController {
             @AuthenticationPrincipal AuthenticatedCaller caller,
             HttpServletRequest request
     ) {
-        String callerIp = request.getRemoteAddr();
+        String callerIp = ClientIpResolver.resolve(request);
         EncryptResponse response = encryptionService.encrypt(body, caller.appId(), caller.sub(), callerIp);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -53,7 +53,7 @@ public class EncryptController {
             @AuthenticationPrincipal AuthenticatedCaller caller,
             HttpServletRequest request
     ) {
-        String callerIp = request.getRemoteAddr();
+        String callerIp = ClientIpResolver.resolve(request);
         return encryptionService.encryptBatch(body, caller.appId(), caller.sub(), callerIp);
     }
 }
