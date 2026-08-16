@@ -36,6 +36,20 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Proxy-based AOP for ComponentTimingAspect: spring-aop itself already ships
+             transitively via spring-context (part of every spring-boot-starter-*), so
+             the only piece actually missing is aspectjweaver, which Spring Boot's
+             AopAutoConfiguration auto-detects on the classpath to enable @Aspect/@Around
+             proxying with no further config. Spring Boot 4 dropped the
+             spring-boot-starter-aop convenience artifact entirely (last published at
+             4.0.0-M2 on Maven Central), the same starter-modularization pattern as the
+             Flyway/TestRestTemplate splits noted below, so this is declared directly
+             rather than via a starter; version still managed by the parent BOM's
+             aspectj.version property. -->
+        <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+        </dependency>
 
         <!-- Spring Boot 4: Flyway's auto-configuration moved out of the general
              autoconfigure module into its own starter, so declaring flyway-core
@@ -106,6 +120,27 @@
                     <groupId>io.netty</groupId>
                     <artifactId>netty-codec-native-quic</artifactId>
                 </exclusion>
+                <!-- azure-identity -> azure-core:1.58.0 also independently pulls the
+                     legacy Jackson 2 line (jackson-core, jackson-annotations,
+                     jackson-datatype-jsr310); excluded here for the same reason as the
+                     Netty artifacts above, and re-declared explicitly below alongside
+                     the logstash-logback-encoder exclusions further down. -->
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-core</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-annotations</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.datatype</groupId>
+                    <artifactId>jackson-datatype-jsr310</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>
@@ -158,9 +193,38 @@
             <artifactId>azure-security-keyvault-secrets</artifactId>
         </dependency>
 
+        <!-- logstash-logback-encoder's own pom.xml declares jackson-databind:2.15.2
+             directly; excluded here for the same reason as azure-identity's Jackson
+             exclusions above, so this project's build never references that old
+             version at all. Re-declared, along with the coordinates excluded from
+             azure-identity, as explicit direct dependencies below; all four resolve
+             through spring-boot-dependencies' own nested jackson-2-bom:2.21.4 import,
+             which was never touched by this project's own overrides. -->
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <dependency>
