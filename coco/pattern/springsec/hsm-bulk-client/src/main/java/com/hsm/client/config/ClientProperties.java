@@ -124,7 +124,7 @@ public record ClientProperties(
          * targetType only matters for DECRYPT jobs -- it's the SQL type the decrypted
          * plaintext should be parsed into before insertion, since DekManager.decrypt()
          * always hands back raw UTF-8 bytes as a String regardless of the original
-         * column's type. Ignored on ENCRYPT (target there is always the ciphertext_token
+         * column's type. Ignored on ENCRYPT (target there is always the ciphertext
          * VARCHAR/TEXT column). Null/unset -> STRING, the pre-existing behavior.
          *
          * <p>Only as many types as there are genuinely distinct JDBC parameter
