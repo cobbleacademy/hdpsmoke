@@ -31,7 +31,7 @@ public class DevStatusItem {
     @Column(name = "status", nullable = false, length = 1) // "N" | "P" | "C"
     private String status;
 
-    @Column(name = "notes", length = 1024)
+    @Column(name = "notes", length = 8192)
     private String notes;
 
     @Column(name = "updated_at")

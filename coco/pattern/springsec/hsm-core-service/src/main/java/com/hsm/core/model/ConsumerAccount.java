@@ -13,9 +13,9 @@ import java.time.OffsetDateTime;
  * Demo-only. Ported from app/demo/consumer_store.py's ConsumerAccount. Models the
  * *other half* of the architecture: this HSM service never stores ciphertext itself;
  * a calling app (simulated here as payments-svc) owns its own schema and stores the
- * opaque ciphertext_token next to its own non-sensitive columns. account_number
+ * opaque ciphertext token next to its own non-sensitive columns. account_number
  * itself is never stored -- only the 4 fields needed to build a DecryptRequest
- * later travel in ciphertext_token.
+ * later travel in ciphertext.
  */
 @Entity
 @Table(name = "consumer_customer_accounts")
@@ -31,8 +31,8 @@ public class ConsumerAccount {
     @Column(name = "email", nullable = false, length = 256)
     private String email;
 
-    @Column(name = "ciphertext_token", nullable = false, length = 512)
-    private String ciphertextToken;
+    @Column(name = "ciphertext", nullable = false, length = 512)
+    private String ciphertext;
 
     // Every account created via DemoController.createConsumerAccount() shares the same
     // dekName ("customers.account_number"), so this is null only for accounts created
@@ -47,10 +47,10 @@ public class ConsumerAccount {
         // JPA
     }
 
-    public ConsumerAccount(String customerName, String email, String ciphertextToken, String dekName) {
+    public ConsumerAccount(String customerName, String email, String ciphertext, String dekName) {
         this.customerName = customerName;
         this.email = email;
-        this.ciphertextToken = ciphertextToken;
+        this.ciphertext = ciphertext;
         this.dekName = dekName;
         this.createdAt = OffsetDateTime.now();
     }
@@ -67,8 +67,8 @@ public class ConsumerAccount {
         return email;
     }
 
-    public String getCiphertextToken() {
-        return ciphertextToken;
+    public String getCiphertext() {
+        return ciphertext;
     }
 
     public String getDekName() {
