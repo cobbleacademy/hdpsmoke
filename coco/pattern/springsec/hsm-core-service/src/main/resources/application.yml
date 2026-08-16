@@ -18,6 +18,16 @@
 server:
   port: ${SERVER_PORT:3005}
 
+# CorrelationIdFilter (com.hsm.core.web) puts one correlation ID per request into
+# MDC under "correlationId" -- this is the standard Spring Boot mechanism
+# (logging.pattern.level) for surfacing an MDC value in the console log line
+# without redefining the whole pattern. Only affects the plain CONSOLE
+# appender/log.info(...) call sites -- the audit.json stream builds its own
+# message verbatim (see logback-spring.xml) and doesn't go through this pattern.
+logging:
+  pattern:
+    level: "%5p [correlationId=%X{correlationId:-}]"
+
 spring:
   web:
     resources:
@@ -27,7 +37,7 @@ spring:
   application:
     name: hsm-core-service
   jackson:
-    # All JSON wire fields are snake_case (ciphertext_token, edek_id, ...) to match
+    # All JSON wire fields are snake_case (ciphertext, edek_id, ...) to match
     # the Python service's REST contract exactly -- Java code itself stays camelCase.
     property-naming-strategy: SNAKE_CASE
   jpa:
@@ -101,6 +111,15 @@ hsm:
     # yet (see java/docs/CACHING_AND_ROTATION.md and the "Performance testing"
     # backlog item). Raise once real numbers justify it.
     batch-max-items: ${ENCRYPT_BATCH_MAX_ITEMS:100}
+    # Bounds concurrent item-level work WITHIN a batch, via one shared
+    # ExecutorService (BatchExecutorConfig) used across every /encrypt/batch
+    # and /decrypt/batch request -- not one pool per request -- so this is an
+    # aggregate cap on concurrent HSM-bound calls across all callers, not a
+    # per-batch degree of parallelism. Default 1 reproduces today's exact
+    # sequential behavior (see java/docs/BULK_OPERATIONS.md: bounded
+    # concurrent fan-out was deliberately deferred until real Managed HSM
+    # throughput numbers exist). Raise only once real numbers justify it.
+    batch-executor-pool-size: ${BATCH_EXECUTOR_POOL_SIZE:1}
   splunk:
     enabled: ${SPLUNK_ENABLED:false}
     hec-url: ${SPLUNK_HEC_URL:}
