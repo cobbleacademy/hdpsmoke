@@ -27,6 +27,11 @@ function getPool(envId, cfg) {
  * environment, per the ONSHORE > NEARSHORE > OFFSHORE > NONE hierarchy.
  * Returns 'PERMIT' or 'DENY'.
  *
+ * Restriction only applies to a positively identified restricted group
+ * (found, tier weight > 0). An unidentified group and a found-but-NONE-tier
+ * group are both treated as generalized/unrestricted and always permitted,
+ * regardless of the user's own location or whether the user is found.
+ *
  * Table/column names come from server-side env config (never request input)
  * and are allowlist-validated before being interpolated into the query —
  * Postgres has no parameter syntax for identifiers, only values. The four
@@ -81,12 +86,17 @@ export async function checkPermission(userPrincipalName, groupId, envId = 'DEFAU
       JOIN location_weights lw ON lw.location = g.${groupLocationColumn}::text
       WHERE g.${groupKeyColumn} = $2
     )
+    -- A group is "restricted" only when it is found AND its tier weight > 0
+    -- (i.e. resolves to something above NONE). An unidentified group ID and
+    -- a found-but-NONE-tier group are both treated as generalized/unrestricted
+    -- and always permitted — restriction only ever applies to a positively
+    -- identified restricted group.
     SELECT
       (SELECT location FROM user_weight)  AS user_location,
       (SELECT location FROM group_weight) AS group_location,
       CASE
-        WHEN (SELECT weight FROM user_weight)  IS NULL THEN 'DENY'
-        WHEN (SELECT weight FROM group_weight) IS NULL THEN 'DENY'
+        WHEN COALESCE((SELECT weight FROM group_weight), 0) = 0 THEN 'PERMIT'
+        WHEN (SELECT weight FROM user_weight) IS NULL THEN 'DENY'
         WHEN (SELECT weight FROM user_weight) >= (SELECT weight FROM group_weight)
           THEN 'PERMIT'
         ELSE 'DENY'
