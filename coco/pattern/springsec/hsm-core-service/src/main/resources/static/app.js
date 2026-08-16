@@ -50,7 +50,7 @@ function showResult(el, obj, isError = false) {
 }
 
 const FIELD_EXPLAINERS = {
-  ciphertext_token: "Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side",
+  ciphertext: "Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side",
   edek_id: "Reference to the wrapped data key, stored server-side — never the key itself",
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
   iv_b64: "Random per call — same plaintext never produces the same ciphertext twice",
@@ -63,6 +63,10 @@ const FIELD_EXPLAINERS = {
   decrypted_as: "The app that made this decrypt call — may differ from owner_app_id if a grant exists",
   cache: "Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60 s",
   reused: "true = this call reused the current DEK for dek_name below instead of minting a fresh one — Latest EDEK Records won't grow on reuse",
+  status: "Response envelope: always \"success\" here — errors use a different {detail} shape and never reach this panel",
+  code: "Machine-readable outcome code, stable across API versions even if the human-readable message wording changes",
+  message: "Human-readable summary of what happened, safe to show directly to an end user",
+  correlation_id: "Same ID as the X-Correlation-Id response header — grep the service log for this to see every step this request took",
 };
 
 function showFieldBreakdown(el, fields, isError = false) {
@@ -95,7 +99,7 @@ async function encrypt() {
     const data = await res.json();
     if (!res.ok) { showResult($("encryptResult"), data, true); return; }
     showFieldBreakdown($("encryptResult"), data);
-    $("ciphertextToken").value = data.ciphertext_token;
+    $("ciphertextToken").value = data.ciphertext;
   } catch (e) {
     showResult($("encryptResult"), String(e), true);
   } finally {
@@ -123,7 +127,7 @@ async function decrypt() {
   const isHit = edekId ? _demoCacheLookup(edekId) : false;
   try {
     const body = {
-      ciphertext_token: token,
+      ciphertext: token,
       end_user_id: $("decryptEndUserId").value || null,
     };
     const res = await fetch(`${API}/decrypt`, {
@@ -240,7 +244,7 @@ async function refreshConsumerAccounts() {
       <td>${a.id}</td>
       <td>${a.customer_name}</td>
       <td>${a.email}</td>
-      <td><code class="account-cell token-cell">${a.ciphertext_token}</code></td>
+      <td><code class="account-cell token-cell">${a.ciphertext}</code></td>
       <td>${a.dek_name || "-"}</td>
       <td>${a.created_at ? new Date(a.created_at).toLocaleString() : "-"}</td>
       <td><button class="reveal-btn" data-id="${a.id}">Reveal</button></td>

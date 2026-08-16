@@ -53,7 +53,7 @@
       <section class="panel">
         <h2>3. Decrypt</h2>
         <p class="hint">Decrypting data owned by a <em>different</em> app only succeeds if that app has been granted access below (panel 5).</p>
-        <label for="ciphertextToken">Ciphertext Token <span class="field-note">— opaque token from /encrypt; store and echo back as-is, never decode client-side</span></label>
+        <label for="ciphertextToken">Ciphertext <span class="field-note">— opaque token from /encrypt; store and echo back as-is, never decode client-side</span></label>
         <textarea id="ciphertextToken" rows="3" placeholder="v1.…  (auto-filled after Encrypt above)"></textarea>
         <label for="decryptEndUserId">End User ID <span class="field-note">— optional; logged in audit trail for SIEM correlation (e.g. user email or SSO subject)</span></label>
         <input id="decryptEndUserId" type="text" placeholder="user@example.com" />
@@ -166,7 +166,7 @@ python scripts/provision_dek_cache_key.py \
         This service never stores ciphertext — the calling app does, in its own schema,
         right next to its ordinary columns. Creating an account here calls
         <code>/encrypt</code> for the <code>account_number</code> field only; everything
-        else is plain non-sensitive data. A single <code>ciphertext_token</code> column
+        else is plain non-sensitive data. A single <code>ciphertext</code> column
         stores everything needed for a future decrypt — no separate EDEK ID, IV, or tag
         columns required. Every account here shares the same DEK Name
         (<code>customers.account_number</code>) — create a second account and watch
@@ -200,7 +200,7 @@ python scripts/provision_dek_cache_key.py \
           <tbody>
             <tr><td><code>customer_name</code></td><td>VARCHAR(128)</td><td class="ns">non-sensitive</td><td>Ordinary app data</td></tr>
             <tr><td><code>email</code></td><td>VARCHAR(256)</td><td class="ns">non-sensitive</td><td>Ordinary app data</td></tr>
-            <tr><td><code>ciphertext_token</code></td><td>VARCHAR(512)</td><td class="sens">sensitive</td><td>Single opaque token — bundles EDEK ID, IV, tag, and ciphertext; base64url (printable ASCII); ~60 byte fixed overhead + 1.4× plaintext</td></tr>
+            <tr><td><code>ciphertext</code></td><td>VARCHAR(512)</td><td class="sens">sensitive</td><td>Single opaque token — bundles EDEK ID, IV, tag, and ciphertext; base64url (printable ASCII); ~60 byte fixed overhead + 1.4× plaintext</td></tr>
           </tbody>
         </table>
       </div>
@@ -209,7 +209,7 @@ python scripts/provision_dek_cache_key.py \
         <thead>
           <tr>
             <th>ID</th><th>Customer Name</th><th>Email</th>
-            <th>ciphertext_token</th>
+            <th>ciphertext</th>
             <th>DEK Name</th>
             <th>Created</th>
             <th></th>
@@ -313,7 +313,7 @@ python scripts/provision_dek_cache_key.py \
           <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" stroke-width="1"/>
           <text x="540" y="243" text-anchor="middle" fill="#10b981" font-size="10" font-family="monospace">POST /encrypt · /batch</text>
           <text x="540" y="258" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Gen DEK → AES-256-GCM</text>
-          <text x="540" y="270" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">random IV → wrap DEK</text>
+          <text x="540" y="270" text-anchor="middle" fill="#10b981" font-size="9" font-family="monospace">or reuse via dek_name</text>
           <rect x="455" y="285" width="170" height="58" rx="5" fill="#22263a" stroke="#f87171" stroke-width="1"/>
           <text x="540" y="301" text-anchor="middle" fill="#f87171" font-size="10" font-family="monospace">POST /decrypt · /batch</text>
           <text x="540" y="315" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">grant check → cache lookup</text>
@@ -425,13 +425,13 @@ python scripts/provision_dek_cache_key.py \
           <text x="36" y="690" fill="#10b981" font-size="10" font-family="monospace">Encrypt:</text>
           <rect x="36" y="698" width="365" height="60" rx="4" fill="#22263a"/>
           <text x="50" y="712" fill="#555b7a" font-size="9" font-family="monospace">Request:  { plaintext, encoding, data_classification, end_user_id }</text>
-          <text x="50" y="726" fill="#555b7a" font-size="9" font-family="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
+          <text x="50" y="726" fill="#10b981" font-size="9" font-family="monospace">Generate:  DEK = random_bytes(32)  (or reuse via dek_name)</text>
           <text x="50" y="740" fill="#555b7a" font-size="9" font-family="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
           <text x="50" y="752" fill="#555b7a" font-size="9" font-family="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
-          <text x="36" y="772" fill="#cdd2f0" font-size="9" font-family="monospace">Response: { ciphertext_token }  ← only field client needs to store</text>
+          <text x="36" y="772" fill="#cdd2f0" font-size="9" font-family="monospace">Response: { ciphertext }  ← only field client needs to store</text>
           <text x="36" y="792" fill="#f87171" font-size="10" font-family="monospace">Decrypt:</text>
           <rect x="36" y="800" width="365" height="54" rx="4" fill="#22263a"/>
-          <text x="50" y="814" fill="#555b7a" font-size="9" font-family="monospace">Request:   { ciphertext_token, end_user_id }</text>
+          <text x="50" y="814" fill="#555b7a" font-size="9" font-family="monospace">Request:   { ciphertext, end_user_id }</text>
           <text x="50" y="828" fill="#555b7a" font-size="9" font-family="monospace">grant check → Redis HIT (skip KV) / MISS → KV unwrap → AES-GCM</text>
           <text x="50" y="842" fill="#555b7a" font-size="9" font-family="monospace">Response:  { plaintext }  ← only field client needs</text>
           <!-- CEK rotation note -->
@@ -516,7 +516,7 @@ python scripts/provision_dek_cache_key.py \
           <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a"/>
           <text x="1110" y="1177" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">TokenProvider: static (demo) or Azure AD</text>
           <text x="1110" y="1189" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">Workload Identity (jobs longer than a token's TTL)</text>
-          <text x="1110" y="1214" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">ciphertext_token format unchanged —</text>
+          <text x="1110" y="1214" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">ciphertext format unchanged —</text>
           <text x="1110" y="1225" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
 
           <!-- Arrow: CLNT → SVC, crossing the subscription boundary -->
@@ -657,11 +657,11 @@ python scripts/provision_dek_cache_key.py \
 
         <!-- ── SCROLLABLE SEQUENCE BODY ──────────────────────────────────── -->
         <div style="flex:1;overflow-y:auto;">
-        <svg viewBox="0 0 1530 1420" xmlns="http://www.w3.org/2000/svg"
+        <svg viewBox="0 0 1530 1460" xmlns="http://www.w3.org/2000/svg"
              role="img" style="width:100%;display:block;height:auto;"
              preserveAspectRatio="xMidYMin meet">
           <title>HSM Core Service – Sequence Diagram</title>
-          <rect width="1530" height="1420" fill="#0f1117"/>
+          <rect width="1530" height="1460" fill="#0f1117"/>
 
           <!-- lifelines through STARTUP section (y=0..120) -->
           <line x1="60"   y1="0" x2="60"   y2="120" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
@@ -691,18 +691,18 @@ python scripts/provision_dek_cache_key.py \
           <g transform="translate(0,120)">
 
           <!-- lifelines -->
-          <line x1="60"   y1="0" x2="60"   y2="1030" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="173"  y1="0" x2="173"  y2="1030" stroke="#eab308" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="291"  y1="0" x2="291"  y2="1030" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="410"  y1="0" x2="410"  y2="1030" stroke="#e879f9" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="540"  y1="0" x2="540"  y2="1030" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="670"  y1="0" x2="670"  y2="1030" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
-          <line x1="800"  y1="0" x2="800"  y2="1030" stroke="#fb923c" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="930"  y1="0" x2="930"  y2="1030" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="1070" y1="0" x2="1070" y2="1030" stroke="#eab308" stroke-width="0.8" stroke-dasharray="6,4"/>
-          <line x1="1350" y1="0" x2="1350" y2="1030" stroke="#f87171" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="60"   y1="0" x2="60"   y2="1070" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="173"  y1="0" x2="173"  y2="1070" stroke="#eab308" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="291"  y1="0" x2="291"  y2="1070" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="410"  y1="0" x2="410"  y2="1070" stroke="#e879f9" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="540"  y1="0" x2="540"  y2="1070" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="670"  y1="0" x2="670"  y2="1070" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="800"  y1="0" x2="800"  y2="1070" stroke="#fb923c" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="930"  y1="0" x2="930"  y2="1070" stroke="#14b8a6" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="1070" y1="0" x2="1070" y2="1070" stroke="#eab308" stroke-width="0.8" stroke-dasharray="6,4"/>
+          <line x1="1350" y1="0" x2="1350" y2="1070" stroke="#f87171" stroke-width="0.8" stroke-dasharray="6,4"/>
           <!-- outside-subscription divider line -->
-          <line x1="1220" y1="0" x2="1220" y2="1030" stroke="#f87171" stroke-width="0.6" stroke-dasharray="5,3"/>
+          <line x1="1220" y1="0" x2="1220" y2="1070" stroke="#f87171" stroke-width="0.6" stroke-dasharray="5,3"/>
 
           <!-- SECTION 1 — POLICY CHECK -->
           <rect x="10" y="6" width="1100" height="110" rx="5" fill="#1a1a05" stroke="#eab308" stroke-width="0.6"/>
@@ -717,33 +717,37 @@ python scripts/provision_dek_cache_key.py \
           <text x="18" y="106" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT</text>
 
           <!-- SECTION 2 — ENCRYPT FLOW -->
-          <rect x="10" y="122" width="1130" height="216" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
+          <rect x="10" y="122" width="1130" height="256" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
           <text x="18" y="135" fill="#10b981" font-size="9" font-family="monospace" letter-spacing="1">ENCRYPT FLOW</text>
           <line x1="60" y1="149" x2="287" y2="149" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
           <text x="175" y="144" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">3. POST /encrypt</text>
           <text x="175" y="156" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">{ plaintext, encoding, data_classification, end_user_id }</text>
           <path d="M 291 163 L 319 163 L 319 181 L 295 181" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
           <text x="323" y="175" fill="#a78bfa" font-size="8" font-family="monospace">4. validate JWT · app_id · scope=encrypt</text>
-          <line x1="291" y1="196" x2="406" y2="196" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
-          <text x="350" y="191" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">5. wrap DEK  [Service SPN · RSA-OAEP-256 · Managed HSM]</text>
-          <line x1="410" y1="212" x2="295" y2="212" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
-          <text x="350" y="207" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">6. EDEK  (wrapped DEK)</text>
-          <path d="M 291 226 L 319 226 L 319 244 L 295 244" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="323" y="238" fill="#a78bfa" font-size="8" font-family="monospace">7. gen DEK + IV · AES-256-GCM encrypt plaintext</text>
-          <line x1="291" y1="258" x2="666" y2="258" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
-          <text x="480" y="253" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">8. INSERT edek_record  → hsm_crypto  (edek_id, blob, algorithm…)</text>
-          <line x1="670" y1="274" x2="295" y2="274" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
-          <text x="480" y="269" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">9. edek_id  (UUID)</text>
-          <path d="M 291 288 L 319 288 L 319 306 L 295 306" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
-          <text x="323" y="300" fill="#a78bfa" font-size="8" font-family="monospace">10. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
-          <line x1="291" y1="322" x2="64" y2="322" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
-          <text x="175" y="317" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">11. { ciphertext_token }  ← only field client stores</text>
+          <text x="323" y="189" fill="#10b981" font-size="8" font-family="monospace">4a. [dek_name set + current row found] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)</text>
+          <text x="323" y="203" fill="#555b7a" font-size="8" font-family="monospace">4b. [else] MINT: continue below — gen fresh DEK, wrap via KEK, INSERT edek_record</text>
+          <line x1="291" y1="222" x2="406" y2="222" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
+          <text x="350" y="217" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">5. wrap DEK  [Service SPN · RSA-OAEP-256 · Managed HSM]</text>
+          <line x1="410" y1="238" x2="295" y2="238" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
+          <text x="350" y="233" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">6. EDEK  (wrapped DEK)</text>
+          <path d="M 291 252 L 319 252 L 319 270 L 295 270" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="323" y="264" fill="#a78bfa" font-size="8" font-family="monospace">7. gen DEK + IV · AES-256-GCM encrypt plaintext</text>
+          <line x1="291" y1="284" x2="666" y2="284" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
+          <text x="480" y="279" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">8. INSERT edek_record  → hsm_crypto  (edek_id, blob, algorithm…)</text>
+          <line x1="670" y1="300" x2="295" y2="300" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
+          <text x="480" y="295" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">9. edek_id  (UUID)</text>
+          <text x="480" y="309" text-anchor="middle" fill="#10b981" font-size="7" font-family="monospace">[REUSE rejoins here — same edek_id, no INSERT]</text>
+          <path d="M 291 328 L 319 328 L 319 346 L 295 346" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="323" y="340" fill="#a78bfa" font-size="8" font-family="monospace">10. audit_log → Splunk / SIEM  (app_id, end_user_id, edek_id, status)</text>
+          <line x1="291" y1="362" x2="64" y2="362" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-purple)"/>
+          <text x="175" y="357" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">11. { ciphertext }  ← only field client stores</text>
 
+          <g transform="translate(0,40)">
           <!-- SECTION 3 — DECRYPT FLOW -->
           <rect x="10" y="344" width="1130" height="290" rx="5" fill="#140505" stroke="#f87171" stroke-width="0.6"/>
           <text x="18" y="357" fill="#f87171" font-size="9" font-family="monospace" letter-spacing="1">DECRYPT FLOW</text>
           <line x1="60" y1="371" x2="287" y2="371" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
-          <text x="175" y="366" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { ciphertext_token, end_user_id }</text>
+          <text x="175" y="366" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">12. POST /decrypt  { ciphertext, end_user_id }</text>
           <line x1="291" y1="387" x2="666" y2="387" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#sq-cyan)"/>
           <text x="480" y="382" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">13. SELECT edek_record WHERE id = edek_id  → hsm_crypto</text>
           <line x1="670" y1="403" x2="295" y2="403" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-cyan)"/>
@@ -843,9 +847,11 @@ python scripts/provision_dek_cache_key.py \
           <text x="365" y="1193" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">29. one edek_id → many rows/values, each with its OWN token (fresh IV per call)</text>
           <text x="365" y="1206" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">token format identical to HSM Service's own — its real /decrypt reads it with zero awareness of this flow</text>
 
-          <text x="18" y="1236" fill="#555b7a" font-size="8" font-family="monospace">ciphertext_token written directly into CLNT's own target table/file — never sent back to SVC or HSM Service</text>
+          <text x="18" y="1236" fill="#555b7a" font-size="8" font-family="monospace">ciphertext written directly into CLNT's own target table/file — never sent back to SVC or HSM Service</text>
           <text x="18" y="1250" fill="#555b7a" font-size="8" font-family="monospace">NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above — new lookups then fall to 26b</text>
           <text x="18" y="1263" fill="#555b7a" font-size="8" font-family="monospace">SVC runs its OWN copy of this scheduler (later round) — coverage of SVC-minted rows no longer depends on HSM Service being deployed too</text>
+
+          </g><!-- /translate(0,40) -->
 
           </g><!-- /translate(0,120) -->
 
