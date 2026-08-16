@@ -16,6 +16,7 @@ data:
   SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
+  BATCH_EXECUTOR_POOL_SIZE: {{ .Values.config.batchExecutorPoolSize | quote }}
   DEMO_DATABASE_URL: {{ .Values.config.demoDatabaseUrl | quote }}
 
   AZURE_CLIENT_ID: {{ .Values.config.azureClientId | quote }}
