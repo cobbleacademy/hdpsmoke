@@ -19,7 +19,7 @@ const ALL_SCOPES = ['encrypt', 'decrypt', 'rotate', 'grant'];
 // Field explainers shared by both the Encrypt and Decrypt breakdown panels —
 // matches the master source's FIELD_EXPLAINERS in hsm_project/app/static/app.js.
 const FIELD_EXPLAINERS = {
-  ciphertext_token: 'Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side',
+  ciphertext: 'Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side',
   edek_id:      'Reference to the wrapped data key, stored server-side — never the key itself',
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
   algorithm:    'Cipher used — persisted per-record so future algorithm migrations stay decryptable',
@@ -34,11 +34,11 @@ const FIELD_EXPLAINERS = {
   reused:       'true = this call reused the current DEK for dek_name below instead of minting a fresh one — Latest EDEK Records won\'t grow on reuse',
 };
 
-// ciphertext_token leads — it's the only field a caller actually needs to
+// ciphertext leads — it's the only field a caller actually needs to
 // store; the rest is a breakdown of what the token bundles internally.
-const ENCRYPT_FIELD_ORDER = ['ciphertext_token', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version', 'reused'];
+const ENCRYPT_FIELD_ORDER = ['ciphertext', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version', 'reused'];
 
-// Decodes the edek_id back out of a ciphertext_token, purely for this demo's
+// Decodes the edek_id back out of a ciphertext token, purely for this demo's
 // client-side "simulated cache" panel — ports hsm_project's own
 // _edekIdFromToken() so the simulated hit/miss keying matches the real
 // token format (3-char version prefix + base64url; bytes 1-16 are the UUID).
@@ -326,10 +326,10 @@ function ArchitectureDiagram() {
         <text x="50" y="726" fill="#555b7a" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)   IV = random_bytes(12)</text>
         <text x="50" y="740" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="752" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
-        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext_token {'}'}  ← only field client stores</text>
+        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext {'}'}  ← only field client stores</text>
         <text x="36" y="792" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
         <rect x="36" y="800" width="365" height="54" rx="4" fill="#22263a" />
-        <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} ciphertext_token, end_user_id {'}'}</text>
+        <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} ciphertext, end_user_id {'}'}</text>
         <text x="50" y="828" fill="#555b7a" fontSize="9" fontFamily="monospace">grant check → Redis HIT (skip KV) / MISS → KV unwrap → AES-GCM</text>
         <text x="50" y="842" fill="#555b7a" fontSize="9" fontFamily="monospace">Response:  {'{'} plaintext {'}'}  ← only field client needs</text>
 
@@ -412,7 +412,7 @@ function ArchitectureDiagram() {
         <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a" />
         <text x="1110" y="1177" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TokenProvider: static (demo) or Azure AD</text>
         <text x="1110" y="1189" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">Workload Identity (jobs longer than a token's TTL)</text>
-        <text x="1110" y="1214" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">ciphertext_token format unchanged —</text>
+        <text x="1110" y="1214" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">ciphertext format unchanged —</text>
         <text x="1110" y="1225" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
 
         {/* Arrow: CLNT → SVC, crossing the subscription boundary */}
@@ -536,49 +536,47 @@ const FLOWS = [
     title: '2. Encrypt Flow',
     color: '#10b981',
     steps: [
-      'Client calls POST /encrypt directly, presenting { plaintext, encoding, data_classification, end_user_id }.',
+      'Client calls POST /encrypt directly, presenting { plaintext, encoding, data_classification, end_user_id } — plus an optional dek_name (see panel 2 of the Live Demo tab).',
       'HSM Service validates the JWT, the app_id, and the encrypt scope.',
-      'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT.',
-      'A DENY here blocks the operation immediately — no wrap, no EDEK insert, no audit_log write. An ALLOW (or PlainID not configured for this call) lets the request proceed.',
+      'If dek_name was set and a current row already exists for (app_id, dek_name): REUSE — unwrap the existing edek_blob (DekCache hit, else a KEK unwrap) and skip straight to the response; no new wrap, no new INSERT.',
+      'Otherwise: MINT — continue below exactly as a plain /encrypt call would.',
       'HSM Service calls Azure Managed HSM to wrap the DEK, using its Service SPN (RSA-OAEP-256).',
       'Azure Managed HSM returns the EDEK (wrapped DEK).',
       'HSM Service generates the DEK + IV and AES-256-GCM encrypts the plaintext.',
       'HSM Service inserts an edek_record (edek_id, blob, owner_app_id, algorithm, …) into the EDEK Store.',
-      'EDEK Store returns the new edek_id (UUID).',
+      'EDEK Store returns the new edek_id (UUID) — the REUSE branch above rejoins here with the same edek_id and no INSERT.',
       'HSM Service writes an audit_log entry to Splunk/SIEM (app_id, end_user_id, edek_id, status).',
-      'HSM Service returns a single opaque { ciphertext_token } to the client — the only field the caller needs to store; it bundles the edek_id, IV, ciphertext, and tag internally.',
+      'HSM Service returns a single opaque { ciphertext } to the client — the only field the caller needs to store; it bundles the edek_id, IV, ciphertext, and tag internally.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'HSM Service' },
-      { id: 'plainid', label: 'PlainID' },
       { id: 'hsm', label: 'Azure Managed HSM' },
       { id: 'edek', label: 'EDEK Store' },
     ],
     messages: [
       { from: 'client', to: 'service', label: 'POST /encrypt { plaintext, encoding, data_classification, end_user_id }', stepNum: 3 },
       { from: 'service', to: 'service', self: true, label: 'validate JWT · app_id · scope=encrypt', stepNum: 4 },
-      { from: 'service', to: 'plainid', label: '[optional] PBAC check (app_id + end_user_id + scope=encrypt) — Service\'s own identity', stepNum: '4a' },
-      { from: 'plainid', to: 'service', dashed: true, label: '[optional] PERMIT/DENY — DENY blocks before any wrap/EDEK/audit calls', stepNum: '4a' },
+      { from: 'service', to: 'service', self: true, variant: 'allow', label: '[dek_name set + current row found] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)', stepNum: '4a' },
+      { from: 'service', to: 'service', self: true, label: '[else] MINT: continue below — gen fresh DEK, wrap via KEK, INSERT edek_record', stepNum: '4b' },
       { from: 'service', to: 'hsm', label: 'wrap DEK [Service SPN · RSA-OAEP-256]', stepNum: 5 },
       { from: 'hsm', to: 'service', dashed: true, label: 'EDEK (wrapped DEK)', stepNum: 6 },
       { from: 'service', to: 'service', self: true, label: 'gen DEK + IV · AES-256-GCM encrypt plaintext', stepNum: 7 },
       { from: 'service', to: 'edek', label: 'INSERT edek_record (edek_id, blob, owner_app_id, algorithm…)', stepNum: 8 },
-      { from: 'edek', to: 'service', dashed: true, label: 'edek_id (UUID)', stepNum: 9 },
+      { from: 'edek', to: 'service', dashed: true, label: 'edek_id (UUID) — [REUSE rejoins here — same edek_id, no INSERT]', stepNum: 9 },
       { from: 'service', to: 'service', self: true, label: 'audit_log → Splunk/SIEM (app_id, end_user_id, edek_id, status)', stepNum: 10 },
-      { from: 'service', to: 'client', dashed: true, label: '{ ciphertext_token } — only field client stores', stepNum: 11 },
+      { from: 'service', to: 'client', dashed: true, label: '{ ciphertext } — only field client stores', stepNum: 11 },
     ],
   },
   {
     title: '3. Decrypt Flow',
     color: '#f87171',
     steps: [
-      'Client calls POST /decrypt directly, presenting { ciphertext_token, end_user_id } — the single opaque token from /encrypt, passed back as-is and never decoded client-side.',
+      'Client calls POST /decrypt directly, presenting { ciphertext, end_user_id } — the single opaque token from /encrypt, passed back as-is and never decoded client-side.',
       'HSM Service looks up the edek_record by edek_id (extracted server-side from the token) in the EDEK Store.',
       'EDEK Store returns { edek_blob, kek_version, owner_app_id, data_class }.',
       'HSM Service asks the Access Store (schema hsm_access, table app_decrypt_grants): does the caller match the owner, or hold a grant?',
       'Access Store returns granted or denied.',
-      'If configured for its own fine-grained PBAC (independent of the Client\'s earlier Policy Check — see Architecture Diagram\'s "optional PBAC" path), HSM Service also calls PlainID directly, using its own service identity rather than forwarding the Client\'s JWT. A DENY here blocks the operation immediately — no cache lookup, no unwrap, no audit_log write.',
       'HSM Service checks Redis for the current slot\'s cached DEK first, falling back to the previous slot: GET {slot}:{kv_ver}:{edek_id}.',
       'HIT: the cached DEK bytes are used directly — the unwrap and re-cache steps below are skipped entirely, jumping straight to the final decrypt step. MISS: continue to the Managed HSM unwrap below.',
       '[MISS only] HSM Service calls Azure Managed HSM to unwrap the DEK, using its Service SPN (RSA-OAEP-256).',
@@ -591,20 +589,17 @@ const FLOWS = [
     actors: [
       { id: 'client', label: 'Client' },
       { id: 'service', label: 'HSM Service' },
-      { id: 'plainid', label: 'PlainID' },
       { id: 'edek', label: 'EDEK Store' },
       { id: 'accessstore', label: 'Access Store' },
       { id: 'redis', label: 'Redis Cache' },
       { id: 'hsm', label: 'Azure Managed HSM' },
     ],
     messages: [
-      { from: 'client', to: 'service', label: 'POST /decrypt { ciphertext_token, end_user_id }', stepNum: 12 },
+      { from: 'client', to: 'service', label: 'POST /decrypt { ciphertext, end_user_id }', stepNum: 12 },
       { from: 'service', to: 'edek', label: 'SELECT edek_record WHERE id = edek_id', stepNum: 13 },
       { from: 'edek', to: 'service', dashed: true, label: '{ edek_blob, kek_version, owner_app_id, data_class }', stepNum: 14 },
       { from: 'service', to: 'accessstore', label: 'grant check: caller → owner? [hsm_access.app_decrypt_grants]', stepNum: 15 },
       { from: 'accessstore', to: 'service', dashed: true, label: 'granted / denied', stepNum: 15 },
-      { from: 'service', to: 'plainid', label: '[optional] PBAC check (app_id + end_user_id + scope=decrypt) — Service\'s own identity', stepNum: '15b' },
-      { from: 'plainid', to: 'service', dashed: true, label: '[optional] PERMIT/DENY — DENY blocks before cache/unwrap/audit calls', stepNum: '15b' },
       { from: 'service', to: 'redis', label: 'GET {slot}:{kv_ver}:{edek_id} (current slot first, prev slot fallback)', stepNum: '15a' },
       { from: 'redis', to: 'service', dashed: true, label: 'HIT → cached DEK bytes (skip 16 & 17) / MISS → nil → unwrap below', stepNum: '15a' },
       { from: 'service', to: 'hsm', label: '[MISS only] unwrap DEK [Service SPN · RSA-OAEP-256]', stepNum: 16 },
@@ -669,8 +664,8 @@ const FLOWS = [
       'hsm-bulk-service looks up (app_id, current_dek_name). If FOUND, it reuses the existing edek_blob (unwrapped via its own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If NOT FOUND, it mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — the same table the HSM Service itself writes to.',
       'hsm-bulk-service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
       'hsm-bulk-client unwraps the DEK locally (its private key never leaves the client) and AES-256-GCM encrypts each row with a fresh IV per call.',
-      'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext_token format is identical to the HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
-      'The ciphertext_token is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
+      'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext format is identical to the HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
+      'The ciphertext is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
       'hsm-bulk-service runs its own copy of this scheduler, independent of the HSM Service\'s copy — so coverage of SVC-minted rows no longer depends on the HSM Service being deployed at all.',
     ],
     actors: [
@@ -869,23 +864,21 @@ const OVERVIEW_ACTORS = [
 const OVERVIEW_MAIN_ROWS = [
   { from: 'client', to: 'plainid', label: '1. Policy check (JWT + logged-in user identity)', color: '#eab308' },
   { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#eab308' },
-  { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — client\'s own JWT (direct)', color: '#a78bfa' },
-  { from: 'service', to: 'plainid', label: '4. [optional] PBAC check — HSM Service\'s own identity', color: '#eab308' },
-  { from: 'plainid', to: 'service', label: '5. [optional] Permit / Deny decision', color: '#eab308', dashed: true },
-  { from: 'service', to: 'accessstore', label: '5b. [decrypt only] grant check — hsm_access.app_decrypt_grants', color: '#fb923c' },
-  { from: 'service', to: 'hsm', label: '6. wrap/unwrap (cache miss) — Service SPN', color: '#a78bfa' },
-  { from: 'service', to: 'redis', label: '7. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
-  { from: 'service', to: 'edek', label: '8. persist / lookup edek_record', color: '#38bdf8' },
-  { from: 'service', to: 'client', label: '9. Result: ciphertext_token / plaintext', color: '#a78bfa' },
+  { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — client\'s own JWT (direct); Encrypt supports an optional dek_name to REUSE instead of mint', color: '#a78bfa' },
+  { from: 'service', to: 'accessstore', label: '4. [decrypt only] grant check — hsm_access.app_decrypt_grants', color: '#fb923c' },
+  { from: 'service', to: 'hsm', label: '5. wrap/unwrap (cache miss, or REUSE unwrap) — Service SPN', color: '#a78bfa' },
+  { from: 'service', to: 'redis', label: '6. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
+  { from: 'service', to: 'edek', label: '7. persist / lookup edek_record', color: '#38bdf8' },
+  { from: 'service', to: 'client', label: '8. Result: ciphertext / plaintext', color: '#a78bfa' },
 ];
 const OVERVIEW_ROTATION_ROWS = [
-  { from: 'cekrotationsvc', to: 'kvsecrets', label: '10. write inactive slot, then flip current_key — HSM Service SPN', color: '#eab308' },
-  { from: 'service', to: 'kvsecrets', label: '11. poll detects change (30s) → fetch + rotate() — Service SPN', color: '#eab308', dashed: true },
+  { from: 'cekrotationsvc', to: 'kvsecrets', label: '9. write inactive slot, then flip current_key — HSM Service SPN', color: '#eab308' },
+  { from: 'service', to: 'kvsecrets', label: '10. poll detects change (30s) → fetch + rotate() — Service SPN', color: '#eab308', dashed: true },
 ];
 const OVERVIEW_AUDIT_ROWS = [
-  { from: 'auditor', to: 'kvsecrets', label: '12. read-only secrets (crosses subscription boundary)', color: '#f87171', dashed: true },
-  { from: 'auditor', to: 'edek', label: '13. read-only DB scan — hsm_crypto (crosses subscription boundary)', color: '#f87171', dashed: true },
-  { from: 'auditor', to: 'accessstore', label: '13b. read-only DB scan — hsm_access grants + registrations', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'kvsecrets', label: '11. read-only secrets (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'edek', label: '12. read-only DB scan — hsm_crypto (crosses subscription boundary)', color: '#f87171', dashed: true },
+  { from: 'auditor', to: 'accessstore', label: '13. read-only DB scan — hsm_access grants + registrations', color: '#f87171', dashed: true },
 ];
 
 // ── End-to-end overview — condensed macro-view across all 9 participants ────
@@ -1116,7 +1109,7 @@ export default function HsmDemo() {
     setEncrypting(false);
     if (res.ok) {
       setEncryptResult(res.data);
-      setDecryptForm({ ciphertextToken: res.data.ciphertext_token || '' });
+      setDecryptForm({ ciphertextToken: res.data.ciphertext || '' });
       setDecryptResult(null);
       setDecryptError(null);
       loadEdekRecords();
@@ -1126,7 +1119,7 @@ export default function HsmDemo() {
   }
 
   // ── Panel 3: Decrypt ─────────────────────────────────────────────────────────
-  // A single opaque ciphertext_token replaces the old edek_id/iv/ciphertext/tag
+  // A single opaque ciphertext field replaces the old edek_id/iv/ciphertext/tag
   // quadruplet — the caller stores just this one token and passes it back as-is.
   const [decryptForm, setDecryptForm] = useState({ ciphertextToken: '' });
   const [decryptResult, setDecryptResult] = useState(null);
@@ -1160,8 +1153,8 @@ export default function HsmDemo() {
       method: 'POST',
       app: selectedApp,
       body: {
-        ciphertext_token: token,
-        end_user_id:      decryptEndUserId.trim() || undefined,
+        ciphertext:   token,
+        end_user_id:  decryptEndUserId.trim() || undefined,
       },
     });
     setDecrypting(false);
@@ -1522,10 +1515,10 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 3: Decrypt */}
-          <Panel title="3. Decrypt" sub="ciphertext_token auto-filled from the Encrypt response above — a single opaque token, never decoded client-side. End User ID is independent of the Encrypt panel's — a decrypt is often performed on behalf of a different end-user than the one who originally encrypted the data (see Cross-App Decrypt Grants below).">
+          <Panel title="3. Decrypt" sub="ciphertext auto-filled from the Encrypt response above — a single opaque token, never decoded client-side. End User ID is independent of the Encrypt panel's — a decrypt is often performed on behalf of a different end-user than the one who originally encrypted the data (see Cross-App Decrypt Grants below).">
             <textarea
               style={s.textarea}
-              placeholder="ciphertext_token…  (auto-filled after Encrypt above)"
+              placeholder="ciphertext…  (auto-filled after Encrypt above)"
               value={decryptForm.ciphertextToken}
               onChange={(e) => setDecryptForm({ ciphertextToken: e.target.value })}
             />
@@ -1687,7 +1680,7 @@ export default function HsmDemo() {
           </Panel>
 
           {/* Panel 7: Consumer application table */}
-          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext_token column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required. Every account here shares the same DEK Name (customers.account_number) — create a second account and watch Latest EDEK Records stay flat instead of growing, same reuse behavior as panel 2's DEK Name field.">
+          <Panel title="7. Consumer Application Table" sub="Simulates payments-svc's own database — a separate schema from this service's EDEK store. A single ciphertext column bundles everything needed for a future decrypt — no separate edek_id, IV, or tag columns required. Every account here shares the same DEK Name (customers.account_number) — create a second account and watch Latest EDEK Records stay flat instead of growing, same reuse behavior as panel 2's DEK Name field.">
             <div style={s.formGrid}>
               <input style={s.input} placeholder="Customer Name" value={custName} onChange={(e) => setCustName(e.target.value)} />
               <input style={s.input} placeholder="Email" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
@@ -1728,7 +1721,7 @@ export default function HsmDemo() {
                     <td style={{ ...s.td, color: 'var(--success)' }}>non-sensitive</td><td style={s.td}>Ordinary app data</td>
                   </tr>
                   <tr>
-                    <td style={s.tdMono}>ciphertext_token</td><td style={s.td}>VARCHAR(512)</td>
+                    <td style={s.tdMono}>ciphertext</td><td style={s.td}>VARCHAR(512)</td>
                     <td style={{ ...s.td, color: 'var(--error)' }}>sensitive</td>
                     <td style={s.td}>Single opaque token — bundles EDEK ID, IV, tag, and ciphertext; base64url (printable ASCII); ~60 byte fixed overhead + 1.4× plaintext</td>
                   </tr>
@@ -1740,7 +1733,7 @@ export default function HsmDemo() {
               <thead>
                 <tr>
                   <th style={s.th}>ID</th><th style={s.th}>Customer</th><th style={s.th}>Email</th>
-                  <th style={s.th}>ciphertext_token</th><th style={s.th}>DEK Name</th><th style={s.th}>Created</th><th style={s.th}></th>
+                  <th style={s.th}>ciphertext</th><th style={s.th}>DEK Name</th><th style={s.th}>Created</th><th style={s.th}></th>
                 </tr>
               </thead>
               <tbody>
@@ -1750,7 +1743,7 @@ export default function HsmDemo() {
                     <td style={s.td}>{acc.customer_name}</td>
                     <td style={s.td}>{acc.email}</td>
                     <td style={s.tdMono}>
-                      {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.ciphertext_token, 18)}
+                      {revealed[acc.id] ? <strong style={{ color: 'var(--success)' }}>{revealed[acc.id]}</strong> : truncate(acc.ciphertext, 18)}
                     </td>
                     <td style={s.td}>{acc.dek_name || '—'}</td>
                     <td style={s.td}>{acc.created_at ? new Date(acc.created_at).toLocaleString() : '-'}</td>
