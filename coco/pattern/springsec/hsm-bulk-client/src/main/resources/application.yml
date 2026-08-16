@@ -64,16 +64,16 @@ client:
     # Example shape -- override in a job-specific config file:
     # columns:
     #   - source: ssn
-    #     target: ssn_ciphertext_token
+    #     target: ssn_ciphertext
     #   - source: account_number
-    #     target: account_number_ciphertext_token
+    #     target: account_number_ciphertext
     #   # target-type only matters for DECRYPT jobs (ignored on ENCRYPT, whose
-    #   # target is always the ciphertext_token VARCHAR/TEXT column) -- what SQL
+    #   # target is always the ciphertext VARCHAR/TEXT column) -- what SQL
     #   # type to parse the decrypted plaintext into before insertion. Omit /
     #   # STRING (default) for a VARCHAR/TEXT target. Other values: DATE,
     #   # TIMESTAMP, NUMERIC (DECIMAL/NUMERIC-family columns), INTEGER
     #   # (INT/BIGINT/SMALLINT-family columns).
-    #   - source: dob_ciphertext_token
+    #   - source: dob_ciphertext
     #     target: dob
     #     target-type: DATE
     #   # dek-name only matters on ENCRYPT jobs -- unset means today's default (one
@@ -84,7 +84,7 @@ client:
     #   # resolves by the edek_id embedded in each row's token), but keeping them in
     #   # sync avoids confusion about which DEK protects which column.
     #   - source: account_number
-    #     target: account_number_ciphertext_token
+    #     target: account_number_ciphertext
     #     dek-name: customers.account_number
     columns: []
     # Non-sensitive columns copied source-to-target as-is (same name both
