@@ -1,5 +1,5 @@
 # Reverses db-encrypt-example.yml -- source/target swap roles: source now
-# holds ciphertext_token values, target receives decrypted plaintext.
+# holds ciphertext values, target receives decrypted plaintext.
 # columns.source/target also swap meaning accordingly.
 
 client:
@@ -44,7 +44,7 @@ client:
       table-name: hsm_bulk_checkpoint
       schema: "raw"   # see db-encrypt-example.yml for why this should be set explicitly
     columns:
-      - source: ssn_ciphertext_token
+      - source: ssn_ciphertext
         target: ssn
       # dek-name isn't needed here for correctness -- DECRYPT always resolves
       # by the edek_id embedded in each row's own token, never by name. But
@@ -54,7 +54,7 @@ client:
       # matching what the data actually is). Leaving it unset on a column
       # whose data really is dek-name-reused costs one full /dek/unwrap round
       # trip (and one RSA-OAEP unwrap) per sub-batch instead of once per job.
-      - source: account_number_ciphertext_token
+      - source: account_number_ciphertext
         target: account_number
         dek-name: customers.account_number   # matches db-encrypt-example.yml's column
       # target-type: the decrypted plaintext is always a String out of
@@ -62,7 +62,7 @@ client:
       # before insertion, since `dob` here is a real DATE column, not
       # VARCHAR. Other values: TIMESTAMP, NUMERIC, INTEGER; omit/STRING for
       # a VARCHAR/TEXT target (see ssn/account_number above).
-      - source: dob_ciphertext_token
+      - source: dob_ciphertext
         target: dob
         target-type: DATE
     # Must mirror db-encrypt-example.yml's passthrough-columns -- same names,

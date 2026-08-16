@@ -73,17 +73,17 @@ client:
       schema: "secure"
     columns:
       - source: ssn
-        target: ssn_ciphertext_token
+        target: ssn_ciphertext
       # dek-name: every row's account_number shares the current DEK for
       # "customers.account_number" instead of each getting its own -- one
       # /dek/issue lookup for this column for the whole run, not one per row.
       - source: account_number
-        target: account_number_ciphertext_token
+        target: account_number_ciphertext
         dek-name: customers.account_number
       # target-type only matters for DECRYPT jobs -- ignored here, target is
-      # always a ciphertext_token VARCHAR/TEXT column on ENCRYPT.
+      # always a ciphertext VARCHAR/TEXT column on ENCRYPT.
       - source: dob
-        target: dob_ciphertext_token
+        target: dob_ciphertext
     # Non-sensitive columns copied to the target table as-is, same name both
     # sides. Anything not listed in columns or passthrough-columns is left
     # out of the INSERT entirely -- it gets the target column's DEFAULT/NULL,
