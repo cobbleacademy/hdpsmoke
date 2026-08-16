@@ -69,7 +69,20 @@ public class MockKekClient implements KekClient {
 
     @Override
     public byte[] unwrapDek(byte[] edek, String kekVersion) {
-        byte[] key = versions.get(kekVersion);
+        // Must take the same lock as wrapDek/rotateToNewVersion -- versions is a plain
+        // LinkedHashMap, not a ConcurrentHashMap, and rotateToNewVersion() mutates it
+        // under this lock. An unguarded read here was safe only by accident, while
+        // every call into this class ran on one thread at a time (today's sequential
+        // batch processing); introducing any concurrency (bounded batch parallelism,
+        // multiple simultaneous requests) makes this a real, if rare, race with a
+        // concurrent rotation.
+        byte[] key;
+        lock.lock();
+        try {
+            key = versions.get(kekVersion);
+        } finally {
+            lock.unlock();
+        }
         if (key == null) {
             throw new IllegalArgumentException("Unknown demo KEK version: " + kekVersion);
         }

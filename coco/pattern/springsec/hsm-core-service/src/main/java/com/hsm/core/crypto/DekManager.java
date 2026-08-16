@@ -138,31 +138,31 @@ public final class DekManager {
     }
 
     /**
-     * Decode a ciphertext_token produced by {@link #packToken}.
+     * Decode a ciphertext token produced by {@link #packToken}.
      * Throws {@link IllegalArgumentException} with a descriptive message on any format error.
      */
     public static UnpackedToken unpackToken(String token) {
         if (!token.startsWith(TOKEN_PREFIX)) {
             throw new IllegalArgumentException(
-                    "ciphertext_token has unrecognised format: expected prefix '" + TOKEN_PREFIX + "'");
+                    "ciphertext has unrecognised format: expected prefix '" + TOKEN_PREFIX + "'");
         }
         String b64Part = token.substring(TOKEN_PREFIX.length());
         byte[] binary;
         try {
             binary = Base64.getUrlDecoder().decode(padBase64(b64Part));
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("ciphertext_token contains invalid base64url data");
+            throw new IllegalArgumentException("ciphertext contains invalid base64url data");
         }
 
         if (binary.length < TOKEN_FIXED_BYTES) {
             throw new IllegalArgumentException(
-                    "ciphertext_token is too short: " + binary.length + " bytes (minimum " + TOKEN_FIXED_BYTES + ")");
+                    "ciphertext is too short: " + binary.length + " bytes (minimum " + TOKEN_FIXED_BYTES + ")");
         }
 
         byte version = binary[0];
         if (version != TOKEN_VERSION) {
             throw new IllegalArgumentException(String.format(
-                    "ciphertext_token uses unsupported version 0x%02x; this service supports 0x%02x",
+                    "ciphertext uses unsupported version 0x%02x; this service supports 0x%02x",
                     version, TOKEN_VERSION));
         }
 
@@ -179,7 +179,7 @@ public final class DekManager {
         buf.get(ciphertext);
 
         if (ciphertext.length == 0) {
-            throw new IllegalArgumentException("ciphertext_token contains no ciphertext payload");
+            throw new IllegalArgumentException("ciphertext contains no encrypted payload");
         }
 
         return new UnpackedToken(edekId, iv, tag, ciphertext);
