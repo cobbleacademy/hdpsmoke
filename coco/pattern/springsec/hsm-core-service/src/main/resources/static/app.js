@@ -53,9 +53,6 @@ const FIELD_EXPLAINERS = {
   ciphertext: "Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side",
   edek_id: "Reference to the wrapped data key, stored server-side — never the key itself",
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
-  iv_b64: "Random per call — same plaintext never produces the same ciphertext twice",
-  ciphertext_b64: "The encrypted data",
-  tag_b64: "GCM auth tag — proves ciphertext and owner_app_id weren't tampered with",
   kek_version: "Which HSM master key version wrapped this record",
   algorithm: "Cipher used — persisted per-record so future algorithm migrations stay decryptable",
   encoding: "utf8 vs base64 — tells the caller how to interpret plaintext on the way back out",
@@ -93,7 +90,11 @@ async function encrypt() {
   try {
     const res = await fetch(`${API}/encrypt`, {
       method: "POST",
-      headers: authHeaders(),
+      // X-Response-Detail: full -- the demo's field-breakdown panel explains
+      // every field it gets back, so it needs the informational/audit fields
+      // (edek_id, owner_app_id, algorithm, encoding, kek_version) that real
+      // callers don't get by default. See ResponseViews.
+      headers: { ...authHeaders(), "X-Response-Detail": "full" },
       body: JSON.stringify({ plaintext, data_classification, dek_name, end_user_id: $("encryptEndUserId").value || null, context: { source: "demo-ui" } }),
     });
     const data = await res.json();
@@ -132,7 +133,8 @@ async function decrypt() {
     };
     const res = await fetch(`${API}/decrypt`, {
       method: "POST",
-      headers: authHeaders(),
+      // X-Response-Detail: full -- needs owner_app_id below. See ResponseViews.
+      headers: { ...authHeaders(), "X-Response-Detail": "full" },
       body: JSON.stringify(body),
     });
     const data = await res.json();
