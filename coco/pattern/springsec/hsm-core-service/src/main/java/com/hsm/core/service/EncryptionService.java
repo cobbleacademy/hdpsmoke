@@ -136,9 +136,6 @@ public class EncryptionService {
         return new EncryptResponse(
                 DekManager.packToken(edekId, result.iv(), result.tag(), result.ciphertext()),
                 edekId, appId, DekManager.ALGORITHM, request.encoding(), resolved.kekVersion(),
-                Base64.getEncoder().encodeToString(result.iv()),
-                Base64.getEncoder().encodeToString(result.ciphertext()),
-                Base64.getEncoder().encodeToString(result.tag()),
                 resolved.reused(),
                 "success", "ENCRYPT_SUCCESS", "Encryption completed successfully",
                 MDC.get(CorrelationIdFilter.MDC_KEY)
