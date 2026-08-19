@@ -41,7 +41,8 @@ public class DecryptController {
     /**
      * Multiple ciphertexts in one authenticated call -- see
      * java/docs/BULK_OPERATIONS.md. Same key-correlation and always-200
-     * partial-failure semantics as POST /encrypt/batch.
+     * partial-failure semantics as POST /encrypt/batch. X-Response-Detail
+     * applies to every item's embedded DecryptResponse -- see ResponseDetailBodyAdvice.
      */
     @PostMapping("${hsm.service.api-v1-prefix}/decrypt/batch")
     public BatchDecryptResponse decryptBatch(

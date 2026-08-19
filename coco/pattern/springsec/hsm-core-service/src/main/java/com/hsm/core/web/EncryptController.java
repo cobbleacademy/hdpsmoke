@@ -46,6 +46,8 @@ public class EncryptController {
      * {@code key} echoed back in its result for correlation; always 200,
      * with a per-item success/error status (mirrors SQS SendMessageBatch)
      * rather than failing the whole batch for one item's runtime outcome.
+     * X-Response-Detail applies to every item's embedded EncryptResponse the
+     * same as the single-item endpoint -- see ResponseDetailBodyAdvice.
      */
     @PostMapping("${hsm.service.api-v1-prefix}/encrypt/batch")
     public BatchEncryptResponse encryptBatch(
