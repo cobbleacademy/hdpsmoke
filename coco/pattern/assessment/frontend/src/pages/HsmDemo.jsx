@@ -22,21 +22,22 @@ const FIELD_EXPLAINERS = {
   ciphertext: 'Opaque token — store as a single VARCHAR/TEXT column; pass it back to /decrypt as-is; never decode client-side',
   edek_id:      'Reference to the wrapped data key, stored server-side — never the key itself',
   owner_app_id: "Bound into the AES-GCM tag as AAD; decrypt fails if this doesn't match",
+  kek_version:  'Which HSM master key version wrapped this record',
   algorithm:    'Cipher used — persisted per-record so future algorithm migrations stay decryptable',
   encoding:     'utf8 vs base64 — tells the caller how to interpret plaintext on the way back out',
-  iv_b64:       'Random per call — same plaintext never produces the same ciphertext twice',
-  ciphertext_b64: 'The encrypted data',
-  tag_b64:      "GCM auth tag — proves ciphertext and owner_app_id weren't tampered with",
-  kek_version:  'Which HSM master key version wrapped this record',
   plaintext:    'The recovered original data',
   decrypted_as: 'The app that made this decrypt call — may differ from owner_app_id if a grant exists',
   cache:        'Redis DEK Cache result — HIT skips Azure Key Vault unwrap; MISS unwraps and caches the DEK for 60s',
   reused:       'true = this call reused the current DEK for dek_name below instead of minting a fresh one — Latest EDEK Records won\'t grow on reuse',
+  status:       'Response envelope: always "success" here — errors use a different {detail} shape and never reach this panel',
+  code:         'Machine-readable outcome code, stable across API versions even if the human-readable message wording changes',
+  message:      'Human-readable summary of what happened, safe to show directly to an end user',
+  correlation_id: 'Same ID as the X-Correlation-Id response header — grep the service log for this to see every step this request took',
 };
 
 // ciphertext leads — it's the only field a caller actually needs to
 // store; the rest is a breakdown of what the token bundles internally.
-const ENCRYPT_FIELD_ORDER = ['ciphertext', 'edek_id', 'owner_app_id', 'algorithm', 'encoding', 'iv_b64', 'ciphertext_b64', 'tag_b64', 'kek_version', 'reused'];
+const ENCRYPT_FIELD_ORDER = ['ciphertext', 'edek_id', 'owner_app_id', 'kek_version', 'algorithm', 'encoding', 'reused', 'status', 'code', 'message', 'correlation_id'];
 
 // Decodes the edek_id back out of a ciphertext token, purely for this demo's
 // client-side "simulated cache" panel — ports hsm_project's own
@@ -52,8 +53,8 @@ function edekIdFromToken(token) {
 }
 
 // ── Fetch helper — attaches Authorization + X-App-ID when an app is given ────
-async function callApi(path, { method = 'GET', body, app } = {}) {
-  const headers = { 'Content-Type': 'application/json' };
+async function callApi(path, { method = 'GET', body, app, extraHeaders } = {}) {
+  const headers = { 'Content-Type': 'application/json', ...extraHeaders };
   if (app) {
     headers.Authorization = `Bearer ${app.token}`;
     headers['X-App-ID'] = app.app_id;
@@ -1104,6 +1105,11 @@ export default function HsmDemo() {
     const res = await callApi('/encrypt', {
       method: 'POST',
       app: selectedApp,
+      // X-Response-Detail: full — this demo's field-breakdown panel explains
+      // every field it gets back, so it needs the informational/audit fields
+      // (edek_id, owner_app_id, algorithm, encoding, kek_version) that real
+      // callers don't get by default.
+      extraHeaders: { 'X-Response-Detail': 'full' },
       body: { plaintext, data_classification: dataClass || null, dek_name: dekName.trim() || null, end_user_id: encryptEndUserId.trim() || undefined, context: { source: 'demo-ui' } },
     });
     setEncrypting(false);
@@ -1152,6 +1158,8 @@ export default function HsmDemo() {
     const res = await callApi('/decrypt', {
       method: 'POST',
       app: selectedApp,
+      // X-Response-Detail: full — needs owner_app_id in the response below.
+      extraHeaders: { 'X-Response-Detail': 'full' },
       body: {
         ciphertext:   token,
         end_user_id:  decryptEndUserId.trim() || undefined,
