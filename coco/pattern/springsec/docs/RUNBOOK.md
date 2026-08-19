@@ -182,12 +182,27 @@ To trace a specific slow/failing request end to end:
    caller doesn't have to read a response header to get the ID back) —
    e.g. `{"status": "success", "code": "ENCRYPT_SUCCESS", "message":
    "Encryption completed successfully", "correlation_id": "..."}` alongside
-   `ciphertext`/`edek_id`/etc. Note: `ciphertext_token` was the field's
-   original name (see the additive-envelope round); a later, explicit
-   follow-up decision renamed it to `ciphertext` across the whole system
-   (core, bulk, client, demo UI, diagrams) — a deliberate breaking wire
-   change, not additive. `EncryptResponse`/`DecryptResponse`
-   (`com.hsm.core.dto`) are the source of truth for the full field list.
+   `ciphertext`. Note: `ciphertext_token` was the field's original name (see
+   the additive-envelope round); a later, explicit follow-up decision
+   renamed it to `ciphertext` across the whole system (core, bulk, client,
+   demo UI, diagrams) — a deliberate breaking wire change, not additive.
+   **Later still (minimal/full split)**: `edek_id`, `owner_app_id`,
+   `algorithm`, `encoding` (encrypt only — decrypt's `encoding` stays
+   default, it's functionally needed to interpret `plaintext`), and
+   `kek_version` are no longer in the response by default — they're gated
+   behind the `X-Response-Detail: full` request header (absent/anything
+   else = minimal: just `ciphertext`/`plaintext`, `reused`, and the
+   envelope fields above). The individual binary fields
+   (`iv_b64`/`ciphertext_b64`/`tag_b64`) that used to sit alongside
+   `ciphertext` for backward compat with a pre-token contract are gone
+   entirely now, not gated — this service never had a real external
+   consumer, so there was nothing to stay compatible with. See
+   `ResponseViews`/`ResponseDetailBodyAdvice` (`com.hsm.core.web`) for the
+   mechanism, and `EncryptResponse`/`DecryptResponse` (`com.hsm.core.dto`)
+   for the current full field list and which view each field belongs to.
+   The demo UI always sends `X-Response-Detail: full` (its field-breakdown
+   panel explains every field it gets back) — a fresh `curl` without that
+   header is the fastest way to see what a real caller gets by default.
    Error responses (4xx/5xx) go through a separate, unchanged
    `{"detail": "..."}` shape (`GlobalExceptionHandler`) — the caller can
    already always find the correlation ID for a failed call on the
