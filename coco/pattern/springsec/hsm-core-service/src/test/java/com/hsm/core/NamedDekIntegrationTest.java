@@ -57,6 +57,9 @@ class NamedDekIntegrationTest {
         h.setContentType(MediaType.APPLICATION_JSON);
         h.set("Authorization", "Bearer " + token);
         h.set("X-App-ID", appId);
+        // This suite asserts on edek_id, which is gated behind X-Response-Detail: full
+        // -- see ResponseViews.
+        h.set("X-Response-Detail", "full");
         return h;
     }
 

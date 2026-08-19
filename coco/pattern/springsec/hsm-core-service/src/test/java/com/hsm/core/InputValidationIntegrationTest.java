@@ -1,6 +1,7 @@
 package com.hsm.core;
 
 import com.hsm.core.audit.RecentEventsBuffer;
+import com.hsm.core.crypto.DekManager;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.repository.EdekRecordRepository;
 import org.junit.jupiter.api.Test;
@@ -42,7 +43,7 @@ class InputValidationIntegrationTest {
     @DynamicPropertySource
     static void overrideDatasource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
-                () -> "jdbc:h2:mem:hsmiv-" + System.nanoTime() + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1");
+                () -> "jdbc:h2:mem:hsmiv-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
     }
 
     @Autowired
@@ -81,12 +82,16 @@ class InputValidationIntegrationTest {
         return rest.postForEntity("/api/sensec/hsm/v1/decrypt", req, Map.class);
     }
 
+    // edek_id/iv_b64/ciphertext_b64/tag_b64 no longer come back from /encrypt (see
+    // ResponseViews) -- unpack them client-side from the one field every caller
+    // gets, same as any real legacy caller would have to do today.
     private Map<String, Object> legacyFieldsOf(Map enc) {
+        DekManager.UnpackedToken unpacked = DekManager.unpackToken((String) enc.get("ciphertext"));
         Map<String, Object> m = new HashMap<>();
-        m.put("edek_id", enc.get("edek_id"));
-        m.put("iv_b64", enc.get("iv_b64"));
-        m.put("ciphertext_b64", enc.get("ciphertext_b64"));
-        m.put("tag_b64", enc.get("tag_b64"));
+        m.put("edek_id", unpacked.edekId().toString());
+        m.put("iv_b64", Base64.getEncoder().encodeToString(unpacked.iv()));
+        m.put("ciphertext_b64", Base64.getEncoder().encodeToString(unpacked.ciphertext()));
+        m.put("tag_b64", Base64.getEncoder().encodeToString(unpacked.tag()));
         return m;
     }
 
@@ -164,11 +169,13 @@ class InputValidationIntegrationTest {
         Map encA = encrypt("response A");
         Map encB = encrypt("response B");
 
+        Map<String, Object> fieldsA = legacyFieldsOf(encA);
+        Map<String, Object> fieldsB = legacyFieldsOf(encB);
         Map<String, Object> payload = new HashMap<>();
-        payload.put("edek_id", encA.get("edek_id"));
-        payload.put("iv_b64", encB.get("iv_b64"));
-        payload.put("ciphertext_b64", encA.get("ciphertext_b64"));
-        payload.put("tag_b64", encB.get("tag_b64"));
+        payload.put("edek_id", fieldsA.get("edek_id"));
+        payload.put("iv_b64", fieldsB.get("iv_b64"));
+        payload.put("ciphertext_b64", fieldsA.get("ciphertext_b64"));
+        payload.put("tag_b64", fieldsB.get("tag_b64"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
         assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
@@ -182,7 +189,7 @@ class InputValidationIntegrationTest {
         Map encB = encrypt("response B");
 
         Map<String, Object> payload = legacyFieldsOf(encA);
-        payload.put("ciphertext_b64", encB.get("ciphertext_b64"));
+        payload.put("ciphertext_b64", legacyFieldsOf(encB).get("ciphertext_b64"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
         assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
@@ -196,7 +203,7 @@ class InputValidationIntegrationTest {
         Map encB = encrypt("response B");
 
         Map<String, Object> payload = legacyFieldsOf(encB);
-        payload.put("edek_id", encA.get("edek_id"));
+        payload.put("edek_id", legacyFieldsOf(encA).get("edek_id"));
 
         ResponseEntity<Map> resp = decryptRaw(payload);
         assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
@@ -206,7 +213,7 @@ class InputValidationIntegrationTest {
     @Test
     void legacyRecordWithoutFingerprintDecrypts() {
         Map enc = encrypt("legacy record");
-        UUID edekId = UUID.fromString((String) enc.get("edek_id"));
+        UUID edekId = UUID.fromString((String) legacyFieldsOf(enc).get("edek_id"));
 
         EdekRecord record = edekRecordRepository.findById(edekId).orElseThrow();
         record.setFingerprint(null);
@@ -220,7 +227,7 @@ class InputValidationIntegrationTest {
     @Test
     void tamperedCiphertextByteRejected() {
         Map enc = encrypt("tamper me");
-        byte[] ct = Base64.getDecoder().decode((String) enc.get("ciphertext_b64"));
+        byte[] ct = Base64.getDecoder().decode((String) legacyFieldsOf(enc).get("ciphertext_b64"));
         ct[0] ^= 0xFF;
 
         Map<String, Object> payload = legacyFieldsOf(enc);
@@ -248,7 +255,7 @@ class InputValidationIntegrationTest {
         Map encB = encrypt("B");
 
         Map<String, Object> mismatchPayload = legacyFieldsOf(encB);
-        mismatchPayload.put("edek_id", encA.get("edek_id"));
+        mismatchPayload.put("edek_id", legacyFieldsOf(encA).get("edek_id"));
         decryptRaw(mismatchPayload);
         assertNotNull(lastFailureWithReason("element_mismatch"));
 

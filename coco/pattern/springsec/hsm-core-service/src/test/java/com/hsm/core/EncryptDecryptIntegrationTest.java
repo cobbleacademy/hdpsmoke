@@ -1,5 +1,6 @@
 package com.hsm.core;
 
+import com.hsm.core.crypto.DekManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -15,6 +16,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -49,6 +51,10 @@ class EncryptDecryptIntegrationTest {
         h.setContentType(MediaType.APPLICATION_JSON);
         h.set("Authorization", "Bearer " + token);
         h.set("X-App-ID", appId);
+        // This suite asserts on the informational/audit fields (edek_id, owner_app_id, ...)
+        // that are gated behind X-Response-Detail: full -- see ResponseViews. Requests
+        // to non-encrypt/decrypt endpoints (e.g. /admin/grants) just ignore the header.
+        h.set("X-Response-Detail", "full");
         return h;
     }
 
@@ -80,11 +86,15 @@ class EncryptDecryptIntegrationTest {
         ResponseEntity<Map> encResp = rest.postForEntity("/api/sensec/hsm/v1/encrypt", req, Map.class);
         Map body = encResp.getBody();
 
+        // edek_id/iv_b64/ciphertext_b64/tag_b64 no longer come back from /encrypt (see
+        // ResponseViews) -- unpack them client-side from the one field every caller
+        // gets, same as any real legacy caller would have to do today.
+        DekManager.UnpackedToken unpacked = DekManager.unpackToken((String) body.get("ciphertext"));
         HttpEntity<Map<String, Object>> decReq = new HttpEntity<>(Map.of(
-                "edek_id", body.get("edek_id"),
-                "iv_b64", body.get("iv_b64"),
-                "ciphertext_b64", body.get("ciphertext_b64"),
-                "tag_b64", body.get("tag_b64")
+                "edek_id", unpacked.edekId().toString(),
+                "iv_b64", Base64.getEncoder().encodeToString(unpacked.iv()),
+                "ciphertext_b64", Base64.getEncoder().encodeToString(unpacked.ciphertext()),
+                "tag_b64", Base64.getEncoder().encodeToString(unpacked.tag())
         ), headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", decReq, Map.class);
 

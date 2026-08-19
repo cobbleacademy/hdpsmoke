@@ -1,5 +1,6 @@
 package com.hsm.core;
 
+import com.hsm.core.crypto.DekManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -15,6 +16,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,12 +98,16 @@ class BatchDecryptIntegrationTest {
         HttpEntity<Map<String, Object>> encReq = new HttpEntity<>(Map.of("plaintext", "legacy path"), headers());
         Map enc = rest.postForEntity("/api/sensec/hsm/v1/encrypt", encReq, Map.class).getBody();
 
+        // edek_id/iv_b64/ciphertext_b64/tag_b64 no longer come back from /encrypt (see
+        // ResponseViews) -- unpack them client-side from the one field every caller
+        // gets, same as any real legacy caller would have to do today.
+        DekManager.UnpackedToken unpacked = DekManager.unpackToken((String) enc.get("ciphertext"));
         Map<String, Object> item = new HashMap<>();
         item.put("key", "legacy-item");
-        item.put("edek_id", enc.get("edek_id"));
-        item.put("iv_b64", enc.get("iv_b64"));
-        item.put("ciphertext_b64", enc.get("ciphertext_b64"));
-        item.put("tag_b64", enc.get("tag_b64"));
+        item.put("edek_id", unpacked.edekId().toString());
+        item.put("iv_b64", Base64.getEncoder().encodeToString(unpacked.iv()));
+        item.put("ciphertext_b64", Base64.getEncoder().encodeToString(unpacked.ciphertext()));
+        item.put("tag_b64", Base64.getEncoder().encodeToString(unpacked.tag()));
 
         ResponseEntity<Map> resp = postBatchDecrypt(List.of(item));
         assertEquals(HttpStatus.OK, resp.getStatusCode());
