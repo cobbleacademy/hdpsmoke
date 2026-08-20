@@ -1,0 +1,47 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} -- Job "{{ include "hsm.fullname" . }}" submitted in namespace {{ .Release.Namespace }}.
+
+This chart runs ONE Gatling load-test pass against a deployed hsm-core-service
+and exits -- it is not a long-lived service. Each real run should be its own
+`helm install <unique-name> ...` (Jobs are immutable once created; there is no
+"update" of a prior run).
+
+Before install, the Secret named by `targetSecretName` must already exist,
+holding a real app_id and a real bearer JWT under keys "app-id" and "token".
+Deployed hsm-core-service runs with DEMO_MODE=false -- the demo-token-*
+strings that work locally do NOT work here; you need a genuinely signed token
+for an app registered with both encrypt and decrypt scopes:
+
+  kubectl create secret generic <name>-creds \
+    --from-literal=app-id=<real-app-id> \
+    --from-literal=token=<real-bearer-jwt> \
+    --dry-run=client -o yaml -n {{ .Release.Namespace }} | kubectl apply -f -
+
+  helm install <name> helm/hsm-core-service-loadtest-job \
+    --set targetSecretName=<name>-creds \
+    --set baseUrl=http://<hsm-core-service-release-name>:3005 \
+    -n {{ .Release.Namespace }}
+
+A real Azure AD JWT is short-lived (~1h) -- keep loadTest.holdSeconds well
+under that, or mint a fresh token right before installing.
+
+Watch it:
+  kubectl logs -f job/{{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
+  kubectl get job {{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
+
+Results are read from `kubectl logs`, not a downloaded report -- the
+container has no shell (`kubectl cp` needs tar inside the pod, which this
+distroless image deliberately doesn't have), so Gatling's own live +
+final console summary in the log output IS the deliverable for this path.
+If you need the full interactive HTML report with charts, use the
+kubectl-port-forward path instead (hsm-core-service/scripts/run-load-test-k8s.sh)
+-- see java/docs/PERFORMANCE_TESTING.md for the tradeoff between the two.
+
+backoffLimit is {{ .Values.backoffLimit }} -- a failed/partial run does NOT
+auto-retry; a load test re-running itself isn't a meaningful "resume." Just
+`helm install` again with a new release name.
+
+Clean up:
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+  {{- if gt (int .Values.ttlSecondsAfterFinished) 0 }}
+  (or wait -- ttlSecondsAfterFinished={{ .Values.ttlSecondsAfterFinished }}s auto-deletes the Job/pod after completion)
+  {{- end }}

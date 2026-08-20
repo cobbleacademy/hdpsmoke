@@ -1,0 +1,85 @@
+
+# ── Image ──────────────────────────────────────────────────────────────────────
+# Built from java/docker/Dockerfile.hsm-core-service-loadtest. Reused as-is
+# across every run -- nothing run-specific is baked into the image, only into
+# this chart's values/the target Secret below. Rebuild/retag only on an actual
+# code change to the simulation itself.
+image:
+  repository: your-registry.azurecr.io/hsm-core-service-loadtest
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+# ── Target & credentials ─────────────────────────────────────────────────────────
+# In-cluster DNS name of the hsm-core-service Service to load-test -- e.g.
+# http://<release-name>.<namespace>.svc.cluster.local:3005, or just
+# http://<release-name>:3005 for a same-namespace target (Kubernetes' own DNS
+# search path resolves the short form). REQUIRED.
+baseUrl: ""
+
+# Name of a pre-existing Secret holding two keys: "app-id" and "token" -- a
+# real app_id and a real bearer JWT for an app registered with both encrypt
+# and decrypt scopes. This chart does NOT create the Secret (see NOTES.txt for
+# the exact kubectl command) -- deployed hsm-core-service runs with
+# DEMO_MODE=false, so MockJwtValidator's fixed demo-token-* strings do not
+# work here; RsaJwtValidator requires a genuinely signed token. A real Azure
+# AD JWT is short-lived (~1h) -- keep holdSeconds well under that, or mint a
+# fresh token right before `helm install`. REQUIRED.
+targetSecretName: ""
+
+# ── Load profile ───────────────────────────────────────────────────────────────
+# Same knobs as EncryptDecryptLoadSimulation's own javadoc -- see
+# java/docs/PERFORMANCE_TESTING.md for what each one does.
+loadTest:
+  singleUsers: 20
+  batchUsers: 5
+  batchSize: 20
+  rampSeconds: 10
+  holdSeconds: 30
+
+# No auto-retry -- a load test re-running itself after a partial/failed run
+# isn't a meaningful "resume," it's just a second, separate run. Re-run
+# deliberately with a new `helm install` instead.
+backoffLimit: 0
+
+# Safety cap -- comfortably above rampSeconds+holdSeconds' default (40s) but
+# bump it if you raise holdSeconds well beyond the default.
+activeDeadlineSeconds: 1800   # 30m
+
+# Auto-cleanup of the completed Job/pod, long enough to read `kubectl logs`
+# first. Set to a negative value (or omit) to disable and clean up manually.
+ttlSecondsAfterFinished: 3600  # 1h
+
+# ── Resources ──────────────────────────────────────────────────────────────────
+# Gatling's own async NIO engine is lightweight per virtual user -- these
+# defaults comfortably cover the loadTest defaults above. Re-tune only for a
+# much larger singleUsers/batchUsers run.
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# ── Security ───────────────────────────────────────────────────────────────────
+# Mirrors the Dockerfile exactly -- same distroless :nonroot uid/gid 65532
+# convention as every other chart in this repo.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

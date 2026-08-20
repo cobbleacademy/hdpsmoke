@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hsm.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsm.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+  {{- if ge (int .Values.ttlSecondsAfterFinished) 0 }}
+  ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "hsm.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.securityContext.pod | nindent 8 }}
+      containers:
+        - name: hsm-core-service-loadtest
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext.container | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            # Sourced from a Secret, never a plain value -- a `kubectl describe
+            # pod` on a secretKeyRef-sourced env var shows only "<set to the
+            # key 'x' in secret 'y'>", not the actual token, unlike a literal
+            # env value. Referenced below via $(HSM_APP_ID)/$(HSM_TOKEN) --
+            # Kubernetes resolves $(VAR) references against earlier-defined
+            # env vars in the same list before the container starts.
+            - name: HSM_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "targetSecretName is required -- create a Secret with keys app-id/token first (see NOTES.txt), then --set targetSecretName=<name>" .Values.targetSecretName }}
+                  key: app-id
+            - name: HSM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.targetSecretName }}
+                  key: token
+            # The JVM auto-consumes this env var before running main() -- the
+            # only way to vary per-run -D system properties on this shell-less
+            # distroless image (no entrypoint script, no `sh -c` to build an
+            # arg list from env vars at container-start time). See
+            # Dockerfile.hsm-core-service-loadtest's ENTRYPOINT comment.
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                -Dhsm.baseUrl={{ required "baseUrl is required -- the in-cluster URL of the hsm-core-service to load-test" .Values.baseUrl }}
+                -Dhsm.appId=$(HSM_APP_ID)
+                -Dhsm.token=$(HSM_TOKEN)
+                -Dhsm.singleUsers={{ .Values.loadTest.singleUsers }}
+                -Dhsm.batchUsers={{ .Values.loadTest.batchUsers }}
+                -Dhsm.batchSize={{ .Values.loadTest.batchSize }}
+                -Dhsm.rampSeconds={{ .Values.loadTest.rampSeconds }}
+                -Dhsm.holdSeconds={{ .Values.loadTest.holdSeconds }}
+          volumeMounts:
+            # Gatling's -rf /results output dir -- readOnlyRootFilesystem
+            # above makes everywhere else unwritable. Not retrieved after the
+            # run (kubectl cp needs tar inside the container, which this
+            # shell-less distroless image deliberately doesn't have) -- read
+            # results via `kubectl logs`, which captures Gatling's own live +
+            # final console summary in full. See NOTES.txt.
+            - name: results
+              mountPath: /results
+      volumes:
+        - name: results
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

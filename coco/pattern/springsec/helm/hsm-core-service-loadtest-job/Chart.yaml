@@ -1,0 +1,16 @@
+apiVersion: v2
+name: hsm-core-service-loadtest-job
+description: Runs the Gatling encrypt/decrypt load test as a Kubernetes Job against a deployed hsm-core-service -- each install is a single measurement run, not a long-lived service
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - encryption
+  - hsm
+  - security
+  - performance
+  - gatling
+  - job
+home: https://example.internal/hsm-core-service
+maintainers:
+  - name: Platform Security
