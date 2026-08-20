@@ -245,3 +245,51 @@ Lines 102-106: new EdekRecord(edekId, appId, resolved.edekBlobB64(), resolved.ke
 6. The HTTP response
 Lines 115-122: EncryptResponse bundles the ciphertext_token string, edek_id, appId, algorithm, encoding, kek_version, and — separately, base64-encoded individually — iv, ciphertext, and tag again (redundant with what's packed in the token, kept for the demo UI's own display/debugging convenience), plus the reused boolean (line 121) telling the caller whether this call minted a new DEK or reused an existing named one.
 -----------------------------------------------------------------------------------------------------------
+1. Local CLI run against ADLS (dev/testing)
+
+Source and target types are independent per side — either, both, or neither can be ADLS:
+
+client:
+  file:
+    source:
+      type: ADLS
+      root: "abfss://raw-container@myaccount.dfs.core.windows.net/customers"
+    target:
+      type: ADLS
+      root: "abfss://secure-container@myaccount.dfs.core.windows.net/customers-encrypted"
+
+No credential fields in config at all — AdlsFileStore resolves purely from the environment, so for a local run you'd either:
+# Option A: Azure CLI login (falls through to DefaultAzureCredential)
+az login
+scripts/run.sh config-examples/file-encrypt-adls-example.yml
+
+# Option B: explicit Managed/Workload Identity env vars, same as production
+export AZURE_CLIENT_ID="<client-id>"
+export AZURE_TENANT_ID="<tenant-id>"
+scripts/run.sh config-examples/file-encrypt-adls-example.yml
+
+2. Mixed — local source, ADLS target (or vice versa)
+
+Since the two sides are fully independent, a migration-style job (e.g. "encrypt files currently on local disk, land them in ADLS") is just:
+
+client:
+  file:
+    source:
+      type: LOCAL
+      root: /path/to/source
+    target:
+      type: ADLS
+      root: "abfss://secure-container@myaccount.dfs.core.windows.net/customers-encrypted"
+
+3. Production — Kubernetes Job with Workload Identity
+
+This is the real path for a deployed run (helm/hsm-bulk-client-job), and it's what makes the config above credential-free in the first place — AKS's workload identity webhook injects AZURE_CLIENT_ID/AZURE_TENANT_ID/AZURE_FEDERATED_TOKEN_FILE and mounts the token file automatically, at exactly the well-known path AdlsFileStore already reads:
+
+helm install my-adls-job helm/hsm-bulk-client-job \
+  --set secretName=my-run-config \
+  --set workloadIdentity.enabled=true \
+  --set serviceAccount.create=true \
+  --set-string serviceAccount.annotations."azure\.workload\.identity/client-id"="<AZURE_CLIENT_ID>" \
+  -n <namespace>
+-----------------------------------------------------------------------------------------------------------
+
