@@ -1,0 +1,84 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-core-service-loadtest -t hsm-core-service-loadtest:1.0.0 .
+#
+# Packages the Gatling load test (com.hsm.core.loadtest.EncryptDecryptLoadSimulation,
+# hsm-core-service/src/test/java) as a standalone image so it can run as a
+# Kubernetes Job against a deployed hsm-core-service -- see
+# helm/hsm-core-service-loadtest-job and java/docs/PERFORMANCE_TESTING.md's
+# "Deployed environment" section. This is the in-cluster alternative to the
+# no-new-infra kubectl-port-forward path (hsm-core-service/scripts/run-load-test-k8s.sh);
+# see that doc for the tradeoff between the two.
+#
+# Same distroless multi-stage pattern as Dockerfile.hsm-core-service (see there
+# for the full base-image/digest-pinning rationale). Two real differences:
+# no EXPOSE (this process only makes outbound calls, like Dockerfile.hsm-bulk-client),
+# and the final stage copies a flat lib/ directory of test-scope jars instead of
+# a Spring Boot fat jar -- the simulation class has zero compile dependency on
+# any hsm-core-service main-module class, so there's nothing Spring-Boot-specific
+# to repackage; a plain classpath is simpler and correct here.
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
+# Maven's reactor needs every module's pom.xml present (parent's <modules> list
+# must resolve) even with -pl/-am limiting what actually gets *built* -- these
+# three don't need their src copied in, only their pom.xml, same as every
+# other single-module Dockerfile in this repo.
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-bulk-service/pom.xml hsm-bulk-service/pom.xml
+COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-core-service/src hsm-core-service/src
+# -DincludeScope=test pulls in every dependency this module has at any scope
+# (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +
+# Jackson for simplicity; the simulation class itself only touches
+# io.gatling.javaapi.* and com.fasterxml.jackson.databind.*, so most of this
+# (Azure SDK, Postgres driver, Bouncy Castle, etc.) rides along unused. Fine
+# for a diagnostic tool image, same order of magnitude as this repo's other
+# module images -- revisit if image size ever becomes an actual constraint.
+RUN mvn -q -pl hsm-core-service -am test-compile dependency:copy-dependencies \
+    -DincludeScope=test -DoutputDirectory=target/lib
+
+# Debian-based distroless, not Ubuntu -- same rationale and same image as every
+# other Dockerfile here. The :nonroot tag bakes in a fixed uid/gid 65532 -- no
+# groupadd/useradd/chown needed, and no shell to run them with anyway. This UID
+# must stay in sync with securityContext in helm/hsm-core-service-loadtest-job/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /workspace/hsm-core-service/target/test-classes classes
+COPY --from=build --chown=65532:65532 /workspace/hsm-core-service/target/lib lib
+
+# No EXPOSE -- like Dockerfile.hsm-bulk-client, this process never accepts
+# inbound connections, it only calls out to whatever -Dhsm.baseUrl points at.
+#
+# No HEALTHCHECK -- distroless has no shell/curl, same as every other
+# Dockerfile here. Not meaningful for a Job anyway: K8s tracks Job/pod
+# completion by exit code, not liveness/readiness probes (see
+# helm/hsm-core-service-loadtest-job/templates/job.yaml, which defines neither).
+
+# All per-run tuning (-Dhsm.baseUrl/-Dhsm.appId/-Dhsm.token/-Dhsm.singleUsers/etc.)
+# comes from the JAVA_TOOL_OPTIONS env var, not baked-in args -- the JVM itself
+# picks that env var up automatically before running main(), which is the only
+# way to vary per-run system properties on a shell-less distroless image (no sh
+# -c, no entrypoint script possible). See job.yaml's env block for how the
+# Helm chart sets it. --add-opens/--enable-native-access are required on
+# JDK 17+ for Gatling's own stats writer (reflective String internals access);
+# gatling-maven-plugin sets these automatically when it forks its own JVM
+# (see mvn's own launcher script), a bare `java` invocation like this one has
+# to set them explicitly -- confirmed by reproducing the
+# IllegalAccessException/module-not-opened failure without them.
+#
+# -rf /results: Gatling's own results/report directory. readOnlyRootFilesystem
+# (see values.yaml) makes everywhere else unwritable, so this must land on the
+# "results" emptyDir volume job.yaml mounts here. The HTML report itself is
+# NOT retrieved from the pod (kubectl cp needs tar inside the container, which
+# a shell-less distroless image doesn't have, deliberately) -- read results via
+# `kubectl logs`, which captures Gatling's own live + final console summary in
+# full. Use the port-forward path instead (scripts/run-load-test-k8s.sh) if the
+# interactive HTML report itself is what you need.
+ENTRYPOINT ["java", \
+    "--add-opens", "java.base/java.lang=ALL-UNNAMED", \
+    "--enable-native-access=ALL-UNNAMED", \
+    "-cp", "/app/classes:/app/lib/*", \
+    "io.gatling.app.Gatling", \
+    "-s", "com.hsm.core.loadtest.EncryptDecryptLoadSimulation", \
+    "-rf", "/results"]
