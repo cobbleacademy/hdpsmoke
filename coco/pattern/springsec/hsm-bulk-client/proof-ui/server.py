@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""
+Standalone, dependency-free proof tool for hsm-bulk-client's BULK File
+encrypt/decrypt pipeline -- deliberately NOT part of hsm-bulk-client itself,
+which stays headless/CLI-only by design (see ClientApplication's own javadoc:
+"this is a batch job, not a server"). This is a separate, throwaway
+verification aid, not a production feature.
+
+What it does, on "Run proof": drives the REAL hsm-bulk-client.jar (not a
+reimplementation of its crypto) through a real ENCRYPT run then a real DECRYPT
+run against a real running hsm-core-service/hsm-bulk-service, using a sample
+PDF sized to guarantee multiple real chunks at the default 8 MiB
+chunk-size-bytes (see SAMPLE_TARGET_MB below). Compares the round-tripped
+output against the original byte-for-byte (SHA-256), and serves both PDFs so
+the browser can render the decrypted one directly -- visual confirmation on
+top of the hash comparison, not instead of it.
+
+No live per-chunk progress by design (an explicit simplification, not an
+oversight) -- FileBulkJob only logs progress at the file level, not the
+chunk level, and there was no reason to add chunk-level logging just for this
+tool. This runs the real pipeline to completion, then shows the result.
+
+Prerequisites (this script does NOT start these for you):
+  - hsm-core-service and hsm-bulk-service both already running (demo mode,
+    sharing one H2 file via AUTO_SERVER=TRUE -- hsm-bulk-service has no seed
+    data of its own, it relies on hsm-core-service's DemoSeedInitializer
+    having already created the payments-svc app_registrations row).
+  - payments-svc provisioned with dek_issue/dek_unwrap scopes and a
+    public_key_pem matching demo-private-key.pem alongside this script (see
+    this directory's README for the exact SQL used to provision it).
+  - hsm-bulk-client/target/hsm-bulk-client.jar already built
+    (mvn -pl hsm-bulk-client package -DskipTests).
+
+Usage:
+  python3 server.py [--port 8000]
+  open http://localhost:8000
+"""
+import argparse
+import hashlib
+import http.server
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+MODULE_DIR = SCRIPT_DIR.parent
+JAR_PATH = MODULE_DIR / "target" / "hsm-bulk-client.jar"
+SAMPLE_PDF = SCRIPT_DIR / "sample.pdf"
+PRIVATE_KEY_PATH = SCRIPT_DIR / "demo-private-key.pem"
+WORK_DIR = SCRIPT_DIR / "work"
+
+SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3006")
+APP_ID = os.environ.get("PROOF_UI_APP_ID", "payments-svc")
+TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
+CHUNK_SIZE_BYTES = 8388608  # 8 MiB, matches FileBulkJob's own default
+SAMPLE_TARGET_MB = 80  # minimum -- sample.pdf is regenerated if smaller than this
+
+# Java 26 install used elsewhere in this session -- override via JAVA_BIN if different.
+JAVA_BIN = os.environ.get("JAVA_BIN", "/usr/local/Cellar/openjdk/26.0.1/libexec/openjdk.jdk/Contents/Home/bin/java")
+
+
+def ensure_sample_pdf():
+    """Generates sample.pdf if missing or under the target size -- random-noise
+    image saved as a single-page PDF via Pillow, sized so JPEG's mild
+    compression on high-entropy data still lands comfortably over the target.
+    Regenerable, not committed as a static blob for its own sake."""
+    if SAMPLE_PDF.exists() and SAMPLE_PDF.stat().st_size >= SAMPLE_TARGET_MB * 1024 * 1024:
+        return
+    from PIL import Image
+    print(f"Generating a >={SAMPLE_TARGET_MB}MB sample PDF (one-time)...", file=sys.stderr)
+    w = h = 6900
+    raw = os.urandom(w * h * 3)
+    img = Image.frombytes("RGB", (w, h), raw)
+    img.save(str(SAMPLE_PDF), "PDF", resolution=150.0, quality=100)
+    size_mb = SAMPLE_PDF.stat().st_size / (1024 * 1024)
+    print(f"Wrote {SAMPLE_PDF} ({size_mb:.1f} MB)", file=sys.stderr)
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_job_yaml(path: Path, mode: str, source_root: Path, target_root: Path):
+    private_key_pem = PRIVATE_KEY_PATH.read_text()
+    indented_key = "\n".join("      " + line for line in private_key_pem.splitlines())
+    path.write_text(f"""\
+client:
+  job:
+    type: FILE
+    mode: {mode}
+  svc:
+    base-url: {SVC_BASE_URL}
+    app-id: {APP_ID}
+    auth-mode: STATIC
+    token: "{TOKEN}"
+    dek-batch-max-items: 100
+    private-key-pem: |
+{indented_key}
+  file:
+    source:
+      type: LOCAL
+      root: {source_root}
+    target:
+      type: LOCAL
+      root: {target_root}
+    file-types: []   # match all -- the source dir here only ever holds the one chosen file anyway
+    chunk-size-bytes: {CHUNK_SIZE_BYTES}
+    files-per-batch: 10
+    parallelism: 1
+""")
+
+
+def run_bulk_client(job_yaml: Path) -> dict:
+    start = time.time()
+    proc = subprocess.run(
+        [JAVA_BIN, "-jar", str(JAR_PATH),
+         f"--spring.config.additional-location=file:{job_yaml}"],
+        capture_output=True, text=True, timeout=180,
+    )
+    elapsed = time.time() - start
+    log = proc.stdout + proc.stderr
+    return {
+        "exit_code": proc.returncode,
+        "elapsed_seconds": round(elapsed, 2),
+        "log_tail": "\n".join(log.splitlines()[-25:]),
+        "success": proc.returncode == 0 and "hsm_bulk_client_complete" in log,
+    }
+
+
+def run_proof(source_file: Path = None, display_name: str = None) -> dict:
+    """source_file/display_name let a caller point this at an arbitrary local
+    file (via the UI's path field) instead of the built-in sample.pdf --
+    everything else about the flow (encrypt -> decrypt -> hash-compare -> serve
+    for the browser) is identical either way, this is the only thing that
+    varies. Hash comparison works for any file type; the browser preview
+    (<embed type="application/pdf">) specifically assumes PDF, same as the
+    whole rest of this conversation's context -- a non-PDF file would still
+    get correctly verified, it just wouldn't render in the preview panes."""
+    if not JAR_PATH.exists():
+        return {"ok": False, "error": f"{JAR_PATH} not found -- build it first: "
+                                       "mvn -pl hsm-bulk-client package -DskipTests"}
+    if source_file is None:
+        ensure_sample_pdf()
+        source_file = SAMPLE_PDF
+        display_name = "sample.pdf"
+
+    if WORK_DIR.exists():
+        shutil.rmtree(WORK_DIR)
+    encrypt_source = WORK_DIR / "encrypt-source"
+    encrypt_target = WORK_DIR / "encrypt-target"
+    decrypt_target = WORK_DIR / "decrypt-target"
+    for d in (encrypt_source, encrypt_target, decrypt_target):
+        d.mkdir(parents=True)
+    # Always copied in under a fixed working name, not the original filename --
+    # this is purely FileBulkJob's own working file, keeping the rest of this
+    # function's logic (encrypt_target / WORKING_NAME etc.) independent of
+    # whatever the uploaded file was actually called. display_name (shown to
+    # the user, and the served download's filename) is tracked separately.
+    working_name = "input.pdf"
+    shutil.copy(source_file, encrypt_source / working_name)
+
+    original_size = source_file.stat().st_size
+    expected_chunks = -(-original_size // CHUNK_SIZE_BYTES)  # ceil div
+
+    encrypt_yaml = WORK_DIR / "encrypt-job.yml"
+    write_job_yaml(encrypt_yaml, "ENCRYPT", encrypt_source, encrypt_target)
+    encrypt_result = run_bulk_client(encrypt_yaml)
+
+    encrypted_file = encrypt_target / working_name
+    if not encrypt_result["success"] or not encrypted_file.exists():
+        return {"ok": False, "error": "ENCRYPT run failed", "encrypt": encrypt_result}
+
+    decrypt_yaml = WORK_DIR / "decrypt-job.yml"
+    write_job_yaml(decrypt_yaml, "DECRYPT", encrypt_target, decrypt_target)
+    decrypt_result = run_bulk_client(decrypt_yaml)
+
+    decrypted_file = decrypt_target / working_name
+    if not decrypt_result["success"] or not decrypted_file.exists():
+        return {"ok": False, "error": "DECRYPT run failed",
+                "encrypt": encrypt_result, "decrypt": decrypt_result}
+
+    original_sha256 = sha256_of(source_file)
+    decrypted_sha256 = sha256_of(decrypted_file)
+    decrypted_size = decrypted_file.stat().st_size
+    encrypted_size = encrypted_file.stat().st_size
+
+    # Kept for the /original.pdf and /decrypted.pdf endpoints to serve from,
+    # since source_file itself may be a temp upload path that won't outlive
+    # this request.
+    shutil.copy(source_file, WORK_DIR / "original.pdf")
+    shutil.copy(decrypted_file, WORK_DIR / "served-decrypted.pdf")
+
+    return {
+        "ok": True,
+        "display_name": display_name,
+        "match": original_sha256 == decrypted_sha256,
+        "expected_chunks": expected_chunks,
+        "chunk_size_bytes": CHUNK_SIZE_BYTES,
+        "original_size": original_size,
+        "encrypted_size": encrypted_size,
+        "decrypted_size": decrypted_size,
+        "original_sha256": original_sha256,
+        "decrypted_sha256": decrypted_sha256,
+        "encrypt": encrypt_result,
+        "decrypt": decrypt_result,
+    }
+
+
+INDEX_HTML = """<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hsm-bulk-client decrypt proof</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  table { border-collapse: collapse; margin-top: 1rem; width: 100%; }
+  td, th { border: 1px solid #ccc; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+  .pass { color: #0a7d1e; font-weight: bold; }
+  .fail { color: #c62828; font-weight: bold; }
+  .hash { font-family: monospace; font-size: 0.75rem; word-break: break-all; }
+  pre { background: #f5f5f5; padding: 0.75rem; overflow-x: auto; font-size: 0.75rem; }
+  .previews { display: flex; gap: 1rem; margin-top: 1.5rem; }
+  .previews > div { flex: 1; }
+  embed { width: 100%; height: 500px; border: 1px solid #ccc; }
+  #status { margin-top: 1rem; }
+  #pathInput { width: 30rem; max-width: 70%; padding: 0.4rem; font-size: 0.95rem; }
+  .controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<h1>hsm-bulk-client BULK File decrypt proof</h1>
+<p>Runs a real ENCRYPT then DECRYPT of a file through the actual
+<code>hsm-bulk-client.jar</code>, against a real running hsm-core-service /
+hsm-bulk-service. Compares the round-tripped output against the original
+byte-for-byte (SHA-256), then renders both PDFs below.</p>
+<div class="controls">
+  <input type="text" id="pathInput" placeholder="/absolute/path/to/file.pdf -- leave blank for the built-in >=80MB sample">
+  <button id="runBtn" onclick="runProof()">Run proof</button>
+</div>
+<span id="status"></span>
+<div id="result"></div>
+<script>
+async function runProof() {
+  const btn = document.getElementById('runBtn');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  const path = document.getElementById('pathInput').value.trim();
+  btn.disabled = true;
+  status.textContent = ' Running encrypt + decrypt through the real pipeline...';
+  result.innerHTML = '';
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path }),
+    });
+    const data = await res.json();
+    status.textContent = '';
+    if (!data.ok) {
+      result.innerHTML = '<p class="fail">FAILED: ' + (data.error || 'unknown error') + '</p>' +
+        '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+      return;
+    }
+    const verdict = data.match
+      ? '<span class="pass">MATCH -- decrypted output is byte-for-byte identical to the original</span>'
+      : '<span class="fail">MISMATCH -- decrypted output differs from the original</span>';
+    result.innerHTML = `
+      <h2>${data.display_name}: ${verdict}</h2>
+      <table>
+        <tr><th></th><th>Size (bytes)</th><th>SHA-256</th></tr>
+        <tr><td>Original</td><td>${data.original_size.toLocaleString()}</td><td class="hash">${data.original_sha256}</td></tr>
+        <tr><td>Encrypted (intermediate)</td><td>${data.encrypted_size.toLocaleString()}</td><td class="hash">framing overhead expected, not compared</td></tr>
+        <tr><td>Decrypted (round-tripped)</td><td>${data.decrypted_size.toLocaleString()}</td><td class="hash">${data.decrypted_sha256}</td></tr>
+      </table>
+      <p>Chunked into ${data.expected_chunks} chunks at ${(data.chunk_size_bytes / 1024 / 1024).toFixed(0)} MiB each.
+         Encrypt: ${data.encrypt.elapsed_seconds}s. Decrypt: ${data.decrypt.elapsed_seconds}s.</p>
+      <details><summary>Encrypt log (tail)</summary><pre>${data.encrypt.log_tail}</pre></details>
+      <details><summary>Decrypt log (tail)</summary><pre>${data.decrypt.log_tail}</pre></details>
+      <div class="previews">
+        <div><h3>Original</h3><embed src="/original.pdf?t=${Date.now()}" type="application/pdf"></div>
+        <div><h3>Decrypted (round-tripped)</h3><embed src="/decrypted.pdf?t=${Date.now()}" type="application/pdf"></div>
+      </div>
+    `;
+  } catch (e) {
+    status.textContent = '';
+    result.innerHTML = '<p class="fail">Request failed: ' + e + '</p>';
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
+"""
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _send_file(self, path: Path, content_type: str):
+        if not path.exists():
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(path.stat().st_size))
+        self.end_headers()
+        with open(path, "rb") as f:
+            shutil.copyfileobj(f, self.wfile)
+
+    def do_GET(self):
+        if self.path == "/" or self.path == "/index.html":
+            body = INDEX_HTML.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/original.pdf":
+            self._send_file(WORK_DIR / "original.pdf", "application/pdf")
+        elif self.path.startswith("/decrypted.pdf"):
+            self._send_file(WORK_DIR / "served-decrypted.pdf", "application/pdf")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/api/run":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length) if length else b"{}"
+                payload = json.loads(raw or b"{}")
+                path_str = (payload.get("path") or "").strip()
+                if path_str:
+                    source_file = Path(path_str).expanduser()
+                    if not source_file.is_file():
+                        raise FileNotFoundError(f"No such file: {source_file}")
+                    result = run_proof(source_file=source_file, display_name=source_file.name)
+                else:
+                    result = run_proof()
+            except subprocess.TimeoutExpired:
+                result = {"ok": False, "error": "hsm-bulk-client run timed out (>180s)"}
+            except Exception as e:
+                result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            body = json.dumps(result).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    ensure_sample_pdf()
+    # Bind 127.0.0.1 explicitly, not "localhost" -- some clients resolve
+    # "localhost" to ::1 first and hang/timeout before falling back to IPv4,
+    # which is all this server actually binds (found live while testing this
+    # script: curl http://localhost:8000 timed out, curl http://127.0.0.1:8000
+    # worked instantly, same server, same port).
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    print(f"Serving on http://127.0.0.1:{args.port}", file=sys.stderr)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
