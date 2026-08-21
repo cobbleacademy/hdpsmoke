@@ -10,6 +10,17 @@
 # ClientProperties.Db.TableRef's javadoc and DbBulkJob.resolveSourceFrom for
 # the mechanics.
 #
+# REQUIRED for query's ORDER BY below (not just recommended, see TableRef.query's
+# javadoc): the column(s) must be genuinely, verifiably unique in the real data --
+# every fetchPage/computePartitionRanges call re-executes this SELECT from
+# scratch (nothing here is persisted), and ROW_NUMBER() over a non-unique ORDER
+# BY has no defined tie order across separate executions -- a tied row can be
+# renumbered between calls and silently land in the wrong page or partition.
+# Confirmed empirically, not just reasoned about, in
+# DerivedTableParallelismTest. If ssn (as used below) isn't provably unique in
+# your actual table, use a genuinely unique combination instead, e.g.
+# ORDER BY ssn, account_number.
+#
 # Run with:
 #   scripts/run.sh config-examples/db-encrypt-no-natural-key-example.yml
 

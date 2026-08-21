@@ -7,10 +7,14 @@
 # Ordering by a ciphertext column here (ssn_ciphertext) is deliberate, not a
 # fallback: DekManager's AES-GCM encryption uses a random IV per call, so two
 # rows with the identical plaintext ssn still get distinct ciphertext tokens --
-# ssn_ciphertext is genuinely unique per row, a better ORDER BY key than the
-# original plaintext ssn would even be. ROW_NUMBER()'s ordering only needs to
-# be internally stable for the run, never semantically meaningful -- see
-# db-encrypt-no-natural-key-example.yml's query comment for the same point.
+# ssn_ciphertext is genuinely unique per row (unlike plaintext ssn, which this
+# job can't assume is), which is exactly the REQUIRED property here: see
+# db-encrypt-no-natural-key-example.yml's top-of-file note -- ROW_NUMBER()'s
+# ORDER BY must be over a verifiably unique column, not just "probably
+# unique," since every page/partition query re-executes it independently and
+# ties have no defined order across separate executions (confirmed in
+# DerivedTableParallelismTest). ssn_ciphertext's uniqueness isn't semantic
+# ordering, just the tie-free property this needs.
 #
 # Run with:
 #   scripts/run.sh config-examples/db-decrypt-no-natural-key-example.yml
