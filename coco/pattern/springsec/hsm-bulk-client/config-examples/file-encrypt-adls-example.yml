@@ -68,9 +68,17 @@ client:
     source:
       type: ADLS
       root: "abfss://raw-container@myaccount.dfs.core.windows.net/customers"
+      # TEMPORARY VALIDATION ONLY -- leave unset for the real deployment run. Setting
+      # this makes AdlsFileStore use shared-key auth INSTEAD OF WorkloadIdentity,
+      # bypassing it entirely -- only for validating this job end-to-end before the
+      # deployment identity's "Storage Blob Data Contributor" RBAC role is actually
+      # granted (see ClientProperties.File.StoreRef's javadoc). Get the key via:
+      #   az storage account keys list --account-name myaccount --query "[0].value" -o tsv
+      # account-key: "<storage account key -- delete this line before real deployment>"
     target:
       type: ADLS
       root: "abfss://secure-container@myaccount.dfs.core.windows.net/customers-encrypted"
+      # account-key: "<same temporary escape hatch as source.account-key above -- see that comment>"
     file-types: []   # e.g. [".png", ".txt", ".pdf"] -- empty means all files
     chunk-size-bytes: 8388608   # 8 MiB
     files-per-batch: 10
