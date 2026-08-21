@@ -592,3 +592,78 @@ slow `file decrypt` job.
      the new `HsmProperties.Azure`/`HsmBulkProperties.Azure` field nor any
      other change in this round broke a positional record construction
      anywhere else in the codebase.
+9. **Multi-database source/target round (`hsm-bulk-client`) -- driven by a real
+   requirement, not speculative**: real consumers have source/target databases
+   on MS SQL Server, Azure SQL Database (wire-compatible with on-prem SQL
+   Server -- one dialect to build, not two), and Oracle, not just Postgres.
+   Explicitly scoped in a requirements discussion before any code was written:
+   this round covers dialect support only; letting a source be an arbitrary
+   SQL query instead of a whole table (for callers that only need to
+   encrypt/decrypt a filtered subset) was raised in the same discussion and
+   deliberately deferred to a follow-up round.
+   - **What's actually dialect-specific, confirmed by reading the real code,
+     not assumed**: `DbBulkJob`'s pagination (keyset `WHERE` clause plus a
+     row-count cap) turned out to need zero per-dialect branching once
+     switched from Postgres's `LIMIT` shorthand to the ANSI SQL:2008
+     `OFFSET ... FETCH NEXT ... ROWS ONLY` clause, which Postgres, SQL Server
+     2012+, and Oracle 12c+ all support natively. Only `CheckpointStore`
+     (table-existence check, DDL, upsert) has genuine per-vendor syntax --
+     Postgres's `to_regclass`/`ON CONFLICT` have no equivalent shorthand on
+     SQL Server or Oracle, both of which need a full `MERGE` for the upsert
+     and their own existence-check idiom (`OBJECT_ID` on SQL Server; a
+     trial `SELECT ... WHERE 1=0` catching the not-found exception on
+     Oracle, since Oracle has no single catalog function taking a
+     possibly-schema-qualified name as one argument the way `to_regclass`
+     does).
+   - **New `DbDialect` enum** (`POSTGRESQL`/`SQL_SERVER`/`ORACLE`), resolved
+     per connection (source and target independently, since a job can read
+     from one vendor and write to another) from the JDBC URL scheme, with an
+     explicit override (`ClientProperties.Db.TableRef.dialect`) that always
+     wins when set -- added specifically because a JDBC URL scheme identifies
+     which driver/wire protocol is in use, not necessarily which real SQL
+     dialect quirks the backend has (raised directly in the requirements
+     discussion: some products present a different vendor's wire protocol for
+     driver compatibility while diverging from that vendor's actual SQL
+     behavior).
+   - **New drivers**: `mssql-jdbc:13.4.0.jre11` and `ojdbc17:23.26.3.0.0`,
+     both confirmed published directly on Maven Central under an open
+     license -- no private/Oracle-hosted repository or extra credentials
+     needed to resolve either.
+   - **Verified live, against real H2 (not simulated)**: a new
+     `PaginationSyntaxTest` exercises the exact ANSI `OFFSET`/`FETCH` SQL text
+     `fetchPage`/`computePartitionRanges` now generate -- page-size capping,
+     keyset continuation, the parallel-partition `uptoInclusive` bound, the
+     boundary-key lookup, and the past-end-of-table empty-result case. 5/5
+     pass. H2 was deliberately chosen as a *second* real engine agreeing with
+     Postgres/SQL Server/Oracle's own documented `OFFSET`/`FETCH` syntax,
+     corroborating that this is genuinely standard SQL rather than something
+     that happens to work on one vendor by coincidence.
+   - **`CheckpointStore`'s new SQL Server/Oracle branches were checked
+     against primary sources before being written**, not guessed: confirmed
+     SQL Server's `MERGE` statement requires a terminating semicolon (a
+     documented error, 10713, if omitted) via Microsoft Learn, and confirmed
+     the exact Oracle `MERGE ... USING (SELECT :a AS a, :b AS b FROM dual)`
+     multi-bind-variable pattern directly against Oracle's own official SQL
+     Language Reference before using it.
+   - **New `CheckpointStoreTest`** (Testcontainers: real Postgres/SQL
+     Server/Oracle containers) exercises `ensureTable` (create, then
+     idempotent no-op on a second call), `save` (insert then upsert via the
+     `WHEN MATCHED` branch specifically -- the riskiest part of both the SQL
+     Server and Oracle SQL to get right), and `clear`, once per dialect. Not
+     run in the environment this was written in -- no Docker daemon was
+     reachable there (`docker info` failed to connect), same limitation as
+     every other Docker/Testcontainers-dependent piece of work in this
+     project's history. Found and fixed a real gap during this: a bare
+     `@Testcontainers`/`@Container` class *hard-fails* `mvn test` with
+     "Could not find a valid Docker environment" when no daemon is reachable,
+     rather than skipping -- which would have broken this module's default
+     build in any environment without Docker, not just this one. Fixed by
+     adding `@EnabledIfDockerAvailable`; confirmed live that the test class
+     now skips cleanly (0 failures, 0 errors, 3 skipped) instead of failing
+     the build.
+   - `mvn --fail-at-end test` across the full reactor: `hsm-bulk-client`
+     itself SUCCESS (including both new test classes behaving as described
+     above); the only reactor-wide failure was `hsm-core-service`'s
+     pre-existing `DemoProfileContextLoadTest` H2-file-lock error, caused by
+     an unrelated demo instance left running from earlier work in this same
+     session, not by anything in this round.
