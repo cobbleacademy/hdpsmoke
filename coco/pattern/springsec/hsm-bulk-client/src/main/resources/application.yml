@@ -51,6 +51,14 @@ client:
       password: ${DB_SOURCE_PASSWORD:}
       schema: ${DB_SOURCE_SCHEMA:}
       table: ${DB_SOURCE_TABLE:}
+      # Alternative to table, source-only -- a full SELECT (no trailing semicolon),
+      # wrapped as a derived table and re-executed fresh on every page fetch. Set
+      # this OR table, never both. See ClientProperties.Db.TableRef's javadoc; the
+      # main use is a source with no existing non-sensitive sortable column to use
+      # as key-column, via an inline ROW_NUMBER() -- no CREATE VIEW privilege
+      # needed. Only override via a job-specific config file (like columns below),
+      # not this env var -- a multi-line SQL query doesn't fit one env var cleanly.
+      # query: "SELECT ROW_NUMBER() OVER (ORDER BY ssn) AS row_key, ssn, dob FROM dbo.customers"
     target:
       # Defaults to source.jdbc-url when blank -- same-DB, different-schema/table
       # is the common case; set explicitly only for a genuinely separate target DB.
@@ -60,6 +68,11 @@ client:
       schema: ${DB_TARGET_SCHEMA:}
       table: ${DB_TARGET_TABLE:}
     key-column: ${DB_KEY_COLUMN:id}
+    # false (default) -- key-column's raw value is always the first column of every
+    # target INSERT, under its own name. true -- key-column is pagination-only (e.g.
+    # a ROW_NUMBER() computed by source.query below) and is never written to target
+    # at all; target rows come purely from columns + passthrough-columns.
+    skip-key-column-on-target: ${DB_SKIP_KEY_COLUMN_ON_TARGET:false}
     row-batch-size: ${DB_ROW_BATCH_SIZE:100}
     # Example shape -- override in a job-specific config file:
     # columns:
@@ -97,11 +110,23 @@ client:
 
   file:
     source:
-      type: ${FILE_SOURCE_TYPE:LOCAL}   # LOCAL | ADLS
-      root: ${FILE_SOURCE_ROOT:}        # local path, or abfss://<container>@<account>.dfs.core.windows.net/<path>
+      type: ${FILE_SOURCE_TYPE:LOCAL}   # LOCAL | ADLS | AZURE_BLOB
+      root: ${FILE_SOURCE_ROOT:}        # local path, abfss://<container>@<account>.dfs.core.windows.net/<path> (ADLS), or https://<account>.blob.core.windows.net/<container>/<path> (AZURE_BLOB)
+      # UNSET in every real deployment -- ADLS/AZURE_BLOB then use WorkloadIdentity as
+      # always. Setting this makes AdlsFileStore/AzureBlobFileStore use shared-key auth
+      # INSTEAD of WorkloadIdentity, entirely bypassing it -- an explicit, temporary
+      # escape hatch for validating encrypt/decrypt runs before the deployment
+      # identity's "Storage Blob Data Contributor" RBAC role is actually granted (a
+      # separate Azure-side fix, not something this job can unblock itself). Never
+      # logged. Do not carry a value here into the real deployment's config -- its mere
+      # presence, not a boolean flag, is what activates shared-key auth. LOCAL ignores
+      # it. Get via: az storage account keys list --account-name <account> --query
+      # "[0].value" -o tsv
+      account-key: ${FILE_SOURCE_ACCOUNT_KEY:}
     target:
       type: ${FILE_TARGET_TYPE:LOCAL}   # independent of source.type -- e.g. source: ADLS, target: LOCAL is valid
       root: ${FILE_TARGET_ROOT:}
+      account-key: ${FILE_TARGET_ACCOUNT_KEY:}   # same temporary escape hatch as source.account-key above -- see that comment
     # Example: file-types: [".png", ".txt", ".pdf"] -- empty list means all files.
     file-types: []
     chunk-size-bytes: ${FILE_CHUNK_SIZE_BYTES:8388608}   # 8 MiB default
