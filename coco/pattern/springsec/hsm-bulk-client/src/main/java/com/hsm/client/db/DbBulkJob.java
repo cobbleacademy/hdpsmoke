@@ -161,7 +161,7 @@ public class DbBulkJob {
     }
 
     public void encrypt() {
-        String sourceTable = qualify(config.source().schema(), config.source().table());
+        String sourceTable = resolveSourceFrom(config.source());
         String targetTable = qualify(config.target().schema(), config.target().table());
 
         // One DEK per distinct dek-name for the WHOLE run, resolved/unwrapped once up
@@ -182,7 +182,7 @@ public class DbBulkJob {
     }
 
     public void decrypt() {
-        String sourceTable = qualify(config.source().schema(), config.source().table());
+        String sourceTable = resolveSourceFrom(config.source());
         String targetTable = qualify(config.target().schema(), config.target().table());
 
         long startMs = System.currentTimeMillis();
@@ -404,12 +404,15 @@ public class DbBulkJob {
                     byKey.put(r.key(), r);
                 }
 
+                boolean includeKey = !config.skipKeyColumnOnTarget();
                 List<Object[]> targetRows = new ArrayList<>();
                 for (Map<String, Object> row : subBatch) {
                     Object keyValue = row.get(config.keyColumn());
-                    Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
-                    targetRow[0] = keyValue;
-                    int i = 1;
+                    Object[] targetRow = new Object[(includeKey ? 1 : 0) + config.columns().size() + passthroughColumns.size()];
+                    int i = 0;
+                    if (includeKey) {
+                        targetRow[i++] = keyValue;
+                    }
                     for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
                         Object plaintextValue = row.get(mapping.source());
                         String plaintext = plaintextValue == null ? null : plaintextValue.toString();
@@ -446,7 +449,7 @@ public class DbBulkJob {
                 partitionRowsDone += subBatch.size();
                 rowsDoneTotal.addAndGet(subBatch.size());
                 Object subBatchLastKey = subBatch.get(subBatch.size() - 1).get(config.keyColumn());
-                insertRowsWithCheckpoint(jobId, targetTable, config.keyColumn(), targetColumns, targetRows, subBatchLastKey, partitionRowsDone);
+                insertRowsWithCheckpoint(jobId, targetTable, targetKeyColumnOrNull(), targetColumns, targetRows, subBatchLastKey, partitionRowsDone);
             }
 
             lastKey = rows.get(rows.size() - 1).get(config.keyColumn());
@@ -545,12 +548,15 @@ public class DbBulkJob {
                         }
                     }
 
+                    boolean includeKey = !config.skipKeyColumnOnTarget();
                     List<Object[]> targetRows = new ArrayList<>();
                     for (Map<String, Object> row : subBatch) {
                         Object keyValue = row.get(config.keyColumn());
-                        Object[] targetRow = new Object[1 + config.columns().size() + passthroughColumns.size()];
-                        targetRow[0] = keyValue;
-                        int i = 1;
+                        Object[] targetRow = new Object[(includeKey ? 1 : 0) + config.columns().size() + passthroughColumns.size()];
+                        int i = 0;
+                        if (includeKey) {
+                            targetRow[i++] = keyValue;
+                        }
                         for (ClientProperties.Db.ColumnMapping mapping : config.columns()) {
                             String k = itemKey(keyValue, mapping.source());
                             DekManager.UnpackedToken unpacked = unpackedByKey.get(k);
@@ -586,7 +592,7 @@ public class DbBulkJob {
                     partitionRowsDone += subBatch.size();
                     rowsDoneTotal.addAndGet(subBatch.size());
                     Object subBatchLastKey = subBatch.get(subBatch.size() - 1).get(config.keyColumn());
-                    insertRowsWithCheckpoint(jobId, targetTable, config.keyColumn(), targetColumns, targetRows, subBatchLastKey, partitionRowsDone);
+                    insertRowsWithCheckpoint(jobId, targetTable, targetKeyColumnOrNull(), targetColumns, targetRows, subBatchLastKey, partitionRowsDone);
                 } finally {
                     // Only zero DEKs NOT retained in namedColumnDekCache -- those are the
                     // same byte[] instances the cache holds for future sub-batches/pages,
@@ -627,6 +633,11 @@ public class DbBulkJob {
     /** Empty, never null -- config.passthroughColumns() binds to null when omitted from YAML entirely. */
     private List<String> passthroughColumns() {
         return config.passthroughColumns() == null ? List.of() : config.passthroughColumns();
+    }
+
+    /** null when config.skipKeyColumnOnTarget() -- see insertRows' javadoc for what that means for the INSERT it builds. */
+    private String targetKeyColumnOrNull() {
+        return config.skipKeyColumnOnTarget() ? null : config.keyColumn();
     }
 
     /**
@@ -674,6 +685,21 @@ public class DbBulkJob {
         return (schema == null || schema.isBlank()) ? table : schema + "." + table;
     }
 
+    /**
+     * Everywhere else in this class only ever appends " FROM " + this string, so a
+     * parenthesized, aliased derived table works as a drop-in for a plain table name
+     * in fetchPage's SELECT and computePartitionRanges's COUNT(*)/boundary lookups --
+     * no other change needed to support a query-based source. See TableRef.query's
+     * javadoc for why this exists (no CREATE VIEW privilege needed) and its
+     * per-page-re-execution caveat.
+     */
+    private static String resolveSourceFrom(ClientProperties.Db.TableRef ref) {
+        if (ref.query() != null && !ref.query().isBlank()) {
+            return "(" + ref.query() + ") AS src";
+        }
+        return qualify(ref.schema(), ref.table());
+    }
+
     private List<Map<String, Object>> fetchPage(JdbcTemplate jdbc, String table, String keyColumn, List<String> columns,
                                                  Object afterKey, Object uptoInclusive, int limit) {
         String columnList = String.join(", ", columns);
@@ -704,13 +730,22 @@ public class DbBulkJob {
         return jdbc.queryForList(sql.toString(), args.toArray());
     }
 
+    /**
+     * keyColumn null means config.skipKeyColumnOnTarget() -- the key's raw value is
+     * used only to drive source-side pagination (see resolveSourceFrom/fetchPage) and
+     * has no place in the target INSERT at all; rows in that case already omit it
+     * (see targetRow construction in encryptRange/decryptRange), so this simply
+     * builds the column list/placeholders without the usual leading key column.
+     */
     private void insertRows(JdbcTemplate jdbc, String table, String keyColumn, List<String> targetColumns, List<Object[]> rows) {
         if (rows.isEmpty()) {
             return;
         }
-        String columnList = keyColumn + ", " + String.join(", ", targetColumns);
+        boolean includeKey = keyColumn != null;
+        String columnList = includeKey ? keyColumn + ", " + String.join(", ", targetColumns) : String.join(", ", targetColumns);
         String placeholders = String.join(", ", targetColumns.stream().map(c -> "?").toList());
-        String sql = "INSERT INTO " + table + " (" + columnList + ") VALUES (?, " + placeholders + ")";
+        String valuesList = includeKey ? "?, " + placeholders : placeholders;
+        String sql = "INSERT INTO " + table + " (" + columnList + ") VALUES (" + valuesList + ")";
         jdbc.batchUpdate(sql, rows);
     }
 }

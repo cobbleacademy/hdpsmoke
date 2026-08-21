@@ -96,8 +96,8 @@ public class FileBulkJob {
     private static FileStore buildStore(ClientProperties.File.StoreRef ref) {
         return switch (ref.type()) {
             case LOCAL -> new LocalFileStore(ref.root());
-            case ADLS -> new AdlsFileStore(ref.root());
-            case AZURE_BLOB -> new AzureBlobFileStore(ref.root());
+            case ADLS -> new AdlsFileStore(ref.root(), ref.accountKey());
+            case AZURE_BLOB -> new AzureBlobFileStore(ref.root(), ref.accountKey());
         };
     }
 

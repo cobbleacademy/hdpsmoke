@@ -4,6 +4,7 @@ import com.azure.core.credential.TokenCredential;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
 import com.azure.identity.WorkloadIdentityCredentialBuilder;
+import com.azure.storage.common.StorageSharedKeyCredential;
 import com.azure.storage.file.datalake.DataLakeDirectoryClient;
 import com.azure.storage.file.datalake.DataLakeFileClient;
 import com.azure.storage.file.datalake.DataLakeFileSystemClient;
@@ -37,6 +38,13 @@ import java.util.stream.Collectors;
  * so it resolves purely from the environment: AZURE_CLIENT_ID/AZURE_TENANT_ID env
  * vars and the well-known federated token file path -- the same values a workload
  * identity webhook injects automatically in AKS, requiring no additional config here.
+ *
+ * <p>accountKey (from config, see ClientProperties.File.StoreRef's javadoc) is a
+ * deliberate escape hatch, not a second normal auth mode: when set, this class uses
+ * StorageSharedKeyCredential instead of the chain above, entirely bypassing it. This
+ * exists only so encrypt/decrypt can be validated against a real ADLS container
+ * before the deployment identity's RBAC data-plane role is actually granted -- it
+ * must not be set in the real deployment's config.
  */
 public class AdlsFileStore implements FileStore {
 
@@ -45,13 +53,16 @@ public class AdlsFileStore implements FileStore {
     private final DataLakeFileSystemClient fileSystemClient;
     private final String rootPath; // may be "" for container root
 
-    public AdlsFileStore(String rootUri) {
+    public AdlsFileStore(String rootUri, String accountKey) {
         Parsed parsed = parse(rootUri);
-        TokenCredential credential = buildCredential();
-        DataLakeServiceClient serviceClient = new DataLakeServiceClientBuilder()
-                .endpoint("https://" + parsed.accountHost())
-                .credential(credential)
-                .buildClient();
+        DataLakeServiceClientBuilder builder = new DataLakeServiceClientBuilder()
+                .endpoint("https://" + parsed.accountHost());
+        if (accountKey != null && !accountKey.isBlank()) {
+            builder.credential(new StorageSharedKeyCredential(accountName(parsed.accountHost()), accountKey));
+        } else {
+            builder.credential(buildCredential());
+        }
+        DataLakeServiceClient serviceClient = builder.buildClient();
         this.fileSystemClient = serviceClient.getFileSystemClient(parsed.container());
         this.rootPath = parsed.path();
     }
@@ -136,6 +147,12 @@ public class AdlsFileStore implements FileStore {
         String accountHost = slash < 0 ? rest : rest.substring(0, slash);
         String path = slash < 0 ? "" : rest.substring(slash + 1).replaceAll("/+$", "");
         return new Parsed(container, accountHost, path);
+    }
+
+    /** accountHost is "<account>.dfs.core.windows.net" -- StorageSharedKeyCredential needs just the account name. */
+    private static String accountName(String accountHost) {
+        int dot = accountHost.indexOf('.');
+        return dot < 0 ? accountHost : accountHost.substring(0, dot);
     }
 
     private static TokenCredential buildCredential() {

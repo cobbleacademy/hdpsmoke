@@ -50,6 +50,16 @@ public record ClientProperties(
             // irrelevant when checkpoint.enabled is false. Reuses ColumnMapping.TargetType
             // rather than a second enum; null/unset -> STRING, same default as targetType.
             ColumnMapping.TargetType keyColumnType,
+            // false (default, unset) -- today's exact behavior: keyColumn's raw source
+            // value is always the first column of every target INSERT, using keyColumn's
+            // own name as the target column name too. Set true when keyColumn is a
+            // pagination-only value with no home in the target row at all -- e.g. a
+            // ROW_NUMBER() computed by TableRef.query (see its javadoc), or any keyColumn
+            // whose name doesn't exist as a real column on the target table. Target rows
+            // are then built purely from columns + passthroughColumns; if the target
+            // table has its own key column, it's expected to populate itself (IDENTITY/
+            // SERIAL/AUTO_INCREMENT), not receive a value from this job.
+            boolean skipKeyColumnOnTarget,
             List<ColumnMapping> columns,
             // Non-sensitive columns copied source-to-target as-is, never encrypted/decrypted
             // -- same name in both tables (no renaming, unlike columns above). Deliberately
@@ -81,7 +91,21 @@ public record ClientProperties(
         // product that presents another vendor's wire protocol for driver
         // compatibility while diverging from that vendor's actual SQL behavior). See
         // DbDialect's own javadoc.
-        public record TableRef(String jdbcUrl, String username, String password, String schema, String table, DbDialect dialect) {
+        //
+        // <p>query is an alternative to table, meaningful only on source (target is
+        // always a real table DbBulkJob writes INSERTs into -- query is simply never
+        // read for config.target()). When set, DbBulkJob wraps it as a derived table
+        // ("(" + query + ") AS src") and paginates against that instead of a plain
+        // table name -- the query re-executes fresh on every page fetch, nothing is
+        // persisted, so no CREATE VIEW privilege is needed on the source database.
+        // The main use: a source with no existing non-sensitive, stable, sortable
+        // column to use as keyColumn can compute one inline, e.g.
+        // "SELECT ROW_NUMBER() OVER (ORDER BY ssn) AS row_key, ssn, dob FROM
+        // dbo.customers" with keyColumn=row_key -- see BULK_OPERATIONS.md. Only
+        // stable across pages if the underlying rows aren't concurrently
+        // inserted/deleted/reordered during the run; table and query are mutually
+        // exclusive -- set exactly one.
+        public record TableRef(String jdbcUrl, String username, String password, String schema, String table, String query, DbDialect dialect) {
         }
 
         /**
@@ -180,7 +204,20 @@ public record ClientProperties(
             }
         }
 
-        public record StoreRef(StoreType type, String root) {
+        // accountKey is null/blank (default) in every real deployment -- ADLS/AZURE_BLOB
+        // then resolve credentials purely via the WorkloadIdentityCredential ->
+        // ManagedIdentityCredential -> DefaultAzureCredential chain, same as before this
+        // field existed. Setting it makes AdlsFileStore/AzureBlobFileStore use
+        // StorageSharedKeyCredential instead, bypassing that chain entirely -- a
+        // deliberate, explicit escape hatch for validating encrypt/decrypt against a
+        // real ADLS/Blob container BEFORE the deployment identity's RBAC data-plane role
+        // (Storage Blob Data Contributor) is actually granted/propagated, since that's a
+        // separate Azure-side fix this job can't itself unblock. Never logged. Remove
+        // this field from the job config entirely for the real deployment run -- its
+        // presence at all, not just a boolean toggle, is what activates shared-key auth,
+        // so an accidentally-left-in value would silently keep bypassing WorkloadIdentity
+        // even in production. LOCAL ignores it (no Azure credential to resolve).
+        public record StoreRef(StoreType type, String root, String accountKey) {
         }
 
         // ADLS: real ADLS Gen2 (Hierarchical Namespace enabled), root is

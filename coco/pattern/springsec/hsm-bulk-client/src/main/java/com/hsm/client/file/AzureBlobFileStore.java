@@ -7,6 +7,7 @@ import com.azure.identity.WorkloadIdentityCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
+import com.azure.storage.common.StorageSharedKeyCredential;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.specialized.BlockBlobClient;
@@ -49,6 +50,12 @@ import java.util.Locale;
  * DefaultAzureCredential) -- duplicated here rather than shared, matching
  * this project's no-shared-library convention (see {@code AdlsFileStore}'s
  * own javadoc for the same note).
+ *
+ * <p>accountKey (from config, see ClientProperties.File.StoreRef's javadoc) is the
+ * same deliberate escape hatch as AdlsFileStore's: when set, StorageSharedKeyCredential
+ * is used instead of the chain above, entirely bypassing it, purely to validate
+ * encrypt/decrypt before the deployment identity's RBAC data-plane role is granted --
+ * must not be set in the real deployment's config.
  */
 public class AzureBlobFileStore implements FileStore {
 
@@ -57,14 +64,17 @@ public class AzureBlobFileStore implements FileStore {
     private final BlobContainerClient containerClient;
     private final String rootPath; // may be "" for container root
 
-    public AzureBlobFileStore(String rootUrl) {
+    public AzureBlobFileStore(String rootUrl, String accountKey) {
         Parsed parsed = parse(rootUrl);
-        TokenCredential credential = buildCredential();
-        this.containerClient = new BlobContainerClientBuilder()
+        BlobContainerClientBuilder builder = new BlobContainerClientBuilder()
                 .endpoint("https://" + parsed.accountHost())
-                .credential(credential)
-                .containerName(parsed.container())
-                .buildClient();
+                .containerName(parsed.container());
+        if (accountKey != null && !accountKey.isBlank()) {
+            builder.credential(new StorageSharedKeyCredential(accountName(parsed.accountHost()), accountKey));
+        } else {
+            builder.credential(buildCredential());
+        }
+        this.containerClient = builder.buildClient();
         this.rootPath = parsed.path();
     }
 
@@ -147,6 +157,12 @@ public class AzureBlobFileStore implements FileStore {
                     "Azure Blob root must be https://<account>.blob.core.windows.net/<container>/<path>: " + url);
         }
         return new Parsed(container, accountHost, path);
+    }
+
+    /** accountHost is "<account>.blob.core.windows.net" -- StorageSharedKeyCredential needs just the account name. */
+    private static String accountName(String accountHost) {
+        int dot = accountHost.indexOf('.');
+        return dot < 0 ? accountHost : accountHost.substring(0, dot);
     }
 
     private static TokenCredential buildCredential() {
