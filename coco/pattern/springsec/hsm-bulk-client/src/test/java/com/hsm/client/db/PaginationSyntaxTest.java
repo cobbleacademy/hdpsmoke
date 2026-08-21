@@ -98,4 +98,50 @@ class PaginationSyntaxTest {
 
         assertThat(page).isEmpty();
     }
+
+    /**
+     * Mirrors DbBulkJob.resolveSourceFrom's derived-table form for TableRef.query --
+     * "(" + query + ") AS src" used as fetchPage's FROM target. Proves a source with
+     * no natural sortable key can compute one inline (ROW_NUMBER(), no CREATE VIEW
+     * needed) and that keyset pagination against it behaves identically to pagination
+     * against a plain table -- the derived table has no primary key/index at all here,
+     * unlike src's real id column, so this also proves the pattern doesn't secretly
+     * depend on one.
+     */
+    @Test
+    void derivedTableSource_withRowNumberKey_paginatesCorrectly() {
+        jdbc.execute("CREATE TABLE no_natural_key (ssn VARCHAR(11), dob VARCHAR(10))");
+        for (long i = 1; i <= 25; i++) {
+            jdbc.update("INSERT INTO no_natural_key (ssn, dob) VALUES (?, ?)", "ssn-" + i, "1990-01-01");
+        }
+        String derivedTable = "(SELECT ROW_NUMBER() OVER (ORDER BY ssn) AS row_key, ssn, dob FROM no_natural_key) AS src";
+
+        List<Map<String, Object>> firstPage = jdbc.queryForList(
+                "SELECT row_key, ssn, dob FROM " + derivedTable
+                        + " ORDER BY row_key OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY", 10);
+        assertThat(firstPage).hasSize(10);
+        assertThat(firstPage.get(0).get("ROW_KEY")).isEqualTo(1L);
+        assertThat(firstPage.get(9).get("ROW_KEY")).isEqualTo(10L);
+
+        Object lastKey = firstPage.get(9).get("ROW_KEY");
+        List<Map<String, Object>> secondPage = jdbc.queryForList(
+                "SELECT row_key, ssn, dob FROM " + derivedTable
+                        + " WHERE row_key > ? ORDER BY row_key OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY",
+                lastKey, 100);
+        assertThat(secondPage).hasSize(15);
+        assertThat(secondPage.get(0).get("ROW_KEY")).isEqualTo(11L);
+        assertThat(secondPage.get(14).get("ROW_KEY")).isEqualTo(25L);
+    }
+
+    /** Mirrors DbBulkJob.insertRows when keyColumn is null (config.skipKeyColumnOnTarget=true): no leading key column/placeholder at all. */
+    @Test
+    void insertStyleStatement_withoutKeyColumn_omitsLeadingKeyEntirely() {
+        jdbc.execute("CREATE TABLE target_no_key (ssn_ciphertext VARCHAR(200), dob_ciphertext VARCHAR(200))");
+
+        jdbc.update("INSERT INTO target_no_key (ssn_ciphertext, dob_ciphertext) VALUES (?, ?)", "enc-ssn", "enc-dob");
+
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM target_no_key");
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).keySet()).containsExactlyInAnyOrder("SSN_CIPHERTEXT", "DOB_CIPHERTEXT");
+    }
 }
