@@ -58,6 +58,10 @@ client:
       # as key-column, via an inline ROW_NUMBER() -- no CREATE VIEW privilege
       # needed. Only override via a job-specific config file (like columns below),
       # not this env var -- a multi-line SQL query doesn't fit one env var cleanly.
+      # REQUIREMENT: ROW_NUMBER()'s ORDER BY must be over a genuinely, verified
+      # unique column (or combination) -- not just "probably unique" -- or rows can
+      # be silently skipped/duplicated across page and partition boundaries. See
+      # TableRef.query's javadoc for exactly why (nothing here is persisted).
       # query: "SELECT ROW_NUMBER() OVER (ORDER BY ssn) AS row_key, ssn, dob FROM dbo.customers"
     target:
       # Defaults to source.jdbc-url when blank -- same-DB, different-schema/table
