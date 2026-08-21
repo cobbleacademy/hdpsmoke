@@ -27,6 +27,7 @@ public class LocalFileStore implements FileStore {
                     .filter(Files::isRegularFile)
                     .filter(p -> matchesType(p, fileTypes))
                     .map(p -> root.relativize(p).toString().replace('\\', '/'))
+                    .filter(relativePath -> !relativePath.startsWith(MANIFEST_DIR + "/"))
                     .collect(Collectors.toList());
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to list files under " + root, e);

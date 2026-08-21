@@ -41,8 +41,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * columns. decrypt() reverses it -- same config shape, source/target column meaning
  * flips (source = ciphertext column, target = plaintext column).
  *
- * <p>Keyset pagination (WHERE key_column &gt; ? ORDER BY key_column LIMIT ?), not
- * OFFSET -- avoids OFFSET's well-known large-table slowdown for big source tables.
+ * <p>Keyset pagination (WHERE key_column &gt; ? ORDER BY key_column ... FETCH NEXT ?
+ * ROWS ONLY), not OFFSET-as-position -- avoids OFFSET's well-known large-table
+ * slowdown for big source tables. The row-count cap itself uses the ANSI SQL:2008
+ * OFFSET/FETCH clause (OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY) rather than Postgres's
+ * LIMIT shorthand -- this form is portable across every dialect this module
+ * supports (Postgres, SQL Server 2012+, Oracle 12c+) with zero branching, unlike
+ * the checkpoint SQL in CheckpointStore, which has no such portable common form.
  *
  * <p>config.parallelism() &gt; 1 partitions the key range into that many pieces up
  * front (a bounded, one-time set of OFFSET lookups to find partition boundaries --
@@ -94,7 +99,13 @@ public class DbBulkJob {
                 || config.target().jdbcUrl().equals(config.source().jdbcUrl());
         this.targetJdbc = sameTarget ? sourceJdbc : new JdbcTemplate(dataSource(config.target(), poolSize));
         if (checkpointEnabled(config)) {
-            this.checkpointStore = new CheckpointStore(qualify(config.checkpoint().schema(), config.checkpoint().tableName()));
+            // Checkpoint state always lives in the TARGET database (see
+            // resolveInitialLastKey/insertRowsWithCheckpoint -- every checkpoint
+            // operation runs against targetJdbc), so only the target's dialect
+            // matters here, never source's.
+            DbDialect targetDialect = DbDialect.resolve(config.target().jdbcUrl(), config.target().dialect());
+            this.checkpointStore = new CheckpointStore(
+                    qualify(config.checkpoint().schema(), config.checkpoint().tableName()), targetDialect);
             this.targetTxTemplate = new TransactionTemplate(new DataSourceTransactionManager(targetJdbc.getDataSource()));
         } else {
             this.checkpointStore = null;
@@ -112,7 +123,8 @@ public class DbBulkJob {
 
     private static HikariDataSource dataSource(ClientProperties.Db.TableRef ref, int poolSize) {
         HikariConfig hc = new HikariConfig();
-        String url = withReWriteBatchedInserts(ref.jdbcUrl());
+        DbDialect dialect = DbDialect.resolve(ref.jdbcUrl(), ref.dialect());
+        String url = dialect == DbDialect.POSTGRESQL ? withReWriteBatchedInserts(ref.jdbcUrl()) : ref.jdbcUrl();
         hc.setJdbcUrl(url);
         if (ref.username() != null && !ref.username().isBlank()) {
             hc.setUsername(ref.username());
@@ -132,9 +144,14 @@ public class DbBulkJob {
      * PgJDBC's batch protocol is still N separate bind/execute messages per flush
      * without this -- reWriteBatchedInserts=true makes jdbc.batchUpdate's underlying
      * PreparedStatement.executeBatch() actually rewrite into true multi-row
-     * INSERT ... VALUES (...),(...),(...) statements. Only meaningful for Postgres
-     * (the only JDBC driver this module depends on); a no-op append otherwise would
-     * just be an unrecognized parameter, so this is guarded to Postgres URLs only.
+     * INSERT ... VALUES (...),(...),(...) statements. Postgres-specific (a no-op
+     * append on another driver would just be an unrecognized parameter) -- the call
+     * site above only invokes this when the resolved DbDialect is POSTGRESQL, so
+     * this method's own startsWith check below is a second, redundant guard, not the
+     * only one. SQL Server/Oracle each have their own real equivalents (SQL Server's
+     * useBulkCopyForBatchInsert, Oracle's array-DML batching) -- deliberately not
+     * added here, out of scope for "support the three dialects correctly" versus a
+     * per-vendor batch-insert performance tuning pass.
      */
     private static String withReWriteBatchedInserts(String jdbcUrl) {
         if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:postgresql:") || jdbcUrl.contains("reWriteBatchedInserts")) {
@@ -255,9 +272,13 @@ public class DbBulkJob {
         List<Object> boundaries = new ArrayList<>();
         for (int i = 1; i < actualPartitions; i++) {
             long offset = totalRows * i / actualPartitions;
+            // ANSI SQL:2008 OFFSET/FETCH, not Postgres's LIMIT shorthand -- portable
+            // across every dialect this module supports, see DbBulkJob's class
+            // javadoc. offset itself is dynamic (the boundary lookup position);
+            // fetching exactly 1 row is always a literal, never bound.
             List<Object> row = sourceJdbc.queryForList(
                     "SELECT " + config.keyColumn() + " FROM " + sourceTable
-                            + " ORDER BY " + config.keyColumn() + " OFFSET ? LIMIT 1",
+                            + " ORDER BY " + config.keyColumn() + " OFFSET ? ROWS FETCH NEXT 1 ROWS ONLY",
                     Object.class, offset);
             if (!row.isEmpty()) {
                 boundaries.add(row.get(0));
@@ -671,7 +692,14 @@ public class DbBulkJob {
         if (!conditions.isEmpty()) {
             sql.append(" WHERE ").append(String.join(" AND ", conditions));
         }
-        sql.append(" ORDER BY ").append(keyColumn).append(" LIMIT ?");
+        // ANSI SQL:2008 OFFSET/FETCH, not Postgres's LIMIT shorthand -- see class
+        // javadoc. OFFSET 0 ROWS is a required, if logically redundant, part of the
+        // syntax on every one of these dialects when paired with FETCH NEXT (SQL
+        // Server specifically rejects FETCH NEXT without a preceding OFFSET clause,
+        // even one that offsets by zero) -- "position" is entirely handled by the
+        // keyset WHERE clause above; this FETCH NEXT is purely a row-count cap, the
+        // same role LIMIT played before.
+        sql.append(" ORDER BY ").append(keyColumn).append(" OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY");
         args.add(limit);
         return jdbc.queryForList(sql.toString(), args.toArray());
     }

@@ -65,6 +65,7 @@ public class AdlsFileStore implements FileStore {
                 .filter(item -> matchesType(item, fileTypes))
                 .map(PathItem::getName)
                 .map(name -> rootPath.isEmpty() ? name : name.substring(rootPath.length() + 1))
+                .filter(relativePath -> !relativePath.startsWith(MANIFEST_DIR + "/"))
                 .collect(Collectors.toList());
     }
 

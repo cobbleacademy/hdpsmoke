@@ -97,6 +97,7 @@ public class FileBulkJob {
         return switch (ref.type()) {
             case LOCAL -> new LocalFileStore(ref.root());
             case ADLS -> new AdlsFileStore(ref.root());
+            case AZURE_BLOB -> new AzureBlobFileStore(ref.root());
         };
     }
 

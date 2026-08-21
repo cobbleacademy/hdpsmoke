@@ -36,8 +36,6 @@ import java.util.concurrent.ConcurrentSkipListSet;
  */
 class FileCheckpointStore {
 
-    private static final String MANIFEST_DIR = ".hsm_bulk_checkpoint";
-
     private final Set<String> completed = new ConcurrentSkipListSet<>();
 
     Set<String> loadCompleted(FileStore targetStore, String jobId) {
@@ -87,6 +85,6 @@ class FileCheckpointStore {
     }
 
     private static String manifestPath(String jobId) {
-        return MANIFEST_DIR + "/" + jobId + ".manifest";
+        return FileStore.MANIFEST_DIR + "/" + jobId + ".manifest";
     }
 }

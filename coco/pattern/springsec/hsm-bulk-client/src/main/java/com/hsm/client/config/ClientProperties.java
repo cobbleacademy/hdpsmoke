@@ -1,5 +1,6 @@
 package com.hsm.client.config;
 
+import com.hsm.client.db.DbDialect;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
@@ -74,7 +75,13 @@ public record ClientProperties(
             }
         }
 
-        public record TableRef(String jdbcUrl, String username, String password, String schema, String table) {
+        // dialect is null (auto-detect from jdbcUrl's scheme) unless explicitly set --
+        // needed because a JDBC URL scheme identifies which driver/wire protocol is in
+        // use, not necessarily which real SQL dialect quirks the backend has (e.g. a
+        // product that presents another vendor's wire protocol for driver
+        // compatibility while diverging from that vendor's actual SQL behavior). See
+        // DbDialect's own javadoc.
+        public record TableRef(String jdbcUrl, String username, String password, String schema, String table, DbDialect dialect) {
         }
 
         /**
@@ -176,7 +183,18 @@ public record ClientProperties(
         public record StoreRef(StoreType type, String root) {
         }
 
-        public enum StoreType { LOCAL, ADLS }
+        // ADLS: real ADLS Gen2 (Hierarchical Namespace enabled), root is
+        // abfss://<container>@<account>.dfs.core.windows.net/<path> -- see
+        // AdlsFileStore. AZURE_BLOB: plain Azure Blob Storage (no HNS
+        // required, and unlike ADLS Gen2's Data Lake REST API, has no known
+        // conflict with the account-level "soft delete for blobs" feature --
+        // root is https://<account>.blob.core.windows.net/<container>/<path>,
+        // a real blob endpoint URL, deliberately not reusing abfss:// since
+        // that scheme means "Data Lake Gen2 API" specifically -- see
+        // AzureBlobFileStore. Existing ADLS deployments are unaffected; this
+        // is an additional option for accounts that either can't or don't
+        // have HNS enabled.
+        public enum StoreType { LOCAL, ADLS, AZURE_BLOB }
 
         /**
          * Tracks per-file completion via a single batched manifest file in the target
