@@ -40,6 +40,13 @@ client:
     #     jdbc-url: "jdbc:sqlserver://host:1433;databaseName=appdb;encrypt=true"
     #     jdbc-url: "jdbc:oracle:thin:@host:1521/ORCLPDB1"
     #     dialect: SQL_SERVER   # ORACLE | POSTGRESQL -- only if auto-detect is wrong
+    # If your source table has no existing non-sensitive, stable, sortable column
+    # to use as key-column (nothing but sensitive columns like ssn) -- and you
+    # can't create a view or alter the target schema to work around it -- see
+    # db-encrypt-no-natural-key-example.yml instead: TableRef.query computes a
+    # ROW_NUMBER()-based key inline (no CREATE VIEW needed), and
+    # skip-key-column-on-target keeps that synthetic key out of the target
+    # table entirely.
     source:
       jdbc-url: "jdbc:postgresql://host:5432/appdb"
       username: "<db user>"

@@ -1,0 +1,67 @@
+# Reverses db-encrypt-no-natural-key-example.yml. Its target
+# (secure.customers_encrypted) has no key column at all -- skip-key-column-on-target
+# on that ENCRYPT job kept row_key out of it -- so decrypting it back hits the
+# exact same "no natural key" problem all over again on THIS job's source
+# side, solved the same way: source.query computes a fresh ROW_NUMBER().
+#
+# Ordering by a ciphertext column here (ssn_ciphertext) is deliberate, not a
+# fallback: DekManager's AES-GCM encryption uses a random IV per call, so two
+# rows with the identical plaintext ssn still get distinct ciphertext tokens --
+# ssn_ciphertext is genuinely unique per row, a better ORDER BY key than the
+# original plaintext ssn would even be. ROW_NUMBER()'s ordering only needs to
+# be internally stable for the run, never semantically meaningful -- see
+# db-encrypt-no-natural-key-example.yml's query comment for the same point.
+#
+# Run with:
+#   scripts/run.sh config-examples/db-decrypt-no-natural-key-example.yml
+
+client:
+  job:
+    type: DB
+    mode: DECRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    auth-mode: STATIC
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  db:
+    source:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "secure"
+      query: "SELECT ROW_NUMBER() OVER (ORDER BY ssn_ciphertext) AS row_key, ssn_ciphertext, dob_ciphertext, account_number_ciphertext, created_at FROM secure.customers_encrypted"
+    target:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "raw"
+      # No row_key column needed here either -- see skip-key-column-on-target.
+      table: customers_decrypted
+    key-column: row_key
+    key-column-type: INTEGER
+    skip-key-column-on-target: true
+    row-batch-size: 100
+    parallelism: 4
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: customers-decrypt-no-key-2024   # distinct from the ENCRYPT job's job-id
+      table-name: hsm_bulk_checkpoint
+      schema: "raw"
+    columns:
+      - source: ssn_ciphertext
+        target: ssn
+      - source: account_number_ciphertext
+        target: account_number
+        dek-name: customers.account_number   # matches the ENCRYPT job's column
+      - source: dob_ciphertext
+        target: dob
+        target-type: DATE
+    passthrough-columns:
+      - created_at

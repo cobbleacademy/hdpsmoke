@@ -19,7 +19,11 @@ client:
       -----END PRIVATE KEY-----
   db:
     # SQL Server/Azure SQL and Oracle also supported, see db-encrypt-example.yml
-    # for jdbc-url syntax and the optional dialect override.
+    # for jdbc-url syntax and the optional dialect override. See
+    # db-decrypt-no-natural-key-example.yml if the source table here has no
+    # real key column at all (e.g. its own ENCRYPT job used
+    # skip-key-column-on-target) -- source.query can compute a ROW_NUMBER()
+    # over any deterministic column(s), ciphertext columns included.
     source:
       jdbc-url: "jdbc:postgresql://host:5432/appdb"
       username: "<db user>"

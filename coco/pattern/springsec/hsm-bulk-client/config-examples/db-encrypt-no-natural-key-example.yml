@@ -1,0 +1,80 @@
+# Variant of db-encrypt-example.yml for a source table with no existing
+# non-sensitive, stable, sortable column to use as key-column -- e.g. a
+# customers table whose only unique-ish column is ssn itself. See that file
+# for every other field's meaning; only source/key-column/
+# skip-key-column-on-target differ, called out below.
+#
+# Two hard constraints this handles without any schema change on either side:
+# you may not have CREATE VIEW privilege on the source database, and the
+# target table's schema may be fixed (no room to add a raw-key column). See
+# ClientProperties.Db.TableRef's javadoc and DbBulkJob.resolveSourceFrom for
+# the mechanics.
+#
+# Run with:
+#   scripts/run.sh config-examples/db-encrypt-no-natural-key-example.yml
+
+client:
+  job:
+    type: DB
+    mode: ENCRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    auth-mode: STATIC
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  db:
+    source:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "raw"
+      # table is NOT set here -- query replaces it entirely. Set exactly one
+      # of table/query, never both. This SELECT re-executes fresh on every
+      # page fetch (fetchPage/computePartitionRanges) -- nothing is persisted,
+      # so no CREATE VIEW privilege is needed on the source database. Only
+      # stable across pages if the underlying rows aren't concurrently
+      # inserted/deleted/reordered during the run -- if this table sees live
+      # traffic, run against a snapshot/replica or a maintenance window
+      # instead of a hot table.
+      query: "SELECT ROW_NUMBER() OVER (ORDER BY ssn) AS row_key, ssn, dob, account_number, created_at FROM raw.customers"
+    target:
+      jdbc-url: "jdbc:postgresql://host:5432/appdb"
+      username: "<db user>"
+      password: "<db password>"
+      schema: "secure"
+      # No row_key column here at all -- see skip-key-column-on-target below
+      # for why that's safe. Just the encrypted + passthrough columns.
+      table: customers_encrypted
+    key-column: row_key
+    key-column-type: INTEGER   # only needed for checkpoint resume
+    # true -- row_key is a pagination-only value computed by the query above,
+    # with no home in the target row. Without this, DbBulkJob would try to
+    # INSERT INTO customers_encrypted (row_key, ...) and fail with an unknown-
+    # column error (or, worse, silently write the raw synthetic key into a
+    # same-named target column if one happened to exist) -- see DbBulkJob's
+    # insertRows javadoc. Target rows here are built purely from columns +
+    # passthrough-columns below.
+    skip-key-column-on-target: true
+    row-batch-size: 100
+    parallelism: 4   # see db-encrypt-example.yml -- unaffected by query vs table
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: customers-encrypt-no-key-2024
+      table-name: hsm_bulk_checkpoint
+      schema: "secure"
+    columns:
+      - source: ssn
+        target: ssn_ciphertext
+      - source: account_number
+        target: account_number_ciphertext
+        dek-name: customers.account_number
+      - source: dob
+        target: dob_ciphertext
+    passthrough-columns:
+      - created_at
