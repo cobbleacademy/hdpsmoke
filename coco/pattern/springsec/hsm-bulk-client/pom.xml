@@ -26,12 +26,32 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
-        <!-- Generic JDBC target: Postgres driver present by default (matches the rest of this
-             project), but DbBulkJob issues no vendor-specific SQL; any JDBC-compliant database
-             works by swapping the driver dependency/URL. -->
+        <!-- Postgres driver, present by default (matches the rest of this project). -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <!-- SQL Server / Azure SQL (wire-compatible with on-prem SQL Server, same driver
+             and dialect), see DbDialect/CheckpointStore for the SQL Server-specific
+             checkpoint SQL this driver is paired with. jre11-classified build, not a
+             separate "jre21" artifact: Microsoft's jre11 build is the latest
+             LTS-targeted one and runs unmodified on newer JDKs, this project's Java 21
+             included. -->
+        <dependency>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-jdbc</artifactId>
+            <version>13.4.0.jre11</version>
+        </dependency>
+
+        <!-- Oracle: ojdbc17, the Java 17+-targeted build (matches this project's Java 21
+             baseline more precisely than the older Java 11-targeted ojdbc11 artifact).
+             Published directly by Oracle on Maven Central under an open license, no
+             private/Oracle-hosted repository or extra credentials needed to resolve it. -->
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc17</artifactId>
+            <version>23.26.3.0.0</version>
         </dependency>
 
         <dependency>
@@ -136,6 +156,20 @@
             <artifactId>azure-storage-file-datalake</artifactId>
         </dependency>
 
+        <!-- Plain Azure Blob Storage backend (AzureBlobFileStore): for accounts
+             without Hierarchical Namespace enabled, or where HNS is enabled but
+             "soft delete for blobs" is also on: the ADLS Gen2 Data Lake REST API
+             (azure-storage-file-datalake above) rejects certain operations on
+             accounts with that combination (a real, Microsoft-documented account
+             level conflict, EndpointUnsupportedAccountFeatures, not something
+             either SDK or this module can work around). Plain Blob operations have
+             no such conflict on any account. Version managed by the same
+             azure-sdk-bom as azure-storage-file-datalake, no new BOM needed. -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
@@ -165,7 +199,10 @@
 
         <!-- Not test-scoped: local/PoC verification runs this module directly against the same
              shared H2 file hsm-core-service/hsm-bulk-service use (see TIER3_POC_BUILD.md), not
-             just inside JUnit. -->
+             just inside JUnit. Unrelated to DbBulkJob's own source/target DB support:
+             H2 has never been a documented target there (every config-examples/*.yml
+             jdbc-url is jdbc:postgresql:), only hsm-core-service's own metadata store
+             uses it. -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -176,7 +213,52 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Real SQL Server/Oracle/Postgres containers for CheckpointStoreTest: the
+             checkpoint SQL (existence check, DDL, MERGE upsert) genuinely differs per
+             dialect and can't be honestly verified against H2 (never one of DbBulkJob's
+             three supported dialects to begin with) or by inspection alone. See
+             CheckpointStoreTest's own javadoc for this environment's Docker
+             availability caveat. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mssqlserver</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-oracle-free</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Test-only, module-local BOM import (not added to the shared parent pom):
+                 Testcontainers is only used here. 2.0.x renamed every per-database module
+                 with a testcontainers- prefix (e.g. plain "mssqlserver"/"oracle-free" are
+                 the OLDER, pre-2.0 artifact coordinates and must not be mixed with a 2.0.x
+                 BOM/core; confirmed against the BOM's own managed dependency list before
+                 picking these coordinates). -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>2.0.5</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <finalName>hsm-bulk-client</finalName>
