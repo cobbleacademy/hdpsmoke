@@ -27,6 +27,19 @@ client:
       <your PKCS#8 private key here>
       -----END PRIVATE KEY-----
   db:
+    # Postgres, SQL Server (Azure SQL Database/Managed Instance too -- wire-
+    # compatible, same driver/dialect), and Oracle are all supported, source
+    # and target independently (a job can read from one vendor and write to
+    # another). Dialect is auto-detected from the jdbc-url scheme below
+    # (jdbc:postgresql:/jdbc:sqlserver:/jdbc:oracle:) -- only set dialect
+    # explicitly if that detection would be wrong for your URL (e.g. a
+    # product that presents a different vendor's wire protocol for driver
+    # compatibility while diverging from that vendor's real SQL behavior --
+    # see DbDialect's javadoc):
+    #   source:
+    #     jdbc-url: "jdbc:sqlserver://host:1433;databaseName=appdb;encrypt=true"
+    #     jdbc-url: "jdbc:oracle:thin:@host:1521/ORCLPDB1"
+    #     dialect: SQL_SERVER   # ORACLE | POSTGRESQL -- only if auto-detect is wrong
     source:
       jdbc-url: "jdbc:postgresql://host:5432/appdb"
       username: "<db user>"

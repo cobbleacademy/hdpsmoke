@@ -18,6 +18,8 @@ client:
       <your PKCS#8 private key here>
       -----END PRIVATE KEY-----
   db:
+    # SQL Server/Azure SQL and Oracle also supported, see db-encrypt-example.yml
+    # for jdbc-url syntax and the optional dialect override.
     source:
       jdbc-url: "jdbc:postgresql://host:5432/appdb"
       username: "<db user>"

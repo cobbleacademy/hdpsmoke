@@ -1,0 +1,94 @@
+# Example BULK File encrypt job config targeting ADLS Gen2 on both sides --
+# see file-encrypt-example.yml for the LOCAL-only baseline this mirrors, and
+# java/docs/TIER3_POC_BUILD.md for the end-to-end verification history. Run
+# with:
+#   scripts/run.sh config-examples/file-encrypt-adls-example.yml
+#
+# If your storage account doesn't have Hierarchical Namespace enabled, or has
+# it enabled alongside "soft delete for blobs" (a real, Microsoft-documented
+# account-level conflict with certain Data Lake Gen2 operations --
+# EndpointUnsupportedAccountFeatures -- not something this client or the
+# Azure SDK can work around), use `type: AZURE_BLOB` instead of `type: ADLS`
+# with a plain blob-endpoint root instead: `root:
+# "https://<account>.blob.core.windows.net/<container>/<path>"`. See
+# AzureBlobFileStore's javadoc for the full explanation -- same FileStore
+# interface, same credential resolution, just a different Azure REST surface
+# underneath that doesn't have this conflict.
+#
+# source.type/target.type are fully independent -- this example shows ADLS on
+# both sides, but LOCAL source -> ADLS target (or the reverse) works exactly
+# the same way, just swap one side's block back to `type: LOCAL, root: /path`.
+#
+# root is always abfss://<container>@<account>.dfs.core.windows.net/<path>
+# (the standard ADLS Gen2 URI form) -- <path> may be omitted entirely for the
+# container root. No credential fields exist anywhere in this config on
+# purpose: AdlsFileStore resolves Azure credentials purely from the
+# environment (never from YAML), the same WorkloadIdentityCredential ->
+# ManagedIdentityCredential -> DefaultAzureCredential fallback chain
+# AzureKeyVaultKekClient already uses elsewhere in this project.
+#
+# Running this locally (CLI, not a K8s Job) -- pick one before scripts/run.sh:
+#   az login                                    # falls through to DefaultAzureCredential
+# or:
+#   export AZURE_CLIENT_ID="<client-id>"
+#   export AZURE_TENANT_ID="<tenant-id>"        # ManagedIdentityCredential/WorkloadIdentityCredential path
+#
+# Running this as a Kubernetes Job (helm/hsm-bulk-client-job) -- the identity
+# env vars above are injected automatically by AKS's workload identity
+# webhook, not set by hand:
+#   helm install my-adls-job helm/hsm-bulk-client-job \
+#     --set secretName=my-run-config \
+#     --set workloadIdentity.enabled=true \
+#     --set serviceAccount.create=true \
+#     --set-string serviceAccount.annotations."azure\.workload\.identity/client-id"="<AZURE_CLIENT_ID>" \
+#     -n <namespace>
+#   (this job.yml is what goes into that Secret, unchanged -- credential
+#   delivery is entirely the chart/cluster's job, never this file's)
+#
+# One real prerequisite this needs, separate from both paths above: the Azure
+# AD app/identity behind that client-id must have a federated credential
+# trusting system:serviceaccount:<namespace>:<service-account-name> on your
+# AKS cluster's OIDC issuer -- a one-time Azure-side setup, not something
+# either the chart or this config file does for you.
+
+client:
+  job:
+    type: FILE
+    mode: ENCRYPT
+  svc:
+    base-url: http://localhost:3006
+    app-id: payments-svc
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  file:
+    source:
+      type: ADLS
+      root: "abfss://raw-container@myaccount.dfs.core.windows.net/customers"
+    target:
+      type: ADLS
+      root: "abfss://secure-container@myaccount.dfs.core.windows.net/customers-encrypted"
+    file-types: []   # e.g. [".png", ".txt", ".pdf"] -- empty means all files
+    chunk-size-bytes: 8388608   # 8 MiB
+    files-per-batch: 10
+    dek-name: customer-files-2024
+    # 1 (default) -- sequential. >1 partitions the file list into that many
+    # groups and runs one worker per group concurrently. Keep this modest
+    # against ADLS specifically -- each worker's openWrite() bridges through
+    # a background upload thread (see AdlsFileStore), so parallelism here
+    # multiplies concurrent ADLS upload connections, not just local CPU work.
+    parallelism: 4
+    # Manifest-based checkpoint (a file in the target store, not a DB table --
+    # see ClientProperties.File.Checkpoint's javadoc) works identically on
+    # ADLS as on local disk. flush-interval matters more here than on local
+    # disk: each flush is a real ADLS write/blob-create call, not just a local
+    # file rewrite -- the 1000 default keeps that cost bounded regardless of
+    # files-per-batch or total file count.
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: customer-files-adls-job
+      flush-interval: 1000
