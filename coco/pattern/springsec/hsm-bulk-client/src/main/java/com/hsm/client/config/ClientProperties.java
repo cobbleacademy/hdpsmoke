@@ -105,6 +105,26 @@ public record ClientProperties(
         // stable across pages if the underlying rows aren't concurrently
         // inserted/deleted/reordered during the run; table and query are mutually
         // exclusive -- set exactly one.
+        //
+        // <p>REQUIREMENT, not a preference: ROW_NUMBER()'s ORDER BY must be over a
+        // genuinely unique column or column combination, with zero duplicate values
+        // in the actual data -- not "probably unique," verified unique. There is
+        // nothing persisted here (unlike a real key column's stored value): every
+        // fetchPage() call, every computePartitionRanges() boundary lookup, is an
+        // independent re-execution that recomputes ROW_NUMBER() from scratch. A
+        // fully unique ORDER BY has exactly one correct numbering regardless of how
+        // many times or in what order the query re-runs. A non-unique ORDER BY does
+        // not -- ties have no defined order in SQL, and while a given engine often
+        // (not always) returns the same tie order for repeated identical queries on
+        // unchanged data, that is an implementation detail, not a guarantee -- it
+        // can break under a different query plan (e.g. parallel internal query
+        // execution, common for large scans on Postgres/SQL Server) with no schema
+        // or data change at all. When that happens a tied row can be renumbered
+        // between two calls, so it lands in the wrong partition or the wrong side
+        // of a keyset WHERE row_key > ? boundary -- silently skipped or processed
+        // twice, in both the parallelism=1 (page-to-page) and parallelism>1
+        // (cross-worker) cases equally; this is not specific to either. Verified
+        // empirically (not just reasoned about) in DerivedTableParallelismTest.
         public record TableRef(String jdbcUrl, String username, String password, String schema, String table, String query, DbDialect dialect) {
         }
 
