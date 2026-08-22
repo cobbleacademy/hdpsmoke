@@ -77,6 +77,19 @@ Getting `PROOF_UI_SVC_BASE_URL` wrong (e.g. leaving it at `localhost` while
 failed` with a connection error in the log tail — check that field first if
 `Run proof` fails against anything other than a local demo setup.
 
+**If the log tail instead shows `PKIX path building failed`**, that's TLS
+certificate trust, not connectivity — the JVM running the jar doesn't trust
+whatever certificate a remote `hsm-bulk-service` presents over HTTPS (e.g.
+self-signed, internal CA). The correct fix is importing that certificate
+into the JVM's own trust store (`keytool -importcert -alias hsm-bulk-remote
+-file server.crt -keystore "<java.home>/lib/security/cacerts" -storepass
+changeit`, where `server.crt` comes from `keytool -printcert -sslserver
+<host>:<port> -rfc > server.crt`). If that's not practical (e.g. a
+throwaway internal test deployment you don't control the trust chain for),
+`export SVC_INSECURE_TLS=true` before launching disables TLS verification
+for the jar's connection to SVC only — testing only, never against a
+deployment you don't fully control.
+
 Type an **absolute path to a local file** in the text field, or leave it
 blank to use the built-in sample, then click **Run proof**. It will:
 1. Copy the chosen file — either your path, or `sample.pdf` (auto-generated

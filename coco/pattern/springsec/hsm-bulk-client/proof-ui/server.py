@@ -49,6 +49,13 @@ deployment): override via env vars before launching, all optional --
   PROOF_UI_APP_ID           default payments-svc
   PROOF_UI_TOKEN            default demo-token-payments-svc
   JAVA_BIN                  default: resolved from PATH
+  SVC_INSECURE_TLS=true     TESTING ONLY. Disables TLS certificate/hostname
+                            verification for the jar's connection to SVC
+                            (SvcClient.java) -- for a self-signed remote SVC
+                            you don't want to import into the JVM trust
+                            store. Never set this against anything but a
+                            deployment you control and trust; prefer
+                            importing the real certificate instead.
 """
 import argparse
 import hashlib
