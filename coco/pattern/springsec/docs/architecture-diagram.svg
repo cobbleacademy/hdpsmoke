@@ -280,10 +280,11 @@
           <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (static or Workload Identity) + X-App-ID</text>
 
           <!-- File-format interop note — added later round: BULK File job specifically, DB columns already covered by the note above -->
-          <rect x="440" y="1240" width="840" height="60" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
+          <rect x="440" y="1240" width="840" height="75" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
           <text x="860" y="1256" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">BULK File job: each chunk's plaintext base64-encoded before AES-256-GCM — survives CORE SERVICE's own /decrypt UTF-8 response encoding losslessly</text>
           <text x="860" y="1269" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format CORE SERVICE itself produces, now true for files too</text>
-          <text x="860" y="1284" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE + SVC processes, both directions, every build</text>
+          <text x="860" y="1282" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">Optional compress-before-encrypt: gzip + 1-byte marker inside the AEAD payload, before base64 — decrypt always reads it, no config to coordinate</text>
+          <text x="860" y="1295" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE + SVC processes, both directions + compression, every build</text>
 
           <defs>
             <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/></marker>
