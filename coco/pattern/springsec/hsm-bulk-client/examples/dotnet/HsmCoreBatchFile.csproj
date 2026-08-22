@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Hsm.BulkClient.Examples</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    No external NuGet package needed: HttpClient, System.Net.Http.Json, and
+    System.Text.Json have all been part of the BCL/shared framework since
+    .NET Core 3.0/.NET 5. This project file targets net8.0 for the
+    demo/Program.cs's own convenience; HsmCoreBatchFile.cs itself has no
+    net8.0-specific API usage: lower TargetFramework here if your consumer
+    app is on an earlier supported .NET version.
+  -->
+
+</Project>
