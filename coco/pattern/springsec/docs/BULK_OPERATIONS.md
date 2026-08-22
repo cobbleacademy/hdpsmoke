@@ -215,6 +215,36 @@ repo builds.
 
 ### Files with multiple chunks: chunking + stitch-back
 
+This is the reviewed, foundational (Tier 1) pattern: a consumer app drives
+`hsm-core-service`'s own `/encrypt/batch`/`/decrypt/batch` directly, with
+its own chunking and its own manifest (below) — no `hsm-bulk-service`
+involved, no raw DEK ever leaving `hsm-core-service`. Verified reference
+implementations of exactly this pattern (real round trips against a
+running `hsm-core-service`, not just read from the DTO source) live at
+`hsm-bulk-client/examples/python/hsm_core_batch_file.py` and
+`hsm-bulk-client/examples/dotnet/HsmCoreBatchFile.cs`.
+
+(If you instead need to interoperate with an actual deployed
+`hsm-bulk-service`'s own Tier 3 FILE job wire format specifically — a
+separate, later, "proposed, not yet approved"/PoC-stage pattern where the
+client gets a wrapped DEK and does local AES-GCM — its ciphertext is
+mutually interoperable with `hsm-core-service`'s own `/decrypt`, not a
+separate format: `FileBulkJob`'s per-chunk plaintext is base64-encoded
+before encryption specifically so it survives `hsm-core-service`'s
+`/decrypt` UTF-8 response encoding losslessly, and
+`FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext)`
+rebuilds the exact token string `hsm-core-service`'s own `/encrypt`
+produces — no adapter beyond parsing bytes already sitting in the file.
+Verified reference implementations of reading a real `FileBulkJob` file
+via `hsm-core-service` alone live at
+`hsm-bulk-client/examples/python/hsm_bulk_file_reader.py` and
+`hsm-bulk-client/examples/dotnet/HsmBulkFileReader.cs`. Both directions —
+`hsm-bulk-service`-encrypted decrypted via `hsm-core-service`, and the
+reverse — are guarded by an automated regression test,
+`CoreBulkFileInteropTest` in `hsm-bulk-client`, which spins up real
+instances of both services on every full build. See `FileBulkJob.java`'s
+class javadoc for the full wire-format detail.)
+
 For a file too large to encrypt as one plaintext:
 
 **Chunking strategy — reuse the existing per-record envelope model

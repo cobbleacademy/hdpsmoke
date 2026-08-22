@@ -72,6 +72,25 @@ the real numbers from running it, not just the design.
     EOF) -- deliberately not newline-delimited, since raw AEAD ciphertext can
     contain a literal `0x0A` byte and would corrupt that framing.
 
+    **Update, later round:** the framing shape above (`[edek_id][chunk
+    length][iv+tag+ciphertext]`, self-terminating, binary) is still exactly
+    correct -- what changed is that each chunk's plaintext is now
+    base64-encoded before that `DekManager.encrypt` call. This makes the
+    resulting ciphertext directly decryptable via `hsm-core-service`'s own,
+    unchanged `/decrypt` (which does `new String(plaintext, UTF_8)`
+    unconditionally on the way out -- lossless for base64 text, corrupting
+    for arbitrary binary), via `FileBulkJob.reconstructCoreServiceToken()`.
+    Two services meant to complement each other producing mutually opaque
+    ciphertext was judged a real interoperability defect, not an acceptable
+    storage optimization -- see `FileBulkJob.java`'s class javadoc and
+    `BULK_OPERATIONS.md`'s "Files with multiple chunks" section for the full
+    reasoning, and `CoreBulkFileInteropTest` for the automated regression
+    guard. The byte-count verification a few paragraphs below (`+48`/`+272`
+    bytes) predates this change and describes the old, DB-column-analogous
+    framing overhead only -- current overhead is roughly 33% (base64), not
+    a few hundred bytes; see `proof-ui/README.md`'s "Verified live" section
+    for current real numbers.
+
 ## Deployment
 
 `hsm-bulk-service` (SVC) now has real Docker/Helm artifacts:
