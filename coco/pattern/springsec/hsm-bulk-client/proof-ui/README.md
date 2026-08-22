@@ -107,6 +107,56 @@ Hash comparison works for any file type; the browser preview panes assume
 PDF specifically (same as this whole tool's original motivation) — a
 non-PDF file still gets correctly verified, it just won't render inline.
 
+## Proving chunked read/decrypt from a real ADLS or Blob container
+
+By default the encrypted intermediate lives in a local scratch dir between
+ENCRYPT and DECRYPT — proving `LocalFileStore`'s I/O, not `AdlsFileStore`'s
+or `AzureBlobFileStore`'s. To prove one of those instead (a real Azure
+container, read back in chunks and decrypted, not just local disk): set
+`PROOF_UI_AZURE_ROOT` before launching, then pick the matching option in
+the UI's "encrypted intermediate" selector.
+
+**Which one to pick is not a preference — it depends on your storage
+account**, and the two are not interchangeable:
+- **ADLS Gen2** requires Hierarchical Namespace (HNS) enabled on the
+  account. Root: `abfss://<container>@<account>.dfs.core.windows.net/<path>`
+  (`AdlsFileStore`).
+- **Azure Blob Storage** needs no HNS, and has no known conflict with the
+  account-level "soft delete for blobs" feature the way ADLS Gen2's Data
+  Lake REST API does — a real, Microsoft-documented incompatibility
+  (`EndpointUnsupportedAccountFeatures`, see `AzureBlobFileStore.java`'s
+  class javadoc). Use this one if HNS is off, or if blob soft delete is on.
+  Root: `https://<account>.blob.core.windows.net/<container>/<path>`
+  (`AzureBlobFileStore`).
+
+```bash
+export PROOF_UI_AZURE_ROOT="<the appropriate URI for whichever you picked>"
+python3 server.py --port 8000
+```
+
+The ENCRYPT job then writes its chunked, encrypted output straight to that
+location instead of local disk, and the DECRYPT job reads it back from
+there — this script itself never touches Azure storage directly (no Azure
+SDK dependency added); the real jar does all of it via the matching
+`FileStore` class, the same one a real deployment uses. The plaintext
+source and the final decrypted output still live locally either way, since
+those are what get hashed and served for the browser preview regardless of
+where the encrypted bytes sat in between. The "Encrypted (intermediate)"
+row in the results table shows `n/a` for size in this mode — this script
+deliberately doesn't add an Azure SDK dependency just to read that one
+number back; the jar's own `hsm_bulk_client_complete` log line is what
+actually proves the write/read happened, same as everywhere else this tool
+relies on the real jar rather than re-checking its work.
+
+Credentials resolve automatically (`WorkloadIdentityCredential` →
+`ManagedIdentityCredential` → `DefaultAzureCredential` — e.g. `az login`
+works from a dev machine) unless `PROOF_UI_AZURE_ACCOUNT_KEY` is also set,
+which forces `StorageSharedKeyCredential` instead. That's a deliberate
+local-testing-only escape hatch (see `ClientProperties.File.StoreRef`'s
+javadoc) for validating against a real container before the deployment
+identity's RBAC data-plane role is actually granted — never set it for a
+real deployment's own config.
+
 ## What "no live per-chunk progress" means here
 
 Deliberate, not an oversight: `FileBulkJob` only logs progress at the file

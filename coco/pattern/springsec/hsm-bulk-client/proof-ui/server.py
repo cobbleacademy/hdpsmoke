@@ -56,6 +56,33 @@ deployment): override via env vars before launching, all optional --
                             store. Never set this against anything but a
                             deployment you control and trust; prefer
                             importing the real certificate instead.
+
+Proving the encrypted intermediate is really read back in chunks from Azure
+storage (not just local disk): pick "ADLS Gen2" or "Azure Blob Storage" in
+the UI's store selector -- which one depends on your actual storage
+account, they are NOT interchangeable:
+  - ADLS Gen2 requires Hierarchical Namespace (HNS) enabled on the account.
+    Root: abfss://<container>@<account>.dfs.core.windows.net/<path>
+    (AdlsFileStore).
+  - Azure Blob Storage needs no HNS, and has no known conflict with the
+    account-level "soft delete for blobs" feature the way ADLS Gen2's Data
+    Lake REST API does (a real, Microsoft-documented incompatibility) --
+    use this one if HNS is off, or if blob soft delete is on.
+    Root: https://<account>.blob.core.windows.net/<container>/<path>
+    (AzureBlobFileStore).
+Set PROOF_UI_AZURE_ROOT to the appropriate URI for whichever you pick, then
+select it in the UI. The ENCRYPT job writes its chunked output there
+instead of local disk, and the DECRYPT job reads it back from there -- this
+script itself never touches Azure storage directly, no Azure SDK dependency
+added, the real jar does all of it via the matching FileStore class, same
+as everything else this tool proves. Credentials resolve the normal way
+(WorkloadIdentityCredential -> ManagedIdentityCredential ->
+DefaultAzureCredential, i.e. `az login` works from a dev machine) unless
+PROOF_UI_AZURE_ACCOUNT_KEY is also set, which forces shared-key auth
+instead -- see ClientProperties.File.StoreRef's javadoc for why that's a
+deliberate local-testing-only escape hatch, never for a real deployment.
+  PROOF_UI_AZURE_ROOT          unset by default -- required to use either Azure store
+  PROOF_UI_AZURE_ACCOUNT_KEY   unset by default -- local/dev testing only
 """
 import argparse
 import hashlib
@@ -80,6 +107,8 @@ SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3006")
 API_V1_PREFIX = os.environ.get("PROOF_UI_API_V1_PREFIX", "/api/sensec/hsm/v1")
 APP_ID = os.environ.get("PROOF_UI_APP_ID", "payments-svc")
 TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
+AZURE_ROOT = os.environ.get("PROOF_UI_AZURE_ROOT", "")
+AZURE_ACCOUNT_KEY = os.environ.get("PROOF_UI_AZURE_ACCOUNT_KEY", "")
 CHUNK_SIZE_BYTES = 8388608  # 8 MiB, matches FileBulkJob's own default
 SAMPLE_TARGET_MB = 80  # minimum -- sample.pdf is regenerated if smaller than this
 
@@ -114,7 +143,27 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def write_job_yaml(path: Path, mode: str, source_root: Path, target_root: Path, compress: bool = False):
+def _store_yaml(store_type: str, root, account_key: str = "") -> str:
+    """Renders one source:/target: block. root is a local Path for LOCAL, an
+    abfss://... URI for ADLS, or an https://...blob.core.windows.net/... URI
+    for AZURE_BLOB -- ClientProperties.File.StoreRef takes the same 3 fields
+    regardless of which. account-key is only ever emitted for the two Azure
+    types, and only when explicitly set -- see StoreRef's javadoc: its mere
+    presence in the config (not just being true/false) is what activates
+    shared-key auth over the normal WorkloadIdentity chain, so it must never
+    be emitted for LOCAL or when unset."""
+    lines = [f"      type: {store_type}", f"      root: {root}"]
+    if store_type in ("ADLS", "AZURE_BLOB") and account_key:
+        lines.append(f'      account-key: "{account_key}"')
+    return "\n".join(lines)
+
+
+def write_job_yaml(path: Path, mode: str, source: tuple, target: tuple, compress: bool = False):
+    """source/target are (store_type, root) tuples, e.g. ("LOCAL", some_path)
+    or ("ADLS", "abfss://...") -- see _store_yaml. Keeping this generic
+    rather than always-local is what lets the ENCRYPT job write its output
+    straight to a real ADLS container and the DECRYPT job read it back from
+    there, proving AdlsFileStore's real chunked I/O, not just LocalFileStore's."""
     private_key_pem = PRIVATE_KEY_PATH.read_text()
     indented_key = "\n".join("      " + line for line in private_key_pem.splitlines())
     # compress-before-encrypt is an ENCRYPT-side-only knob -- decrypt never
@@ -122,6 +171,8 @@ def write_job_yaml(path: Path, mode: str, source_root: Path, target_root: Path, 
     # the AES-GCM-authenticated payload (see FileBulkJob.java's class
     # javadoc), so there's nothing for the decrypt job to be told.
     compress_line = "    compress-before-encrypt: true\n" if (compress and mode == "ENCRYPT") else ""
+    source_block = _store_yaml(*source)
+    target_block = _store_yaml(*target)
     path.write_text(f"""\
 client:
   job:
@@ -138,11 +189,9 @@ client:
 {indented_key}
   file:
     source:
-      type: LOCAL
-      root: {source_root}
+{source_block}
     target:
-      type: LOCAL
-      root: {target_root}
+{target_block}
     file-types: []   # match all -- the source dir here only ever holds the one chosen file anyway
     chunk-size-bytes: {CHUNK_SIZE_BYTES}
     files-per-batch: 10
@@ -187,7 +236,8 @@ def run_bulk_client(job_yaml: Path) -> dict:
     }
 
 
-def run_proof(source_file: Path = None, display_name: str = None, compress: bool = False) -> dict:
+def run_proof(source_file: Path = None, display_name: str = None, compress: bool = False,
+              store_type: str = "LOCAL") -> dict:
     """source_file/display_name let a caller point this at an arbitrary local
     file (via the UI's path field) instead of the built-in sample.pdf --
     everything else about the flow (encrypt -> decrypt -> hash-compare -> serve
@@ -195,10 +245,26 @@ def run_proof(source_file: Path = None, display_name: str = None, compress: bool
     varies. Hash comparison works for any file type; the browser preview
     (<embed type="application/pdf">) specifically assumes PDF, same as the
     whole rest of this conversation's context -- a non-PDF file would still
-    get correctly verified, it just wouldn't render in the preview panes."""
+    get correctly verified, it just wouldn't render in the preview panes.
+
+    store_type "ADLS" or "AZURE_BLOB" routes the encrypted intermediate
+    through that real Azure store instead of a local dir: ENCRYPT writes to
+    PROOF_UI_AZURE_ROOT, DECRYPT reads back from that same location --
+    proving AdlsFileStore's/AzureBlobFileStore's real chunked read/write,
+    not just LocalFileStore's. Which of the two matches your actual storage
+    account is NOT a preference -- ADLS needs Hierarchical Namespace
+    enabled; AZURE_BLOB is for accounts without it, or with "soft delete for
+    blobs" on (a real, documented conflict with ADLS Gen2's Data Lake REST
+    API) -- see AzureBlobFileStore.java's class javadoc. The plaintext
+    source and the final decrypted output stay local either way, since
+    those are what get hashed/served for the browser regardless of where
+    the encrypted bytes lived in between."""
     if not JAR_PATH.exists():
         return {"ok": False, "error": f"{JAR_PATH} not found -- build it first: "
                                        "mvn -pl hsm-bulk-client package -DskipTests"}
+    if store_type != "LOCAL" and not AZURE_ROOT:
+        return {"ok": False, "error": f"{store_type} requested but PROOF_UI_AZURE_ROOT is not set -- "
+                                       "see this script's module docstring"}
     if source_file is None:
         ensure_sample_pdf()
         source_file = SAMPLE_PDF
@@ -222,16 +288,27 @@ def run_proof(source_file: Path = None, display_name: str = None, compress: bool
     original_size = source_file.stat().st_size
     expected_chunks = -(-original_size // CHUNK_SIZE_BYTES)  # ceil div
 
+    # The encrypted intermediate's store: a real ADLS/Blob container (per the
+    # UI's store-type selector) or the usual local dir. Either way both the
+    # ENCRYPT job's target and the DECRYPT job's source point at the exact
+    # same location -- DECRYPT reads back whatever ENCRYPT actually wrote.
+    if store_type == "LOCAL":
+        encrypted_store = ("LOCAL", encrypt_target)
+    elif AZURE_ACCOUNT_KEY:
+        encrypted_store = (store_type, AZURE_ROOT, AZURE_ACCOUNT_KEY)
+    else:
+        encrypted_store = (store_type, AZURE_ROOT)
+
     encrypt_yaml = WORK_DIR / "encrypt-job.yml"
-    write_job_yaml(encrypt_yaml, "ENCRYPT", encrypt_source, encrypt_target, compress=compress)
+    write_job_yaml(encrypt_yaml, "ENCRYPT", ("LOCAL", encrypt_source), encrypted_store, compress=compress)
     encrypt_result = run_bulk_client(encrypt_yaml)
 
-    encrypted_file = encrypt_target / working_name
-    if not encrypt_result["success"] or not encrypted_file.exists():
+    encrypted_file = encrypt_target / working_name  # only meaningful when store_type == LOCAL
+    if not encrypt_result["success"] or (store_type == "LOCAL" and not encrypted_file.exists()):
         return {"ok": False, "error": "ENCRYPT run failed", "encrypt": encrypt_result}
 
     decrypt_yaml = WORK_DIR / "decrypt-job.yml"
-    write_job_yaml(decrypt_yaml, "DECRYPT", encrypt_target, decrypt_target)
+    write_job_yaml(decrypt_yaml, "DECRYPT", encrypted_store, ("LOCAL", decrypt_target))
     decrypt_result = run_bulk_client(decrypt_yaml)
 
     decrypted_file = decrypt_target / working_name
@@ -242,7 +319,11 @@ def run_proof(source_file: Path = None, display_name: str = None, compress: bool
     original_sha256 = sha256_of(source_file)
     decrypted_sha256 = sha256_of(decrypted_file)
     decrypted_size = decrypted_file.stat().st_size
-    encrypted_size = encrypted_file.stat().st_size
+    # Not locally readable when the intermediate lives in Azure storage --
+    # this script deliberately adds no Azure SDK dependency just to report
+    # this one number; the real jar's own log line (hsm_bulk_client_complete)
+    # is what actually proves the ADLS/Blob write/read happened.
+    encrypted_size = encrypted_file.stat().st_size if store_type == "LOCAL" else None
 
     # Kept for the /original.pdf and /decrypted.pdf endpoints to serve from,
     # since source_file itself may be a temp upload path that won't outlive
@@ -254,6 +335,7 @@ def run_proof(source_file: Path = None, display_name: str = None, compress: bool
         "ok": True,
         "display_name": display_name,
         "compress": compress,
+        "store_type": store_type,
         "match": original_sha256 == decrypted_sha256,
         "expected_chunks": expected_chunks,
         "chunk_size_bytes": CHUNK_SIZE_BYTES,
@@ -299,6 +381,13 @@ byte-for-byte (SHA-256), then renders both PDFs below.</p>
 <div class="controls">
   <input type="text" id="pathInput" placeholder="/absolute/path/to/file.pdf -- leave blank for the built-in >=80MB sample">
   <label><input type="checkbox" id="compressInput"> compress-before-encrypt</label>
+  <label title="PROOF_UI_AZURE_ROOT must be set -- see this script's docstring">encrypted intermediate:
+    <select id="storeTypeInput">
+      <option value="LOCAL" selected>local disk</option>
+      <option value="ADLS">ADLS Gen2 (HNS required)</option>
+      <option value="AZURE_BLOB">Azure Blob Storage</option>
+    </select>
+  </label>
   <button id="runBtn" onclick="runProof()">Run proof</button>
 </div>
 <span id="status"></span>
@@ -310,6 +399,7 @@ async function runProof() {
   const result = document.getElementById('result');
   const path = document.getElementById('pathInput').value.trim();
   const compress = document.getElementById('compressInput').checked;
+  const storeType = document.getElementById('storeTypeInput').value;
   btn.disabled = true;
   status.textContent = ' Running encrypt + decrypt through the real pipeline...';
   result.innerHTML = '';
@@ -317,7 +407,7 @@ async function runProof() {
     const res = await fetch('/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: path, compress: compress }),
+      body: JSON.stringify({ path: path, compress: compress, store_type: storeType }),
     });
     const data = await res.json();
     status.textContent = '';
@@ -329,12 +419,16 @@ async function runProof() {
     const verdict = data.match
       ? '<span class="pass">MATCH -- decrypted output is byte-for-byte identical to the original</span>'
       : '<span class="fail">MISMATCH -- decrypted output differs from the original</span>';
+    const encryptedSizeCell = data.encrypted_size === null
+      ? `n/a -- lives in ${data.store_type}, not read back locally`
+      : data.encrypted_size.toLocaleString();
+    const storeSuffix = data.store_type !== 'LOCAL' ? ` (via ${data.store_type})` : '';
     result.innerHTML = `
-      <h2>${data.display_name}${data.compress ? ' (compress-before-encrypt)' : ''}: ${verdict}</h2>
+      <h2>${data.display_name}${data.compress ? ' (compress-before-encrypt)' : ''}${storeSuffix}: ${verdict}</h2>
       <table>
         <tr><th></th><th>Size (bytes)</th><th>SHA-256</th></tr>
         <tr><td>Original</td><td>${data.original_size.toLocaleString()}</td><td class="hash">${data.original_sha256}</td></tr>
-        <tr><td>Encrypted (intermediate)</td><td>${data.encrypted_size.toLocaleString()}</td><td class="hash">framing overhead expected, not compared</td></tr>
+        <tr><td>Encrypted (intermediate)${storeSuffix}</td><td>${encryptedSizeCell}</td><td class="hash">framing overhead expected, not compared</td></tr>
         <tr><td>Decrypted (round-tripped)</td><td>${data.decrypted_size.toLocaleString()}</td><td class="hash">${data.decrypted_sha256}</td></tr>
       </table>
       <p>Chunked into ${data.expected_chunks} chunks at ${(data.chunk_size_bytes / 1024 / 1024).toFixed(0)} MiB each.
@@ -403,13 +497,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 payload = json.loads(raw or b"{}")
                 path_str = (payload.get("path") or "").strip()
                 compress = bool(payload.get("compress", False))
+                store_type = payload.get("store_type") or "LOCAL"
+                if store_type not in ("LOCAL", "ADLS", "AZURE_BLOB"):
+                    raise ValueError(f"invalid store_type: {store_type!r}")
                 if path_str:
                     source_file = Path(path_str).expanduser()
                     if not source_file.is_file():
                         raise FileNotFoundError(f"No such file: {source_file}")
-                    result = run_proof(source_file=source_file, display_name=source_file.name, compress=compress)
+                    result = run_proof(source_file=source_file, display_name=source_file.name,
+                                        compress=compress, store_type=store_type)
                 else:
-                    result = run_proof(compress=compress)
+                    result = run_proof(compress=compress, store_type=store_type)
             except subprocess.TimeoutExpired:
                 result = {"ok": False, "error": "hsm-bulk-client run timed out (>180s)"}
             except Exception as e:
