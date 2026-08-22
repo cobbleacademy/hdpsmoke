@@ -243,7 +243,20 @@ via `hsm-core-service` alone live at
 reverse — are guarded by an automated regression test,
 `CoreBulkFileInteropTest` in `hsm-bulk-client`, which spins up real
 instances of both services on every full build. See `FileBulkJob.java`'s
-class javadoc for the full wire-format detail.)
+class javadoc for the full wire-format detail.
+
+Optional, per-job gzip compression (`file.compress-before-encrypt: true`,
+`ClientProperties.File.compressBeforeEncrypt`) is layered on the same
+format without breaking any of the above: each chunk gets gzipped, then a
+single marker byte (`0x00` raw / `0x01` gzip) is prepended, and *that*
+combined buffer — not the raw chunk — is what gets base64-encoded and
+encrypted. The marker sits inside the AEAD-authenticated payload, so it's
+tamper-protected, not just self-describing, and decrypt always reads it
+regardless of its own job's `compress-before-encrypt` setting — there's
+nothing to coordinate between an encrypt job's config and whatever decrypts
+the file later, on either service. Verified live end-to-end, including
+through both readers above and through this checkbox in
+`hsm-bulk-client/proof-ui`; see that tool's README for the specific run.)
 
 For a file too large to encrypt as one plaintext:
 

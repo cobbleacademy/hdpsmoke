@@ -91,6 +91,27 @@ the real numbers from running it, not just the design.
     a few hundred bytes; see `proof-ui/README.md`'s "Verified live" section
     for current real numbers.
 
+    **Update, later round still:** optional per-job gzip compression added
+    (`file.compress-before-encrypt`, `ClientProperties.File
+    .compressBeforeEncrypt`, ENCRYPT-side config only). Each chunk is
+    gzipped before the base64 step above, with a single marker byte (`0x00`
+    raw / `0x01` gzip) prepended first -- inside the base64, inside the
+    AEAD-authenticated payload, so it's tamper-protected rather than a bare
+    hint. Decrypt always reads the marker regardless of its own job's
+    config, so an encrypt job's `compress-before-encrypt` setting needs no
+    matching setting anywhere else, ever -- the file stays self-describing.
+    Verified live: a genuinely compressible 235,897-byte source bundle
+    round-tripped through the real jar (SHA-256 exact match) with an
+    encrypted intermediate of 72,624 bytes -- *smaller* than the plaintext
+    despite AES-GCM + base64 overhead -- via three independent paths (local
+    decrypt, `hsm_bulk_file_reader.py` against `hsm-core-service` directly,
+    and `CoreBulkFileInteropTest`'s
+    `compressedChunks_decryptCorrectlyBothLocallyAndViaCoreService()`), plus
+    a fourth: the `.NET` reader (`HsmBulkFileReader.cs`), run for real after
+    installing a .NET 8 SDK into this environment specifically to verify it
+    rather than assume the port was equivalent. See `proof-ui/README.md`'s
+    "Verified live: compress-before-encrypt" section for all four.
+
 ## Deployment
 
 `hsm-bulk-service` (SVC) now has real Docker/Helm artifacts:
