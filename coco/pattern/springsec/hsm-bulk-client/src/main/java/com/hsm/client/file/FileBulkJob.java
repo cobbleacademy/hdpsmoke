@@ -7,6 +7,8 @@ import com.hsm.client.svc.SvcClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
@@ -15,6 +17,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import javax.crypto.AEADBadTagException;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,6 +32,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * BULK File job: one DEK per whole file by default, each chunk encrypted separately
@@ -43,7 +48,44 @@ import java.util.concurrent.atomic.AtomicLong;
  * self-terminating at end-of-stream, which avoids needing to know the chunk count
  * up front -- important for FileStore.openWrite's push-style streaming (in
  * particular AdlsFileStore's pipe-based upload), which can't seek back to fill in a
- * count after the fact.
+ * count after the fact. edek_id is stored once, not repeated per chunk -- every
+ * chunk of one file always shares the same DEK by construction, so nothing is lost
+ * by only writing it once; dek_name is deliberately NOT persisted here at all, since
+ * it has no role at decrypt time on either service (it only ever affects encrypt-time
+ * DEK-reuse decisions) -- edek_id is the one thing hsm-bulk-service's /dek/unwrap and
+ * hsm-core-service's /decrypt both actually key off of.
+ *
+ * <p>Each chunk's plaintext is base64-encoded (config.chunkSizeBytes() raw bytes in,
+ * an ASCII base64 string out) before it's actually encrypted -- required, not
+ * cosmetic: hsm-core-service's own DecryptionService does {@code new String(plaintext,
+ * UTF_8)} unconditionally on the way out, which corrupts arbitrary binary content (a
+ * real file chunk is essentially never valid UTF-8) but is always lossless for base64
+ * text, since base64's alphabet is a strict subset of ASCII/UTF-8. This is the one
+ * change needed to make this file's own ciphertext frames decryptable via
+ * hsm-core-service, not just this class's own local decrypt path.
+ *
+ * <p>config.compressBeforeEncrypt() (default false, per-job only -- see
+ * ClientProperties.File's javadoc) gzips each chunk before the base64 step above.
+ * The one byte immediately BEFORE the base64-encoded payload -- itself inside the
+ * AES-GCM-protected plaintext, so it's authenticated, not just self-describing --
+ * is a marker: {@code 0x00} raw, {@code 0x01} gzip-compressed. Every decrypt path
+ * (this class's own decryptOneFile, and the remote path via
+ * reconstructCoreServiceToken) always reads this marker and branches accordingly,
+ * regardless of what compressBeforeEncrypt was set to on whatever job produced the
+ * file, or which service resolves the DEK -- no coordination needed between the
+ * encrypt-time config and whatever decrypts later.
+ *
+ * <p>Two decrypt paths resolve to the identical plaintext bytes, by design: LOCAL
+ * (what this class's own decryptRange/decryptOneFile does) reads edek_id once,
+ * resolves the DEK via SVC's /dek/unwrap, and decrypts every frame directly. REMOTE
+ * -- for a consumer that never talks to hsm-bulk-service at all -- takes edek_id
+ * (the file header) plus any one frame's iv/tag/ciphertext and calls {@link
+ * #reconstructCoreServiceToken} to rebuild the exact ciphertext string
+ * hsm-core-service's own /encrypt produces, then hands that straight to
+ * hsm-core-service's unchanged {@code POST /decrypt}. Neither hsm-core-service's nor
+ * hsm-bulk-service's own API changes for this -- reconstruction is a client-side
+ * concern, one small pure function, not a new capability either service needs to
+ * grow.
  *
  * <p>config.dekName() set -- one persistent DEK for the whole job (resolved once,
  * reused across every future run using the same name), instead of each file
@@ -314,11 +356,24 @@ public class FileBulkJob {
             out.writeLong(edekId.getMostSignificantBits());
             out.writeLong(edekId.getLeastSignificantBits());
 
+            boolean compress = config.compressBeforeEncrypt();
             byte[] buffer = new byte[config.chunkSizeBytes()];
             int read;
             while ((read = readFully(in, buffer)) > 0) {
                 byte[] chunk = read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
-                DekManager.EncryptResult encrypted = DekManager.encrypt(chunk, dek, svcConfig.appId());
+                // Compression marker (see class javadoc) prepended BEFORE base64 --
+                // inside the AES-GCM-protected plaintext, so it's authenticated, not
+                // just self-describing.
+                byte[] payload = compress ? gzip(chunk) : chunk;
+                byte[] marked = new byte[1 + payload.length];
+                marked[0] = compress ? (byte) 0x01 : (byte) 0x00;
+                System.arraycopy(payload, 0, marked, 1, payload.length);
+                // base64-encode before encrypting -- see class javadoc: makes this
+                // frame's ciphertext safe to decrypt via hsm-core-service's own
+                // /decrypt too, not just this class's own local path.
+                String base64Plaintext = Base64.getEncoder().encodeToString(marked);
+                DekManager.EncryptResult encrypted = DekManager.encrypt(
+                        base64Plaintext.getBytes(StandardCharsets.UTF_8), dek, svcConfig.appId());
                 byte[] frame = new byte[DekManager.IV_LENGTH + DekManager.TAG_LENGTH + encrypted.ciphertext().length];
                 System.arraycopy(encrypted.iv(), 0, frame, 0, DekManager.IV_LENGTH);
                 System.arraycopy(encrypted.tag(), 0, frame, DekManager.IV_LENGTH, DekManager.TAG_LENGTH);
@@ -451,16 +506,42 @@ public class FileBulkJob {
                 byte[] iv = Arrays.copyOfRange(frame, 0, DekManager.IV_LENGTH);
                 byte[] tag = Arrays.copyOfRange(frame, DekManager.IV_LENGTH, DekManager.IV_LENGTH + DekManager.TAG_LENGTH);
                 byte[] ciphertext = Arrays.copyOfRange(frame, DekManager.IV_LENGTH + DekManager.TAG_LENGTH, frame.length);
+                byte[] plaintext;
                 try {
-                    byte[] plaintext = DekManager.decrypt(ciphertext, tag, iv, dek, svcConfig.appId());
-                    out.write(plaintext);
+                    plaintext = DekManager.decrypt(ciphertext, tag, iv, dek, svcConfig.appId());
                 } catch (AEADBadTagException e) {
                     throw new IllegalStateException("AEAD tag verification failed decrypting chunk of " + relativePath, e);
                 }
+                // Reverse of encryptOneFile's base64-safety encoding -- plaintext
+                // here is the base64 string's UTF-8 bytes, not the raw chunk yet.
+                String base64Plaintext = new String(plaintext, StandardCharsets.UTF_8);
+                byte[] marked = Base64.getDecoder().decode(base64Plaintext);
+                // Marker byte (see class javadoc) always read regardless of this
+                // job's own compressBeforeEncrypt config -- self-describing per chunk.
+                byte flag = marked[0];
+                byte[] payload = Arrays.copyOfRange(marked, 1, marked.length);
+                out.write(flag == 0x01 ? gunzip(payload) : payload);
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to decrypt file " + relativePath, e);
         }
+    }
+
+    /** config.compressBeforeEncrypt() support -- see class javadoc for the marker-byte scheme this feeds. */
+    private static byte[] gzip(byte[] data) throws IOException {
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(compressed)) {
+            gzip.write(data);
+        }
+        return compressed.toByteArray();
+    }
+
+    private static byte[] gunzip(byte[] data) throws IOException {
+        ByteArrayOutputStream decompressed = new ByteArrayOutputStream();
+        try (GZIPInputStream gunzip = new GZIPInputStream(new ByteArrayInputStream(data))) {
+            gunzip.transferTo(decompressed);
+        }
+        return decompressed.toByteArray();
     }
 
     /** Reads up to buffer.length bytes, filling the buffer as much as possible before returning (unlike InputStream.read, which may return short reads) -- so chunk sizes are consistent except for the final chunk. Returns 0 at EOF. */
@@ -482,5 +563,28 @@ public class FileBulkJob {
             result.add(items.subList(i, Math.min(i + size, items.size())));
         }
         return result;
+    }
+
+    /**
+     * The REMOTE decrypt path -- see class javadoc. Rebuilds the exact ciphertext
+     * token string hsm-core-service's own /encrypt produces from one frame's
+     * (edek_id, iv, tag, ciphertext) -- the same edek_id every frame of one file
+     * shares, plus that one frame's own iv/tag/ciphertext read straight out of the
+     * binary layout above. Hand the result to hsm-core-service's unchanged
+     * {@code POST /decrypt} as the request's {@code ciphertext} field; the
+     * returned plaintext is still base64-encoded (this class's own
+     * plaintext-safety encoding, see the class javadoc), with the
+     * compressed/raw marker byte as its first decoded byte -- decode, read
+     * that byte, gzip-decompress the rest only if it's {@code 0x01} --
+     * recovers the original raw chunk bytes, same as decryptOneFile does
+     * locally.
+     *
+     * <p>Not called anywhere in this class -- decryptRange/decryptOneFile always
+     * take the local path via SVC's /dek/unwrap. This exists purely as a public
+     * capability for a consumer that wants to decrypt via hsm-core-service
+     * directly instead, without ever talking to hsm-bulk-service.
+     */
+    public static String reconstructCoreServiceToken(UUID edekId, byte[] iv, byte[] tag, byte[] ciphertext) {
+        return DekManager.packToken(edekId, iv, tag, ciphertext);
     }
 }
