@@ -1,6 +1,6 @@
 <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img">
           <title>HSM Core Service Architecture</title>
-          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (hsm-bulk-service/hsm-bulk-client) and dek_name reuse</desc>
+          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (hsm-bulk-service/hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest</desc>
           <rect width="1320" height="1330" fill="#0f1117"/>
 
           <!-- ── AZURE SUBSCRIPTION BOUNDARY ────────────────────────────────── -->
@@ -278,6 +278,12 @@
           <!-- Arrow: CLNT → SVC, crossing the subscription boundary -->
           <line x1="940" y1="1115" x2="690" y2="1115" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
           <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (static or Workload Identity) + X-App-ID</text>
+
+          <!-- File-format interop note — added later round: BULK File job specifically, DB columns already covered by the note above -->
+          <rect x="440" y="1240" width="840" height="60" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
+          <text x="860" y="1256" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">BULK File job: each chunk's plaintext base64-encoded before AES-256-GCM — survives CORE SERVICE's own /decrypt UTF-8 response encoding losslessly</text>
+          <text x="860" y="1269" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format CORE SERVICE itself produces, now true for files too</text>
+          <text x="860" y="1284" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE + SVC processes, both directions, every build</text>
 
           <defs>
             <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/></marker>
