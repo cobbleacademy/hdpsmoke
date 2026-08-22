@@ -216,7 +216,17 @@ public record ClientProperties(
             // list into that many groups and runs one independent worker per group
             // concurrently, each running the same per-file pipeline.
             int parallelism,
-            Checkpoint checkpoint
+            Checkpoint checkpoint,
+            // false (default) -- today's exact behavior, unchanged. true -- FileBulkJob
+            // gzips each chunk before base64-encoding it (see class javadoc). Per-job
+            // only, not per-file-type: applies uniformly to every chunk of every file
+            // this job processes. Decrypt needs no matching config on either side --
+            // every chunk carries its own 1-byte compressed/raw marker inside the
+            // AES-GCM-protected plaintext, so FileBulkJob.decryptOneFile (and the
+            // remote hsm-core-service path via reconstructCoreServiceToken) always
+            // resolves it correctly regardless of what this flag was set to at
+            // encrypt time, or which job/run produced the file.
+            boolean compressBeforeEncrypt
     ) {
         public File {
             if (parallelism <= 0) {
