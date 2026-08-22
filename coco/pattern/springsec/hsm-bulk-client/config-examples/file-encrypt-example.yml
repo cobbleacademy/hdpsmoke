@@ -32,6 +32,15 @@ client:
     file-types: []   # e.g. [".png", ".txt", ".pdf"] -- empty means all files
     chunk-size-bytes: 8388608   # 8 MiB
     files-per-batch: 10
+    # false (default) -- unchanged behavior. true -- gzip each chunk before the
+    # mandatory base64 plaintext-safety encoding (see FileBulkJob's class javadoc).
+    # Worth it when storage/bandwidth is a real constraint on a large run and your
+    # files are text-like/compressible (documents, logs, exports) -- costs little
+    # for already-compressed content (images, video, zips) but never hurts either;
+    # real CPU cost either way. Per-job only, applies to every chunk of every file.
+    # Decrypt needs no matching setting on the decrypting job's own config -- every
+    # chunk is self-describing regardless of what produced it.
+    # compress-before-encrypt: true
     # Unset (default) -- every file mints its own DEK, unchanged pre-existing
     # behavior. Set -- one persistent DEK for this job's business purpose (e.g.
     # "all customer files"), reused across every future run using the same name,

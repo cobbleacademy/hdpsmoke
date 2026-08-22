@@ -33,6 +33,11 @@ client:
     # full /dek/unwrap round trip (and one RSA-OAEP unwrap) per batch instead
     # of once per job.
     dek-name: customer-files-2024   # matches file-encrypt-example.yml's value
+    # compress-before-encrypt is likewise NOT set here on purpose -- it's an
+    # encrypt-side-only, per-job knob (see file-encrypt-example.yml). Decrypt
+    # never needs to know whether the encrypt job used it: every chunk carries
+    # its own compressed/raw marker, self-describing regardless of this job's
+    # own config.
     parallelism: 4
     checkpoint:
       enabled: true
