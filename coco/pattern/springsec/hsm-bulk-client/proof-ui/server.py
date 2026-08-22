@@ -64,8 +64,10 @@ TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
 CHUNK_SIZE_BYTES = 8388608  # 8 MiB, matches FileBulkJob's own default
 SAMPLE_TARGET_MB = 80  # minimum -- sample.pdf is regenerated if smaller than this
 
-# Java 26 install used elsewhere in this session -- override via JAVA_BIN if different.
-JAVA_BIN = os.environ.get("JAVA_BIN", "/usr/local/Cellar/openjdk/26.0.1/libexec/openjdk.jdk/Contents/Home/bin/java")
+# Resolved via PATH by default (shutil.which), not a hardcoded install path --
+# this script runs on whatever machine hosts it, not just the one it was
+# built on. Override with JAVA_BIN if the java you want isn't on PATH.
+JAVA_BIN = os.environ.get("JAVA_BIN") or shutil.which("java") or "java"
 
 
 def ensure_sample_pdf():
@@ -383,6 +385,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+
+    if not shutil.which(JAVA_BIN) and not Path(JAVA_BIN).is_file():
+        print(f"error: java not found at '{JAVA_BIN}' -- set JAVA_BIN to your "
+              f"java executable's full path, or put java on PATH", file=sys.stderr)
+        sys.exit(1)
 
     ensure_sample_pdf()
     # Bind 127.0.0.1 explicitly, not "localhost" -- some clients resolve
