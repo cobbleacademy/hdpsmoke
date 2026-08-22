@@ -40,10 +40,19 @@
 // Reuses HsmCoreClient from HsmCoreBatchFile.cs (same project, same
 // namespace) for the actual /decrypt/batch call, rather than duplicating
 // an HTTP client.
+//
+// The first byte after base64-decoding a chunk's decrypted plaintext is a
+// compressed/raw marker -- 0x01 means FileBulkJob gzipped it before
+// encryption (compress-before-encrypt: true on that job, see
+// ClientProperties.File's javadoc), 0x00 means it didn't. Always checked
+// here regardless of any config of this class's own -- every chunk is
+// self-describing, so there's nothing to configure to match whatever job
+// produced the file.
 
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -148,9 +157,21 @@ namespace Hsm.BulkClient.Examples
             for (int i = 0; i < frames.Count; i++)
             {
                 string base64Plaintext = results[i.ToString()].GetProperty("plaintext").GetString()!;
-                byte[] chunk = Convert.FromBase64String(base64Plaintext);
+                byte[] marked = Convert.FromBase64String(base64Plaintext);
+                byte flag = marked[0];
+                byte[] payload = marked[1..];
+                byte[] chunk = flag == 0x01 ? Gunzip(payload) : payload;
                 outStream.Write(chunk, 0, chunk.Length);
             }
+        }
+
+        private static byte[] Gunzip(byte[] data)
+        {
+            using var input = new MemoryStream(data);
+            using var gzip = new GZipStream(input, CompressionMode.Decompress);
+            using var output = new MemoryStream();
+            gzip.CopyTo(output);
+            return output.ToArray();
         }
     }
 }
