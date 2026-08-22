@@ -135,3 +135,12 @@ client:
     file-types: []
     chunk-size-bytes: ${FILE_CHUNK_SIZE_BYTES:8388608}   # 8 MiB default
     files-per-batch: ${FILE_FILES_PER_BATCH:10}
+    # false (default) -- today's exact behavior, unchanged. true -- gzips each chunk
+    # before the mandatory base64 plaintext-safety encoding (see FileBulkJob's class
+    # javadoc). Per-job only, not per-file-type -- applies to every chunk of every
+    # file this job processes. Worth turning on when storage/bandwidth is a real
+    # constraint on a large run; costs real CPU on both encrypt and decrypt in
+    # exchange. Decrypt needs no matching setting -- every chunk carries its own
+    # compressed/raw marker, self-describing regardless of what this was set to at
+    # encrypt time.
+    compress-before-encrypt: ${FILE_COMPRESS_BEFORE_ENCRYPT:false}
