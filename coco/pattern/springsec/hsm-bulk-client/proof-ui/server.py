@@ -62,6 +62,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -149,6 +150,26 @@ client:
 {compress_line}""")
 
 
+_EXCEPTION_START = re.compile(r'^(Exception in thread|Caused by:|[\w.$]+(Exception|Error):)')
+
+
+def _relevant_log_excerpt(log: str, max_lines: int = 80) -> str:
+    """A blind last-N-lines tail regularly lands entirely inside Spring
+    Boot's generic runner/shutdown unwind (ThrowingConsumer, SpringApplication
+    internals, JarLauncher...), cutting off the one line that actually says
+    what broke -- found live: a real failure's true `Caused by:` sat well
+    above where a 25-line tail started. Instead, find where the first real
+    exception line begins (skipping "at ..." stack frames, which can contain
+    "Exception" in a frame's own class name) and take from there."""
+    lines = log.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines)
+         if _EXCEPTION_START.match(ln.strip()) and not ln.strip().startswith("at ")),
+        max(0, len(lines) - 25),
+    )
+    return "\n".join(lines[start:start + max_lines])
+
+
 def run_bulk_client(job_yaml: Path) -> dict:
     start = time.time()
     proc = subprocess.run(
@@ -161,7 +182,7 @@ def run_bulk_client(job_yaml: Path) -> dict:
     return {
         "exit_code": proc.returncode,
         "elapsed_seconds": round(elapsed, 2),
-        "log_tail": "\n".join(log.splitlines()[-25:]),
+        "log_tail": _relevant_log_excerpt(log),
         "success": proc.returncode == 0 and "hsm_bulk_client_complete" in log,
     }
 
