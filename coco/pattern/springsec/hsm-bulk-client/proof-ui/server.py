@@ -20,6 +20,11 @@ oversight) -- FileBulkJob only logs progress at the file level, not the
 chunk level, and there was no reason to add chunk-level logging just for this
 tool. This runs the real pipeline to completion, then shows the result.
 
+The "compress-before-encrypt" checkbox sets that flag on the ENCRYPT job
+only, never DECRYPT -- FileBulkJob reads a per-chunk marker byte instead, so
+the decrypt side needs no matching config. Round-trips through the same real
+jar either way.
+
 Prerequisites (this script does NOT start these for you):
   - hsm-core-service and hsm-bulk-service both already running (demo mode,
     sharing one H2 file via AUTO_SERVER=TRUE -- hsm-bulk-service has no seed
@@ -88,9 +93,14 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def write_job_yaml(path: Path, mode: str, source_root: Path, target_root: Path):
+def write_job_yaml(path: Path, mode: str, source_root: Path, target_root: Path, compress: bool = False):
     private_key_pem = PRIVATE_KEY_PATH.read_text()
     indented_key = "\n".join("      " + line for line in private_key_pem.splitlines())
+    # compress-before-encrypt is an ENCRYPT-side-only knob -- decrypt never
+    # sets it, every chunk carries its own compressed/raw marker byte inside
+    # the AES-GCM-authenticated payload (see FileBulkJob.java's class
+    # javadoc), so there's nothing for the decrypt job to be told.
+    compress_line = "    compress-before-encrypt: true\n" if (compress and mode == "ENCRYPT") else ""
     path.write_text(f"""\
 client:
   job:
@@ -115,7 +125,7 @@ client:
     chunk-size-bytes: {CHUNK_SIZE_BYTES}
     files-per-batch: 10
     parallelism: 1
-""")
+{compress_line}""")
 
 
 def run_bulk_client(job_yaml: Path) -> dict:
@@ -135,7 +145,7 @@ def run_bulk_client(job_yaml: Path) -> dict:
     }
 
 
-def run_proof(source_file: Path = None, display_name: str = None) -> dict:
+def run_proof(source_file: Path = None, display_name: str = None, compress: bool = False) -> dict:
     """source_file/display_name let a caller point this at an arbitrary local
     file (via the UI's path field) instead of the built-in sample.pdf --
     everything else about the flow (encrypt -> decrypt -> hash-compare -> serve
@@ -171,7 +181,7 @@ def run_proof(source_file: Path = None, display_name: str = None) -> dict:
     expected_chunks = -(-original_size // CHUNK_SIZE_BYTES)  # ceil div
 
     encrypt_yaml = WORK_DIR / "encrypt-job.yml"
-    write_job_yaml(encrypt_yaml, "ENCRYPT", encrypt_source, encrypt_target)
+    write_job_yaml(encrypt_yaml, "ENCRYPT", encrypt_source, encrypt_target, compress=compress)
     encrypt_result = run_bulk_client(encrypt_yaml)
 
     encrypted_file = encrypt_target / working_name
@@ -201,6 +211,7 @@ def run_proof(source_file: Path = None, display_name: str = None) -> dict:
     return {
         "ok": True,
         "display_name": display_name,
+        "compress": compress,
         "match": original_sha256 == decrypted_sha256,
         "expected_chunks": expected_chunks,
         "chunk_size_bytes": CHUNK_SIZE_BYTES,
@@ -245,6 +256,7 @@ hsm-bulk-service. Compares the round-tripped output against the original
 byte-for-byte (SHA-256), then renders both PDFs below.</p>
 <div class="controls">
   <input type="text" id="pathInput" placeholder="/absolute/path/to/file.pdf -- leave blank for the built-in >=80MB sample">
+  <label><input type="checkbox" id="compressInput"> compress-before-encrypt</label>
   <button id="runBtn" onclick="runProof()">Run proof</button>
 </div>
 <span id="status"></span>
@@ -255,6 +267,7 @@ async function runProof() {
   const status = document.getElementById('status');
   const result = document.getElementById('result');
   const path = document.getElementById('pathInput').value.trim();
+  const compress = document.getElementById('compressInput').checked;
   btn.disabled = true;
   status.textContent = ' Running encrypt + decrypt through the real pipeline...';
   result.innerHTML = '';
@@ -262,7 +275,7 @@ async function runProof() {
     const res = await fetch('/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: path }),
+      body: JSON.stringify({ path: path, compress: compress }),
     });
     const data = await res.json();
     status.textContent = '';
@@ -275,7 +288,7 @@ async function runProof() {
       ? '<span class="pass">MATCH -- decrypted output is byte-for-byte identical to the original</span>'
       : '<span class="fail">MISMATCH -- decrypted output differs from the original</span>';
     result.innerHTML = `
-      <h2>${data.display_name}: ${verdict}</h2>
+      <h2>${data.display_name}${data.compress ? ' (compress-before-encrypt)' : ''}: ${verdict}</h2>
       <table>
         <tr><th></th><th>Size (bytes)</th><th>SHA-256</th></tr>
         <tr><td>Original</td><td>${data.original_size.toLocaleString()}</td><td class="hash">${data.original_sha256}</td></tr>
@@ -340,13 +353,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raw = self.rfile.read(length) if length else b"{}"
                 payload = json.loads(raw or b"{}")
                 path_str = (payload.get("path") or "").strip()
+                compress = bool(payload.get("compress", False))
                 if path_str:
                     source_file = Path(path_str).expanduser()
                     if not source_file.is_file():
                         raise FileNotFoundError(f"No such file: {source_file}")
-                    result = run_proof(source_file=source_file, display_name=source_file.name)
+                    result = run_proof(source_file=source_file, display_name=source_file.name, compress=compress)
                 else:
-                    result = run_proof()
+                    result = run_proof(compress=compress)
             except subprocess.TimeoutExpired:
                 result = {"ok": False, "error": "hsm-bulk-client run timed out (>180s)"}
             except Exception as e:

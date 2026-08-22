@@ -9,6 +9,11 @@ decrypt actually work, chunk-by-chunk, on a real file"), not a production
 feature. No dependencies beyond Python 3's standard library + Pillow (only
 used to generate the sample PDF, not for anything crypto-related).
 
+The **compress-before-encrypt** checkbox sets that flag on the ENCRYPT job
+only (see `ClientProperties.File.compressBeforeEncrypt`) — check it, point
+the path field at a compressible file, and the "Encrypted (intermediate)"
+row will come out smaller than "Original" instead of ~33% larger.
+
 ## Prerequisites
 
 1. **`hsm-core-service` and `hsm-bulk-service` both running**, sharing one H2
@@ -99,3 +104,43 @@ reported `match: true` with the file only 400 bytes larger — 16-byte
 `edek_id` header + 12 chunks × 32 bytes IV+tag each. That format has since
 been replaced; see `FileBulkJob.java`'s class javadoc and
 `java/docs/BULK_OPERATIONS.md` for why.)
+
+## Verified live: compress-before-encrypt + cross-service interop (2026-08-22, later round)
+
+`compress-before-encrypt: true` verified end-to-end against a real
+`hsm-bulk-client.jar` run, not just unit tests. Source: 235,897 bytes of
+concatenated Java source (genuinely compressible text).
+
+**Via this proof-ui tool itself**, checkbox checked, path field pointed at
+the source bundle: encrypted intermediate came out at **72,624 bytes**
+(smaller than the 235,897-byte original, despite AES-GCM + base64 overhead)
+— confirming gzip is actually applied before encryption, not just accepted
+as a no-op config flag, and that the checkbox correctly threads through to
+`ClientProperties.File.compressBeforeEncrypt` on the ENCRYPT job only.
+`match: true`. The unchecked/default path (built-in ~90 MB sample, no
+compression) was re-run immediately after as a regression check — still
+`match: true`, encrypted size still the expected 4:3 base64 ratio — since
+the checkbox required a shared-code change (`write_job_yaml`'s signature).
+
+Three further decrypt paths, same source file, same SHA-256
+(`f7688061a0dc608f00bb72b5dfbf6ae6b8efef1ca7f19147fdcf25ded3e102c4`) on
+every one:
+1. **Remote decrypt** via `hsm_bulk_file_reader.py`
+   (`examples/python/hsm_bulk_file_reader.py`) against `hsm-core-service`
+   directly — `hsm-bulk-service` never contacted for this path.
+2. **Remote decrypt** via `HsmBulkFileReader.cs`
+   (`examples/dotnet/HsmBulkFileReader.cs`, `dotnet run -- <enc> <out>`
+   against `HsmCoreClient`), same real `hsm-core-service`, same
+   `hsm-bulk-service`-never-contacted shape. A .NET 8 SDK wasn't installed
+   in this environment at first pass — installed user-locally (no `sudo`)
+   via `dot.net/v1/dotnet-install.sh --channel 8.0` specifically to run
+   this check for real rather than claim the port was equivalent by
+   inspection.
+3. **`CoreBulkFileInteropTest`**'s
+   `compressedChunks_decryptCorrectlyBothLocallyAndViaCoreService()` (Java,
+   automated, runs on every `mvn test`) — both local and remote decrypt,
+   spawned fresh service instances, asserted rather than eyeballed.
+
+All three languages (Java, Python, .NET) are now genuinely live-verified
+against the compression feature, not just structurally similar by
+inspection.
