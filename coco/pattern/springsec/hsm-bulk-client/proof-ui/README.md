@@ -59,6 +59,24 @@ open http://127.0.0.1:8000
 (Use `127.0.0.1`, not `localhost` — some clients resolve `localhost` to `::1`
 first and hang before falling back to IPv4, which is all this server binds.)
 
+**Pointing at services that aren't the local demo defaults** (a remote
+deployment, a different port, non-demo credentials): set these before
+launching — all optional, all default to the local-demo values used
+throughout this README:
+
+```bash
+export PROOF_UI_SVC_BASE_URL=http://<remote-host>:3006
+export PROOF_UI_API_V1_PREFIX=/api/sensec/hsm/v1   # must match that deployment's own prefix
+export PROOF_UI_APP_ID=payments-svc
+export PROOF_UI_TOKEN=demo-token-payments-svc
+python3 server.py --port 8000
+```
+
+Getting `PROOF_UI_SVC_BASE_URL` wrong (e.g. leaving it at `localhost` while
+`hsm-bulk-service` runs elsewhere) surfaces as a generic `ENCRYPT run
+failed` with a connection error in the log tail — check that field first if
+`Run proof` fails against anything other than a local demo setup.
+
 Type an **absolute path to a local file** in the text field, or leave it
 blank to use the built-in sample, then click **Run proof**. It will:
 1. Copy the chosen file — either your path, or `sample.pdf` (auto-generated

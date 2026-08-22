@@ -39,6 +39,16 @@ Prerequisites (this script does NOT start these for you):
 Usage:
   python3 server.py [--port 8000]
   open http://localhost:8000
+
+Pointing at services that aren't the local demo defaults (e.g. a remote
+deployment): override via env vars before launching, all optional --
+  PROOF_UI_SVC_BASE_URL     default http://localhost:3006
+  PROOF_UI_API_V1_PREFIX    default /api/sensec/hsm/v1 -- must match that
+                            deployment's hsm.service.api-v1-prefix, not
+                            necessarily the local demo's
+  PROOF_UI_APP_ID           default payments-svc
+  PROOF_UI_TOKEN            default demo-token-payments-svc
+  JAVA_BIN                  default: resolved from PATH
 """
 import argparse
 import hashlib
@@ -59,6 +69,7 @@ PRIVATE_KEY_PATH = SCRIPT_DIR / "demo-private-key.pem"
 WORK_DIR = SCRIPT_DIR / "work"
 
 SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3006")
+API_V1_PREFIX = os.environ.get("PROOF_UI_API_V1_PREFIX", "/api/sensec/hsm/v1")
 APP_ID = os.environ.get("PROOF_UI_APP_ID", "payments-svc")
 TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
 CHUNK_SIZE_BYTES = 8388608  # 8 MiB, matches FileBulkJob's own default
@@ -110,6 +121,7 @@ client:
     mode: {mode}
   svc:
     base-url: {SVC_BASE_URL}
+    api-v1-prefix: {API_V1_PREFIX}
     app-id: {APP_ID}
     auth-mode: STATIC
     token: "{TOKEN}"
