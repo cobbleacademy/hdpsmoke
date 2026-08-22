@@ -78,11 +78,24 @@ level (`files_done=N`), not per-chunk within one file, and there was no
 reason to add chunk-level logging just for this tool. This runs the real
 pipeline to completion, then shows the result — not a live progress bar.
 
-## Verified live (2026-08-20)
+## Verified live (2026-08-22)
 
-89.9 MB sample PDF, 12 chunks at 8 MiB each. Encrypt: 7.9s. Decrypt: 6.0s.
-Result: `match: true` — decrypted SHA-256 identical to the original.
-Encrypted intermediate was exactly 400 bytes larger than the original (16-byte
-`edek_id` header + 12 chunks × 32 bytes IV+tag each = 400), confirming the
-framing overhead is exactly what `FileBulkJob`'s own format predicts, nothing
-extra or missing.
+89.9 MB sample PDF (94,253,087 bytes), 12 chunks at 8 MiB each. Encrypt:
+8.0s. Decrypt: 6.84s. Result: `match: true` — decrypted SHA-256 identical
+to the original.
+
+Encrypted intermediate: 125,671,200 bytes — **33.33% larger**, not the
+~400-byte framing overhead this note previously reported. That earlier
+number described `FileBulkJob`'s old wire format; the current format
+base64-encodes each chunk's plaintext before encryption (so the ciphertext
+is always safely decryptable via `hsm-core-service`'s own `/decrypt` too,
+not just this tool's local decrypt path — see `FileBulkJob.java`'s class
+javadoc). 125,671,200 / 94,253,087 = 1.3333 exactly the 4:3 ratio base64
+encoding always produces, confirming the overhead is precisely what the
+new format predicts, nothing extra or missing.
+
+(Historical, for reference: the 2026-08-20 run against the previous format
+reported `match: true` with the file only 400 bytes larger — 16-byte
+`edek_id` header + 12 chunks × 32 bytes IV+tag each. That format has since
+been replaced; see `FileBulkJob.java`'s class javadoc and
+`java/docs/BULK_OPERATIONS.md` for why.)
