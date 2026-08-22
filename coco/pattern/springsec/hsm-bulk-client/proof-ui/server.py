@@ -368,6 +368,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(path.stat().st_size))
+        # Every run overwrites these files under the same name (see
+        # run_proof) -- without this, a browser or embedded PDF viewer that
+        # caches by path (ignoring the frontend's own ?t= query-string
+        # busting) can silently keep serving a previous run's PDF instead of
+        # this one, or the current-run request can 404 against a stale cache
+        # entry. Found live: the "Original" pane showed an earlier run's PDF.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         with open(path, "rb") as f:
             shutil.copyfileobj(f, self.wfile)
@@ -380,7 +387,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/original.pdf":
+        elif self.path.startswith("/original.pdf"):
             self._send_file(WORK_DIR / "original.pdf", "application/pdf")
         elif self.path.startswith("/decrypted.pdf"):
             self._send_file(WORK_DIR / "served-decrypted.pdf", "application/pdf")
