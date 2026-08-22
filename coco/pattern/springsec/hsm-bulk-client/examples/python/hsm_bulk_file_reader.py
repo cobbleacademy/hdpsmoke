@@ -40,8 +40,13 @@ HTTP call, reusing HsmCoreClient from hsm_core_batch_file.py.
 
 Each chunk's plaintext, once decrypted by hsm-core-service, is itself a
 base64-encoded string (FileBulkJob's own plaintext-safety encoding, so the
-ciphertext survives hsm-core-service's UTF-8 response encoding losslessly)
--- one more base64 decode recovers the original raw chunk bytes.
+ciphertext survives hsm-core-service's UTF-8 response encoding losslessly).
+The first byte after base64-decoding is a compressed/raw marker -- 0x01
+means the rest was gzipped by FileBulkJob before encryption
+(compress-before-encrypt: true on that job, see ClientProperties.File's
+javadoc), 0x00 means it wasn't. This module always checks it, regardless
+of any config of its own -- every chunk is self-describing, so there's
+nothing to configure here to match whatever job produced the file.
 
 Dependency: pip install requests (via hsm_core_batch_file's HsmCoreClient)
 """
@@ -49,6 +54,7 @@ Dependency: pip install requests (via hsm_core_batch_file's HsmCoreClient)
 from __future__ import annotations
 
 import base64
+import gzip
 import struct
 from pathlib import Path
 
@@ -126,7 +132,11 @@ def decrypt_bulk_file(client: HsmCoreClient, source_path: str | Path, target_pat
     with open(target_path, "wb") as out:
         for i in range(len(frames)):
             base64_plaintext = results[str(i)]["plaintext"]
-            out.write(base64.b64decode(base64_plaintext))
+            marked = base64.b64decode(base64_plaintext)
+            # Marker byte (see module docstring) always read, regardless of
+            # any config this module has -- self-describing per chunk.
+            flag, payload = marked[0], marked[1:]
+            out.write(gzip.decompress(payload) if flag == 0x01 else payload)
 
 
 if __name__ == "__main__":
