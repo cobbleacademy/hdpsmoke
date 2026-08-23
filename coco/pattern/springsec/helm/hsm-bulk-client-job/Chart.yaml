@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hsm-bulk-client-job
-description: Runs hsm-bulk-client as a Kubernetes Job for one BULK DB or BULK File run against hsm-bulk-service -- each install is a single run, not a long-lived service
+description: Runs hsm-bulk-client as a Kubernetes Job for one BULK DB or BULK File run against hsm-core-service's /dek/issue and /dek/unwrap endpoints -- each install is a single run, not a long-lived service
 type: application
 version: 1.0.0
 appVersion: "1.0.0"
