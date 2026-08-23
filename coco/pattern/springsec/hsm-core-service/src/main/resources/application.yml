@@ -52,6 +52,15 @@ spring:
     url: ${DATABASE_URL:}
     username: ${DATABASE_USERNAME:}
     password: ${DATABASE_PASSWORD:}
+    # Spring Boot's unconfigured default is 10. /dek/issue and /dek/unwrap persist/read
+    # one EdekRecord row per unnamed (non-dek-name) item, sequentially within the
+    # request thread -- a bulk-client run with several concurrent db.parallelism
+    # workers, on columns that aren't using dek-name reuse, can otherwise queue behind
+    # that default instead of actually running concurrently. Named-DEK columns barely
+    # touch this pool at all (one issue/unwrap per column per job), so raise this only
+    # matters for genuinely per-row DEK traffic.
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
   flyway:
     enabled: true
     locations: classpath:db/migration
@@ -120,6 +129,11 @@ hsm:
     # concurrent fan-out was deliberately deferred until real Managed HSM
     # throughput numbers exist). Raise only once real numbers justify it.
     batch-executor-pool-size: ${BATCH_EXECUTOR_POOL_SIZE:1}
+    # POST /dek/issue and /dek/unwrap's own item-count cap -- separate from
+    # batch-max-items because these serve hsm-bulk-client's per-row bulk jobs, a
+    # different traffic shape than /encrypt/batch and /decrypt/batch's caller-side
+    # batches (see java/docs/BULK_OPERATIONS.md Tier 3).
+    dek-batch-max-items: ${DEK_BATCH_MAX_ITEMS:100}
   splunk:
     enabled: ${SPLUNK_ENABLED:false}
     hec-url: ${SPLUNK_HEC_URL:}
@@ -179,7 +193,19 @@ hsm:
       - pattern: /decrypt/batch
         methods: [POST]
         authorities: [decrypt]
+      - pattern: /dek/issue
+        methods: [POST]
+        authorities: [dek_issue]
+      - pattern: /dek/unwrap
+        methods: [POST]
+        authorities: [dek_unwrap]
       - pattern: /admin/rotate-kek
+        methods: [POST]
+        authorities: [rotate]
+      - pattern: /admin/rekey-kek
+        methods: [POST]
+        authorities: [rotate]
+      - pattern: /admin/rekey-kek/revert
         methods: [POST]
         authorities: [rotate]
       - pattern: /admin/grants
