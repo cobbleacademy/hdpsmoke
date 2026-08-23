@@ -1,3 +1,6 @@
+{{- if and (eq (.Values.config.demoMode | toString) "true") (or .Values.autoscaling.enabled (gt (.Values.replicaCount | int) 1)) }}
+{{- fail "DEMO_MODE's mock HSM key and H2 file store are per-process, not shared across replicas. Running config.demoMode=true with replicaCount > 1 (or autoscaling enabled) causes encrypt/decrypt to silently fail depending on which pod a request lands on. Set replicaCount: 1 and autoscaling.enabled: false while demo_mode is on, or turn demo_mode off for a real multi-replica deployment." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,9 +27,13 @@ spec:
         {{- end }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        {{- if and (eq .Values.probes.type "http") .Values.istio.rewriteAppHTTPProbers }}
-        # Only meaningful for http probes -- see hsm-core-service's chart for
-        # the full explanation of why this rewrite matters under STRICT mTLS.
+        {{- if .Values.istio.rewriteAppHTTPProbers }}
+        # Explicit, not left to the cluster/mesh-wide default — without this,
+        # kubelet's plain-HTTP probe can hit Envoy's intercepted inbound
+        # listener directly. Under STRICT mTLS that listener expects a TLS
+        # handshake, not a plaintext GET, and responds 400 instead of just
+        # routing through. This forces Istio to rewrite the probe to its
+        # dedicated, interception-exempt status port (15020) instead.
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
         {{- end }}
         {{- with .Values.podAnnotations }}
@@ -38,8 +45,18 @@ spec:
       securityContext:
         {{- toYaml .Values.securityContext.pod | nindent 8 }}
       {{- if .Values.corporateCa.enabled }}
-      # Same corporate-proxy TLS-interception fix as hsm-core-service's chart
-      # -- see that chart's deployment.yaml for the full explanation.
+      # The JVM has no equivalent of Python's REQUESTS_CA_BUNDLE/SSL_CERT_FILE env
+      # vars -- it needs each CA imported into an actual trust store. This
+      # initContainer builds one (default cacerts + every corporate CA found
+      # under the mount) into a shared emptyDir; the main container points
+      # JDK_JAVA_OPTIONS at it below. Uses a separate non-distroless utility
+      # image (needs sh + keytool) -- the distroless runtime image has neither.
+      # Walks the whole mount recursively (not just one hardcoded file) so it
+      # picks up any number of certs, in any subdirectory, in .pem/.crt/.cer
+      # form -- e.g. from a projected volume merging several ConfigMaps/Secrets
+      # each mapped to their own subpath (a single ConfigMap's own keys can't
+      # contain "/", so genuine child folders under the mount require that kind
+      # of projected source, not a single flat ConfigMap).
       initContainers:
         - name: import-corporate-ca
           image: "{{ .Values.corporateCa.utilityImage }}"
@@ -80,7 +97,7 @@ spec:
               readOnly: true
       {{- end }}
       containers:
-        - name: hsm-bulk-service
+        - name: hsm-core-service
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
@@ -113,9 +130,13 @@ spec:
             timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.failureThreshold }}
           {{- else if eq .Values.probes.type "tcp" }}
-          # Connection-level only -- this service has no health endpoint yet
-          # (see values.yaml's probes comment). Still catches a dead/hung
-          # process without depending on an unauthenticated HTTP route.
+          # Connection-level only — no HTTP request goes through, so this
+          # doesn't confirm the app is genuinely serving correctly. It's a
+          # deliberate middle ground: Istio's rewriteAppHTTPProbers only
+          # intercepts httpGet probes, so a tcpSocket check isn't subject
+          # to the same agent-forwarding path that was failing in practice
+          # — it still catches a dead/hung process (port stops accepting
+          # connections) without depending on that mechanism working.
           livenessProbe:
             tcpSocket:
               port: http
@@ -135,9 +156,19 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.corporateCa.enabled }}
           env:
-            # JDK_JAVA_OPTIONS -- see hsm-core-service's chart for why this
-            # (not JAVA_TOOL_OPTIONS) is the recommended choice, with the same
-            # plain `ENTRYPOINT ["java","-jar","app.jar"]` here too.
+            # JDK_JAVA_OPTIONS (JDK 9+, JEP 293) is the officially recommended
+            # way to pass default options to the `java` launcher via env var --
+            # scoped to java/jshell only, unlike JAVA_TOOL_OPTIONS (JDK 5+,
+            # read by JNI_CreateJavaVM, applies to any JVM-spawning tool and is
+            # the conventional hook for APM/observability agent auto-injection,
+            # so it risks silent collision if one gets added to this cluster
+            # later -- Kubernetes env vars don't merge). The entrypoint here is
+            # a plain `ENTRYPOINT ["java","-jar","app.jar"]` (see
+            # java/docker/Dockerfile.hsm-core-service), so JDK_JAVA_OPTIONS
+            # should apply the same as any other java invocation; an earlier
+            # test where it appeared not to take effect was inconclusive and is
+            # being re-validated, hence sticking with the recommended option
+            # here rather than JAVA_TOOL_OPTIONS.
             - name: JDK_JAVA_OPTIONS
               value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword={{ .Values.corporateCa.trustStorePassword }}"
           {{- end }}
@@ -145,6 +176,11 @@ spec:
             {{- if .Values.tmpVolume.enabled }}
             - name: tmp
               mountPath: /tmp
+            {{- end }}
+            {{- if .Values.pbacIntegration.enabled }}
+            - name: pbac-integration-config
+              mountPath: /app/config
+              readOnly: true
             {{- end }}
             {{- if .Values.corporateCa.enabled }}
             - name: truststore
@@ -156,6 +192,11 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if .Values.pbacIntegration.enabled }}
+        - name: pbac-integration-config
+          configMap:
+            name: {{ include "hsm.fullname" . }}-pbac-integration
         {{- end }}
         {{- if .Values.corporateCa.enabled }}
         - name: corporate-ca

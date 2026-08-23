@@ -24,7 +24,7 @@ spec:
         - protocol: TCP
           port: {{ .Values.service.port }}
   egress:
-    # DNS -- required regardless of which egress CIDRs are listed below.
+    # DNS — required regardless of which egress CIDRs are listed below.
     - to: []
       ports:
         - protocol: UDP

@@ -20,17 +20,9 @@ secrets.existingSecretName pointing at a Secret populated by the Azure Key
 Vault CSI driver or External Secrets Operator instead.
 {{- end }}
 
-No health endpoint exists on this service yet (only authenticated
-POST /dek/issue and POST /dek/unwrap) — probes.type defaults to tcp, a
-connection-level check only. It confirms the process is alive, not that it's
-genuinely serving correctly.
-
 Check rollout status:
   kubectl rollout status deployment/{{ include "hsm.fullname" . }} -n {{ .Release.Namespace }}
 
-Exercise it directly (requires a valid bearer token + X-App-ID for a
-provisioned app — see java/docs/TIER3_POC_BUILD.md):
-  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "hsm.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
-  curl -X POST http://localhost:{{ .Values.service.port }}{{ .Values.config.apiV1Prefix }}/dek/issue \
-    -H "Authorization: Bearer <token>" -H "X-App-ID: <app-id>" -H "Content-Type: application/json" \
-    -d '{"items":[{"key":"smoke-test"}]}'
+Health check (from inside the cluster):
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "hsm.fullname" . }} -- \
+    python -c "import httpx; print(httpx.get('http://localhost:{{ .Values.service.port }}{{ .Values.probes.path }}').json())"
