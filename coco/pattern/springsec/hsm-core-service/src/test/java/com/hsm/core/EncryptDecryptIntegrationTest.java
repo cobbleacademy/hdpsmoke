@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -180,6 +181,11 @@ class EncryptDecryptIntegrationTest {
 
     @Test
     void rotateKekRequiresRotateScope() {
+        // rotateKek only sweeps KEKs that actually have current EDEKs (see
+        // RotationService) -- ensure at least one exists regardless of what other
+        // test methods have or haven't run yet, since method order isn't guaranteed.
+        encryptAs("demo-token-payments-svc", "payments-svc", "seed a current edek for rotation");
+
         HttpEntity<Void> req = new HttpEntity<>(headers("demo-token-payments-svc", "payments-svc"));
         ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/rotate-kek", req, Map.class);
         assertEquals(HttpStatus.FORBIDDEN, resp.getStatusCode());
@@ -187,7 +193,9 @@ class EncryptDecryptIntegrationTest {
         HttpEntity<Void> adminReq = new HttpEntity<>(headers("demo-token-ops-admin", "ops-admin"));
         ResponseEntity<Map> adminResp = rest.postForEntity("/api/sensec/hsm/v1/admin/rotate-kek", adminReq, Map.class);
         assertEquals(HttpStatus.OK, adminResp.getStatusCode());
-        assertNotNull(adminResp.getBody().get("new_kek_version"));
+        List<Map> results = (List<Map>) adminResp.getBody().get("results");
+        assertFalse(results.isEmpty());
+        assertNotNull(results.get(0).get("new_kek_version"));
     }
 
     @Test
