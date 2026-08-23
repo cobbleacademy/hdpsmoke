@@ -7,7 +7,7 @@ client:
     type: FILE
     mode: DECRYPT
   svc:
-    base-url: http://localhost:3006
+    base-url: http://localhost:3005
     app-id: payments-svc
     token: "<bearer token for app-id>"
     dek-batch-max-items: 100

@@ -13,7 +13,7 @@ client:
     type: DB
     mode: ENCRYPT
   svc:
-    base-url: http://localhost:3006
+    base-url: http://localhost:3005
     app-id: payments-svc
     # STATIC (default): token below sent as-is. AZURE_AD: fresh Workload Identity
     # token per call instead -- use this for any job that might run longer than a

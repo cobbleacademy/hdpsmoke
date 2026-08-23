@@ -29,7 +29,7 @@ client:
     type: DB
     mode: ENCRYPT
   svc:
-    base-url: http://localhost:3006
+    base-url: http://localhost:3005
     app-id: payments-svc
     auth-mode: STATIC
     token: "<bearer token for app-id>"

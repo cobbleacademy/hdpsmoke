@@ -14,7 +14,7 @@ client:
     type: FILE
     mode: ENCRYPT
   svc:
-    base-url: http://localhost:3006
+    base-url: http://localhost:3005
     app-id: payments-svc
     token: "<bearer token for app-id>"
     dek-batch-max-items: 100
@@ -44,7 +44,7 @@ client:
     # Unset (default) -- every file mints its own DEK, unchanged pre-existing
     # behavior. Set -- one persistent DEK for this job's business purpose (e.g.
     # "all customer files"), reused across every future run using the same name,
-    # not just within one run. Needs hsm-bulk-service's named-DEK rotation to
+    # not just within one run. Needs hsm-core-service's named-DEK rotation to
     # bound how much data one long-lived name ends up protecting -- see
     # NAMED_DEK_ROTATION_* on that service.
     dek-name: customer-files-2024
