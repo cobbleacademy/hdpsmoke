@@ -44,6 +44,7 @@ public class DecryptionService {
     private static final Logger log = LoggerFactory.getLogger(DecryptionService.class);
 
     private final KekClient kekClient;
+    private final KekRegistryService kekRegistryService;
     private final EdekRecordRepository edekRecordRepository;
     private final AppRegistryService appRegistry;
     private final DekCache dekCache;
@@ -52,11 +53,13 @@ public class DecryptionService {
     private final HsmProperties properties;
     private final ExecutorService batchExecutor;
 
-    public DecryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository,
+    public DecryptionService(KekClient kekClient, KekRegistryService kekRegistryService,
+                              EdekRecordRepository edekRecordRepository,
                               AppRegistryService appRegistry, DekCache dekCache,
                               PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
                               ExecutorService batchExecutor) {
         this.kekClient = kekClient;
+        this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
         this.appRegistry = appRegistry;
         this.dekCache = dekCache;
@@ -169,7 +172,8 @@ public class DecryptionService {
         if (cachedDek != null) {
             dek = cachedDek;
         } else {
-            dek = kekClient.unwrapDek(edekBytes, record.getKekVersion());
+            String kekName = record.getKekName() == null ? kekRegistryService.getLegacyDefaultKekName() : record.getKekName();
+            dek = kekClient.unwrapDek(edekBytes, kekName, record.getKekVersion());
             dekCache.set(edekIdStr, dek, record.getDataClassification());
         }
 

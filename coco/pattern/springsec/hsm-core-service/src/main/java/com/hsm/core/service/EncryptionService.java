@@ -43,6 +43,7 @@ public class EncryptionService {
     private static final int MAX_PLAINTEXT_BYTES = EncryptRequest.MAX_PLAINTEXT_CHARS;
 
     private final KekClient kekClient;
+    private final KekRegistryService kekRegistryService;
     private final EdekRecordRepository edekRecordRepository;
     private final DekCache dekCache;
     private final PbacClient pbacClient;
@@ -50,10 +51,11 @@ public class EncryptionService {
     private final HsmProperties properties;
     private final ExecutorService batchExecutor;
 
-    public EncryptionService(KekClient kekClient, EdekRecordRepository edekRecordRepository, DekCache dekCache,
-                              PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
+    public EncryptionService(KekClient kekClient, KekRegistryService kekRegistryService, EdekRecordRepository edekRecordRepository,
+                              DekCache dekCache, PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
                               ExecutorService batchExecutor) {
         this.kekClient = kekClient;
+        this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
         this.dekCache = dekCache;
         this.pbacClient = pbacClient;
@@ -63,7 +65,7 @@ public class EncryptionService {
     }
 
     /** Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or from DekCache) or a newly minted one (reused=false, not yet persisted). */
-    private record ResolvedDek(UUID edekId, byte[] dek, String kekVersion, String edekBlobB64, boolean reused) {
+    private record ResolvedDek(UUID edekId, byte[] dek, String kekVersion, String kekName, String edekBlobB64, boolean reused) {
     }
 
     public EncryptResponse encrypt(EncryptRequest request, String appId, String callerSub, String callerIp) {
@@ -117,7 +119,7 @@ public class EncryptionService {
             boolean named = dekName != null && !dekName.isBlank();
             String fingerprint = named ? null : DekManager.makeFingerprint(result.iv(), result.tag());
             EdekRecord record = new EdekRecord(
-                    edekId, appId, resolved.edekBlobB64(), resolved.kekVersion(),
+                    edekId, appId, resolved.edekBlobB64(), resolved.kekVersion(), resolved.kekName(),
                     DekManager.ALGORITHM, request.encoding(), request.dataClassification(), fingerprint, dekName
             );
             edekRecordRepository.save(record);
@@ -163,6 +165,15 @@ public class EncryptionService {
                     record.setDataClassification(dataClassification);
                     edekRecordRepository.save(record);
                 }
+                // Self-sufficient: reuse reads the KEK this row was ACTUALLY wrapped
+                // under, straight off the record -- never re-resolves via
+                // kekRegistryService. That's what makes a later kek_registry change
+                // (remapping this dek_name to a different KEK going forward) never
+                // retroactively affect already-minted EDEKs -- see EdekRecord's own
+                // javadoc. NULL kekName only happens on rows written before this
+                // column existed; falls back to the same legacy default
+                // KekRegistryService itself uses when nothing is registered at all.
+                String kekName = record.getKekName() == null ? kekRegistryService.getLegacyDefaultKekName() : record.getKekName();
                 String edekIdStr = record.getEdekId().toString();
                 byte[] cached = dekCache.get(edekIdStr);
                 byte[] dek;
@@ -170,20 +181,21 @@ public class EncryptionService {
                     dek = cached;
                 } else {
                     byte[] edekBytes = Base64.getDecoder().decode(record.getEdekBlob());
-                    dek = kekClient.unwrapDek(edekBytes, record.getKekVersion());
+                    dek = kekClient.unwrapDek(edekBytes, kekName, record.getKekVersion());
                     dekCache.set(edekIdStr, dek, record.getDataClassification());
                 }
-                return new ResolvedDek(record.getEdekId(), dek, record.getKekVersion(), null, true);
+                return new ResolvedDek(record.getEdekId(), dek, record.getKekVersion(), kekName, null, true);
             }
         }
 
         byte[] dek = DekManager.generateDek();
-        KekClient.WrapResult wrapResult = kekClient.wrapDek(dek);
+        String kekName = kekRegistryService.resolve(appId, dekName, dataClassification);
+        KekClient.WrapResult wrapResult = kekClient.wrapDek(dek, kekName);
         UUID edekId = UUID.randomUUID();
         if (named) {
             dekCache.set(edekId.toString(), dek, dataClassification);
         }
-        return new ResolvedDek(edekId, dek, wrapResult.kekVersion(),
+        return new ResolvedDek(edekId, dek, wrapResult.kekVersion(), kekName,
                 Base64.getEncoder().encodeToString(wrapResult.edekBytes()), false);
     }
 
