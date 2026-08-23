@@ -1,6 +1,7 @@
 # hsm-bulk-client -- see java/docs/BULK_OPERATIONS.md (Tier 3) and
-# java/docs/TIER3_POC_BUILD.md. Talks only to SVC (hsm-bulk-service); never receives
-# inbound requests, so this runs as a one-shot batch job, not a server.
+# java/docs/TIER3_POC_BUILD.md. Talks only to SVC (hsm-core-service's /dek/issue
+# and /dek/unwrap endpoints); never receives inbound requests, so this runs as
+# a one-shot batch job, not a server.
 #
 # client.db.columns and client.file.file-types are lists of objects/strings, which
 # don't map cleanly onto single env vars -- override them via a job-specific config
@@ -19,9 +20,9 @@ client:
     mode: ${JOB_MODE:ENCRYPT}     # ENCRYPT | DECRYPT
 
   svc:
-    base-url: ${SVC_BASE_URL:http://localhost:3006}
+    base-url: ${SVC_BASE_URL:http://localhost:3005}
     # Must match SVC's own API_V1_PREFIX (hsm.service.api-v1-prefix,
-    # helm/hsm-bulk-service/values.yaml's config.apiV1Prefix) -- the two are
+    # helm/hsm-core-service/values.yaml's config.apiV1Prefix) -- the two are
     # configured independently, not auto-synced, so if SVC's is ever changed
     # this needs to change to match or every call 404s.
     api-v1-prefix: ${SVC_API_V1_PREFIX:/api/sensec/hsm/v1}
