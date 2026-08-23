@@ -8,7 +8,8 @@ verification aid, not a production feature.
 
 What it does, on "Run proof": drives the REAL hsm-bulk-client.jar (not a
 reimplementation of its crypto) through a real ENCRYPT run then a real DECRYPT
-run against a real running hsm-core-service/hsm-bulk-service, using a sample
+run against a real running hsm-core-service (whose /dek/issue and /dek/unwrap
+endpoints this client's BULK File path uses), using a sample
 PDF sized to guarantee multiple real chunks at the default 8 MiB
 chunk-size-bytes (see SAMPLE_TARGET_MB below). Compares the round-tripped
 output against the original byte-for-byte (SHA-256), and serves both PDFs so
@@ -26,10 +27,8 @@ the decrypt side needs no matching config. Round-trips through the same real
 jar either way.
 
 Prerequisites (this script does NOT start these for you):
-  - hsm-core-service and hsm-bulk-service both already running (demo mode,
-    sharing one H2 file via AUTO_SERVER=TRUE -- hsm-bulk-service has no seed
-    data of its own, it relies on hsm-core-service's DemoSeedInitializer
-    having already created the payments-svc app_registrations row).
+  - hsm-core-service already running (demo mode) -- its own DemoSeedInitializer
+    creates the payments-svc app_registrations row.
   - payments-svc provisioned with dek_issue/dek_unwrap scopes and a
     public_key_pem matching demo-private-key.pem alongside this script (see
     this directory's README for the exact SQL used to provision it).
@@ -42,7 +41,7 @@ Usage:
 
 Pointing at services that aren't the local demo defaults (e.g. a remote
 deployment): override via env vars before launching, all optional --
-  PROOF_UI_SVC_BASE_URL     default http://localhost:3006
+  PROOF_UI_SVC_BASE_URL     default http://localhost:3005
   PROOF_UI_API_V1_PREFIX    default /api/sensec/hsm/v1 -- must match that
                             deployment's hsm.service.api-v1-prefix, not
                             necessarily the local demo's
@@ -71,11 +70,23 @@ account, they are NOT interchangeable:
     Root: https://<account>.blob.core.windows.net/<container>/<path>
     (AzureBlobFileStore).
 Set PROOF_UI_AZURE_ROOT to the appropriate URI for whichever you pick, then
-select it in the UI. The ENCRYPT job writes its chunked output there
-instead of local disk, and the DECRYPT job reads it back from there -- this
-script itself never touches Azure storage directly, no Azure SDK dependency
-added, the real jar does all of it via the matching FileStore class, same
-as everything else this tool proves. Credentials resolve the normal way
+select it in the UI. Every run reuses one fixed "proof-ui-scratch"
+subfolder under that root (not the bare root itself, and not a fresh
+subfolder per run either -- that was tried and reverted, since it never
+cleans up and this script adds no Azure SDK dependency to delete anything).
+FileBulkJob's DECRYPT lists every file under its source root, so sharing
+one flat root with unrelated manual testing against the same container
+means a stray file left over from something else gets swept into this
+run's decrypt attempt too, and parsing something that was never in
+FileBulkJob's wire format fails in confusing ways -- the fixed, clearly
+named scratch subfolder avoids that as long as nothing else is
+deliberately placed inside it. Each run's ENCRYPT simply overwrites its
+one working file there, same as WORK_DIR gets reused (not recreated) on
+local disk. The ENCRYPT job writes its chunked output there instead of
+local disk, and the DECRYPT job reads it back from there -- this script
+itself never touches Azure storage directly otherwise, the real jar does
+all of it via the matching FileStore class, same as everything else this
+tool proves. Credentials resolve the normal way
 (WorkloadIdentityCredential -> ManagedIdentityCredential ->
 DefaultAzureCredential, i.e. `az login` works from a dev machine) unless
 PROOF_UI_AZURE_ACCOUNT_KEY is also set, which forces shared-key auth
@@ -103,7 +114,7 @@ SAMPLE_PDF = SCRIPT_DIR / "sample.pdf"
 PRIVATE_KEY_PATH = SCRIPT_DIR / "demo-private-key.pem"
 WORK_DIR = SCRIPT_DIR / "work"
 
-SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3006")
+SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3005")
 API_V1_PREFIX = os.environ.get("PROOF_UI_API_V1_PREFIX", "/api/sensec/hsm/v1")
 APP_ID = os.environ.get("PROOF_UI_APP_ID", "payments-svc")
 TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
@@ -292,12 +303,35 @@ def run_proof(source_file: Path = None, display_name: str = None, compress: bool
     # UI's store-type selector) or the usual local dir. Either way both the
     # ENCRYPT job's target and the DECRYPT job's source point at the exact
     # same location -- DECRYPT reads back whatever ENCRYPT actually wrote.
+    #
+    # For Azure stores specifically, that location is one FIXED, dedicated
+    # subfolder under PROOF_UI_AZURE_ROOT -- "proof-ui-scratch", the same one
+    # every run -- not the bare root, and deliberately not a fresh unique
+    # subfolder per run either (that alternative was tried and reverted: it
+    # never collides, but it also never cleans up, so every run leaves a new
+    # orphaned blob behind with no automatic way to remove it, since this
+    # script adds no Azure SDK dependency to delete anything). One fixed,
+    # reused name gets the same isolation without the accumulation: like
+    # WORK_DIR on local disk, its content just gets overwritten by the next
+    # run's ENCRYPT (fileClient.create(true)/upload(..., true) both overwrite)
+    # rather than needing to be deleted first.
+    #
+    # The isolation still matters. FileBulkJob's DECRYPT lists every file
+    # under its source root (file-types: [] matches everything) -- if this
+    # pointed at PROOF_UI_AZURE_ROOT directly and anything else were sitting
+    # there (other manual testing against the same container), it would get
+    # swept into this run's decrypt attempt too, and parsing a file that was
+    # never in FileBulkJob's wire format produces exactly this kind of
+    # garbage/base64 failure. Found live: working_name being a fixed
+    # "input.pdf" at the bare shared root meant a completely unrelated file
+    # could get pulled into the same decrypt run. A single, clearly-named,
+    # proof-ui-only subfolder avoids that as long as nothing else is
+    # deliberately placed inside proof-ui-scratch/ itself.
     if store_type == "LOCAL":
         encrypted_store = ("LOCAL", encrypt_target)
-    elif AZURE_ACCOUNT_KEY:
-        encrypted_store = (store_type, AZURE_ROOT, AZURE_ACCOUNT_KEY)
     else:
-        encrypted_store = (store_type, AZURE_ROOT)
+        azure_root = f"{AZURE_ROOT.rstrip('/')}/proof-ui-scratch"
+        encrypted_store = (store_type, azure_root, AZURE_ACCOUNT_KEY) if AZURE_ACCOUNT_KEY else (store_type, azure_root)
 
     encrypt_yaml = WORK_DIR / "encrypt-job.yml"
     write_job_yaml(encrypt_yaml, "ENCRYPT", ("LOCAL", encrypt_source), encrypted_store, compress=compress)

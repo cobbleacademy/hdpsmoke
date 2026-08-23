@@ -16,19 +16,13 @@ row will come out smaller than "Original" instead of ~33% larger.
 
 ## Prerequisites
 
-1. **`hsm-core-service` and `hsm-bulk-service` both running**, sharing one H2
-   file via `AUTO_SERVER=TRUE` — `hsm-bulk-service` has no seed data of its
-   own, it relies on `hsm-core-service`'s `DemoSeedInitializer` having already
-   created the `payments-svc` row:
+1. **`hsm-core-service` running** (demo mode) -- its own `DemoSeedInitializer`
+   creates the `payments-svc` row on startup; the `/dek/issue`/`/dek/unwrap`
+   endpoints this client's BULK File path uses live on this same service:
    ```bash
-   # terminal 1, from java/hsm-core-service/
+   # from java/hsm-core-service/
    DEMO_MODE=true DEMO_DATABASE_URL="jdbc:h2:file:./demo_hsm_h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE" \
      java -jar target/hsm-core-service.jar
-
-   # terminal 2, from java/hsm-bulk-service/ -- absolute path avoids any
-   # cwd-relative-path mismatch between the two services' H2 URLs
-   DEMO_MODE=true DATABASE_URL="jdbc:h2:file:/absolute/path/to/hsm-core-service/demo_hsm_h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE" \
-     java -jar target/hsm-bulk-service.jar
    ```
 
 2. **`payments-svc` provisioned with `dek_issue`/`dek_unwrap` scopes and a
@@ -65,7 +59,7 @@ launching — all optional, all default to the local-demo values used
 throughout this README:
 
 ```bash
-export PROOF_UI_SVC_BASE_URL=http://<remote-host>:3006
+export PROOF_UI_SVC_BASE_URL=http://<remote-host>:3005
 export PROOF_UI_API_V1_PREFIX=/api/sensec/hsm/v1   # must match that deployment's own prefix
 export PROOF_UI_APP_ID=payments-svc
 export PROOF_UI_TOKEN=demo-token-payments-svc
@@ -73,13 +67,13 @@ python3 server.py --port 8000
 ```
 
 Getting `PROOF_UI_SVC_BASE_URL` wrong (e.g. leaving it at `localhost` while
-`hsm-bulk-service` runs elsewhere) surfaces as a generic `ENCRYPT run
+`hsm-core-service` runs elsewhere) surfaces as a generic `ENCRYPT run
 failed` with a connection error in the log tail — check that field first if
 `Run proof` fails against anything other than a local demo setup.
 
 **If the log tail instead shows `PKIX path building failed`**, that's TLS
 certificate trust, not connectivity — the JVM running the jar doesn't trust
-whatever certificate a remote `hsm-bulk-service` presents over HTTPS (e.g.
+whatever certificate a remote `hsm-core-service` presents over HTTPS (e.g.
 self-signed, internal CA). The correct fix is importing that certificate
 into the JVM's own trust store (`keytool -importcert -alias hsm-bulk-remote
 -file server.crt -keystore "<java.home>/lib/security/cacerts" -storepass
@@ -147,6 +141,22 @@ deliberately doesn't add an Azure SDK dependency just to read that one
 number back; the jar's own `hsm_bulk_client_complete` log line is what
 actually proves the write/read happened, same as everywhere else this tool
 relies on the real jar rather than re-checking its work.
+
+**Every run reuses one fixed `proof-ui-scratch` subfolder under
+`PROOF_UI_AZURE_ROOT`, not the bare root itself.** `FileBulkJob`'s DECRYPT
+lists every file under its source root — pointing that at the bare shared
+root means a file left over from something else (unrelated manual testing
+against the same container) gets swept into this run's decrypt attempt
+too, and parsing something that was never in `FileBulkJob`'s wire format
+fails in confusing ways (found live: exactly this, via a fixed `input.pdf`
+working name at a shared root). A dedicated, clearly-named scratch
+subfolder avoids that, as long as nothing else is deliberately placed
+inside it. It's deliberately the *same* subfolder on every run, not a
+fresh one each time — a fresh-per-run subfolder was tried and reverted,
+since it never collides but also never gets cleaned up, and this script
+adds no Azure SDK dependency to delete anything. One fixed name means each
+run's ENCRYPT just overwrites its one working file there, the same way
+`work/` gets reused (not recreated from scratch) on local disk.
 
 Credentials resolve automatically (`WorkloadIdentityCredential` →
 `ManagedIdentityCredential` → `DefaultAzureCredential` — e.g. `az login`
