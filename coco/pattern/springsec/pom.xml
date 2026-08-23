@@ -14,7 +14,6 @@
     <modules>
         <module>hsm-core-service</module>
         <module>cek-rotation-service</module>
-        <module>hsm-bulk-service</module>
         <module>hsm-bulk-client</module>
     </modules>
 
