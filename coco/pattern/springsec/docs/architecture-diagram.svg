@@ -1,6 +1,6 @@
 <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img">
           <title>HSM Core Service Architecture</title>
-          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (hsm-bulk-service/hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest</desc>
+          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest</desc>
           <rect width="1320" height="1330" fill="#0f1117"/>
 
           <!-- ── AZURE SUBSCRIPTION BOUNDARY ────────────────────────────────── -->
@@ -239,15 +239,17 @@
           <rect x="15" y="1032" width="230" height="16" rx="3" fill="#0f1117"/>
           <text x="22" y="1044" fill="#4b5563" font-size="9" font-family="monospace" letter-spacing="1">TIER 3 BULK PoC · dek_name REUSE</text>
 
-          <!-- SVC: own service inside the subscription, sibling of CORE SERVICE -->
+          <!-- SVC: /dek/issue + /dek/unwrap are endpoints on CORE SERVICE itself (merged from the
+               formerly-separate hsm-bulk-service codebase); helm/hsm-bulk-service now deploys the
+               identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation -->
           <rect x="440" y="1055" width="250" height="175" rx="8" fill="#1a1d27" stroke="#a78bfa" stroke-width="2"/>
-          <text x="565" y="1075" text-anchor="middle" fill="#a78bfa" font-size="10" letter-spacing="1" font-family="monospace">hsm-bulk-service (SVC)</text>
-          <text x="565" y="1088" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Spring Boot · separate deployable</text>
+          <text x="565" y="1075" text-anchor="middle" fill="#a78bfa" font-size="10" letter-spacing="1" font-family="monospace">CORE SERVICE (2nd release)</text>
+          <text x="565" y="1088" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">same image · Helm release "hsm-bulk-service"</text>
           <rect x="455" y="1096" width="220" height="22" rx="4" fill="#22263a" stroke="#a78bfa" stroke-width="1"/>
           <text x="565" y="1111" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace">POST /dek/issue · /dek/unwrap</text>
           <rect x="455" y="1122" width="220" height="34" rx="4" fill="#2d1b47" stroke="#e879f9" stroke-width="1"/>
-          <text x="565" y="1134" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">own Workload Identity → same</text>
-          <text x="565" y="1146" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">Azure Key Vault as CORE SERVICE</text>
+          <text x="565" y="1134" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">not a separate codebase —</text>
+          <text x="565" y="1146" text-anchor="middle" fill="#e879f9" font-size="8" font-family="monospace">deployment-level isolation only</text>
           <rect x="455" y="1160" width="220" height="22" rx="4" fill="#22263a"/>
           <text x="565" y="1175" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">writes SAME EDEK STORE above</text>
           <rect x="455" y="1186" width="220" height="38" rx="4" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
@@ -255,9 +257,9 @@
           <text x="565" y="1210" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">(app_id, name), else mint fresh</text>
           <text x="565" y="1221" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">age-rotated · default 30d</text>
 
-          <!-- Routed arrow: SVC → EDEK STORE, via the empty corridor right of the subscription boundary -->
+          <!-- Routed arrow: this release → EDEK STORE, via the empty corridor right of the subscription boundary -->
           <path d="M 690 1075 L 920 1075 L 920 590 L 640 590" fill="none" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-cyan)"/>
-          <text x="931" y="833" fill="#38bdf8" font-size="7" font-family="monospace" transform="rotate(-90,931,833)">same edek_records table · zero coupling to /decrypt</text>
+          <text x="931" y="833" fill="#38bdf8" font-size="7" font-family="monospace" transform="rotate(-90,931,833)">same edek_records table · same process as /decrypt</text>
 
           <!-- CLNT: external caller, outside the subscription (same convention as MULTIPLE CLIENTS above) -->
           <rect x="940" y="1055" width="340" height="175" rx="8" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
@@ -284,7 +286,7 @@
           <text x="860" y="1256" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">BULK File job: each chunk's plaintext base64-encoded before AES-256-GCM — survives CORE SERVICE's own /decrypt UTF-8 response encoding losslessly</text>
           <text x="860" y="1269" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format CORE SERVICE itself produces, now true for files too</text>
           <text x="860" y="1282" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">Optional compress-before-encrypt: gzip + 1-byte marker inside the AEAD payload, before base64 — decrypt always reads it, no config to coordinate</text>
-          <text x="860" y="1295" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE + SVC processes, both directions + compression, every build</text>
+          <text x="860" y="1295" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE process, both endpoint shapes + compression, every build</text>
 
           <defs>
             <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/></marker>

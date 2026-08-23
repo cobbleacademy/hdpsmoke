@@ -4,6 +4,25 @@ Companion to `BULK_OPERATIONS.md`'s Tier 3 design section -- this doc records wh
 was actually built for the scoped PoC round (Phase 1 + Phase 2 + a benchmark) and
 the real numbers from running it, not just the design.
 
+**Update, later round: `hsm-bulk-service` merged into `hsm-core-service`.**
+Everything below (module layout, `java/hsm-bulk-service`, its own Docker/Helm
+artifacts) describes this PoC as originally built, as a separate codebase and
+deployable. That codebase no longer exists: `POST /dek/issue` and
+`POST /dek/unwrap` are now endpoints on `hsm-core-service` itself, reusing its
+single `KekClient`/`edek_records`/`RotationService`/`AuditLogger` rather than
+duplicated copies. See `BULK_OPERATIONS.md`'s "Architecture correction:
+hsm-bulk-service merged into hsm-core-service" for the full reasoning. What's
+still accurate below: the endpoint behavior, request/response shapes, the
+transport-wrap crypto design, `TransportWrapper` itself, and everything about
+`hsm-bulk-client` (still a genuinely separate, standalone module -- only the
+service it calls changed identity, not `hsm-bulk-client`'s own shape).
+References to `java/hsm-bulk-service` as a module, and to
+`helm/hsm-bulk-service`/`Dockerfile.hsm-bulk-service` as artifacts for a
+*separate* codebase, are historical -- `helm/hsm-bulk-service`'s chart now
+deploys the `hsm-core-service` image as a second, independently-scaled
+release (deployment-level traffic isolation, not a separate codebase);
+`Dockerfile.hsm-bulk-service` was retired outright.
+
 ## What's built
 
 - **New module**: `java/hsm-bulk-service` -- `POST /dek/issue`, `POST /dek/unwrap`.
@@ -349,6 +368,11 @@ large table.
   flush-order reason. New `HsmBulkProperties.NamedDekRotation`
   (`hsm.named-dek-rotation.*`, same defaults: `enabled: true`, `720` max-age
   hours, daily `03:00` cron).
+  **Superseded (merge round)**: this separate scheduler no longer exists --
+  with `/dek/issue` now on `hsm-core-service` itself, `hsm-core-service`'s
+  own pre-existing `NamedDekRotationScheduler` already sweeps every named
+  `edek_records` row regardless of which endpoint minted it, so a second
+  scheduler would only race the first one over the same rows.
 - **`client.file.dek-name`** (`FileBulkJob`): mirrors `DbBulkJob`'s per-column
   `dek-name`, but scoped to the *whole job*, not a column -- because a file
   job has no per-column concept, and (per an explicit discussion) the natural

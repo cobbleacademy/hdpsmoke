@@ -2,13 +2,16 @@
 
 **Status: Tier 1 (synchronous batch encrypt and batch decrypt) is
 implemented in `hsm-core-service`.** Tier 2 (large datasets/files) is
-**not** a service to build — see "Architecture correction" below. Tier 3
-(client-side local envelope encryption via a separate hsm-bulk-service) has a
-**scoped PoC built** (Phase 1 `/dek/issue` + Phase 2 `/dek/unwrap` + a
-Batch-vs-Bulk benchmark, in `java/hsm-bulk-service`) — see
-`TIER3_POC_BUILD.md` for what was built and real benchmark numbers. Phases
-3-6 (admin key provisioning, deployment lifecycle, file chunking, pilot)
-remain **not built**, per that PoC's confirmed scope.
+**not** a service to build — see "Architecture correction: bulk is a
+client-side pattern" below. Tier 3 (local envelope encryption via
+`POST /dek/issue`/`POST /dek/unwrap`) has a **scoped PoC built** (Phase 1
+`/dek/issue` + Phase 2 `/dek/unwrap` + a Batch-vs-Bulk benchmark) — see
+`TIER3_POC_BUILD.md` for what was built and real benchmark numbers. These
+two endpoints now live directly in `hsm-core-service`, not a separate
+`hsm-bulk-service` codebase — see "Architecture correction: hsm-bulk-service
+merged into hsm-core-service" below. Phases 3-6 (admin key provisioning,
+deployment lifecycle, file chunking, pilot) remain **not built**, per that
+PoC's confirmed scope.
 This exists to support app on-boarding (migrating an existing plaintext
 dataset into envelope encryption) and de-boarding (bulk export/decrypt, or
 bulk crypto-shred) — see `APP_ONBOARDING.md` for the onboarding procedure
@@ -316,13 +319,69 @@ something to build speculatively.
 
 ---
 
-## Tier 3 (proposed, not yet approved): local envelope encryption via a separate hsm-bulk-service
+## Architecture correction: hsm-bulk-service merged into hsm-core-service
 
-**Status: design proposal captured for review — nothing in this section is
-built.** Distinct from Tier 1 (built) and Tier 2 (client-side guidance, zero
-new capability) — Tier 3 requires new service-side capability that neither
-of those needed, so it's tracked separately and must not be read as already
-decided.
+A later round retired `hsm-bulk-service` as a separate codebase and folded
+its two endpoints (`POST /dek/issue`, `POST /dek/unwrap`) directly into
+`hsm-core-service`, reusing that service's single `KekClient`,
+`edek_records` store, and `RotationService`. Everything the "Design" section
+below documents about the endpoints' behavior, the key-exchange scheme, and
+the token-format-compatibility requirement is still accurate and still
+true — only the *codebase* boundary changed, not the API shape or the
+crypto design.
+
+**Why this was reconsidered.** The original motivation for a separate
+service was two distinct things bundled together: (1) keeping raw-key-adjacent
+transport-wrap capability out of the primary service's binary structurally,
+not just access-controlled, and (2) isolating bulk traffic's compute/bandwidth
+footprint from latency-sensitive shared traffic (see "Motivation" below).
+Revisiting (1): `/dek/issue`/`/dek/unwrap` never expose raw key material any
+more than `/encrypt`/`/decrypt` already do — both wrap/unwrap through the same
+`KekClient` boundary; the only difference is which side (SVC vs CLNT) performs
+the final AES-GCM step, and CLNT already needed the raw DEK either way for
+that step regardless of which process issued it. Separate binaries didn't add
+isolation this scope check didn't already provide. Isolation (2) — the real
+reason a genuinely separate deployment still makes sense — is preserved at
+the *deployment* level instead: `helm/hsm-bulk-service`'s chart now deploys
+the identical `hsm-core-service` image as a second, independently-scaled
+release, so bulk traffic can still be routed to and scaled separately from
+ordinary `/encrypt`/`/decrypt` traffic, without maintaining two codebases.
+
+**A further, independent argument against a permanently-separate codebase:**
+`hsm-bulk-service` was meant to be a *dormant* service — scaled to zero
+between onboarding/de-boarding windows (see "On/off is a deployment
+operation" below, still true). A process that's routinely shut down between
+events cannot reliably own *scheduled* responsibilities — most concretely,
+KEK rotation and named-DEK rotation for the very EDEKs it mints. Those rows
+outlive the bulk-issuance burst that created them and need the same ongoing
+rotation governance as any other EDEK; that responsibility belongs to
+whichever process is actually running all the time, which was always
+`hsm-core-service`. Splitting rotation ownership across two services (one of
+which is frequently absent) was already an awkward fit before this merge —
+folding the endpoints in resolves it by construction: one `RotationService`
+now sweeps every EDEK regardless of which endpoint minted it.
+
+**What made this safe to do:** multi-KEK support, added in the same round
+(see `db/migration/V11__add_kek_registry_and_multi_kek_support.sql`, `KekRegistryService`).
+Per-purpose KEK selection means merging codebases doesn't collapse anything
+key-security-relevant into a single blast radius — a compromised or
+misconfigured `dek_name`'s KEK is governed by `kek_registry`/RBAC-per-key
+exactly as before, independent of which process the request happened to hit.
+Bean-name collisions between the two Spring Boot apps (`SecurityConfig`,
+`AuditLogger`, `RotationService`, and others sharing simple class names) were
+the concrete blocker that made a straight code-merge non-trivial; resolved by
+deleting the duplicate `com.hsm.bulk.*` package tree entirely rather than
+reconciling two copies.
+
+## Tier 3: local envelope encryption via `POST /dek/issue`/`POST /dek/unwrap`
+
+**Status: the PoC below (Phase 1/2) is built, on `hsm-core-service` — see the
+architecture correction above.** Phases 3-6 (admin key provisioning,
+deployment lifecycle, file chunking, pilot) remain **not built**. The design
+narrative below is left largely as originally written (including its
+now-historical "separate service" framing in a few places) since the
+underlying design decisions it documents are still accurate; only the
+codebase-boundary claims are superseded by the correction above.
 
 ### Motivation: SVC's own compute/bandwidth footprint, not the HSM's RPS ceiling
 
@@ -388,8 +447,8 @@ is no "how do we deliver the wrapping key" problem to solve at all.
 Rotation is a periodic admin operation, not per-batch; a leaked private key
 alone gives an attacker nothing without a valid CLNT service credential too.
 
-**New endpoints, on a separate service (hsm-bulk-service) — not on
-`hsm-core-service`:**
+**New endpoints (now on `hsm-core-service` itself — see the architecture
+correction above; originally proposed on a separate hsm-bulk-service):**
 - `POST /dek/issue` (encrypt path) — mint N new DEKs, KEK-wrap and persist
   each as a normal EDEK via the HSM exactly as `/encrypt` does today
   (unchanged persistence, unchanged source of truth), also wrap each raw
@@ -406,19 +465,17 @@ alone gives an attacker nothing without a valid CLNT service credential too.
   service process. Provisioned separately in onboarding, not bundled with
   `encrypt`/`decrypt`.
 
-**Why a separate service, not new endpoints on `hsm-core-service`:**
-keeps this more sensitive capability out of the always-on, latency-critical
+**Why a separate service, not new endpoints on `hsm-core-service`:** ~~keeps
+this more sensitive capability out of the always-on, latency-critical
 primary service's binary entirely — not just access-controlled,
-structurally absent. Mirrors the pattern `cek-rotation-service` already
-proves works in this codebase: an independently deployed service with its
-own direct HSM/Key Vault access (own managed identity, not delegated
-through the main service, so it isn't coupled to the main service's
-uptime), sharing the same Postgres `app_registrations`/EDEK store as the
-single source of truth (so `/decrypt`/`/decrypt/batch` on the main service
-can still resolve any EDEK this service creates), and its own
-`hsm.security.access-rules`-equivalent config for the two new scopes. Audit
-events tagged by service name into the same pipeline as the main service's
-audit trail, so the trail stays unified across both processes.
+structurally absent.~~ **Superseded — see "Architecture correction:
+hsm-bulk-service merged into hsm-core-service" above.** This paragraph is
+kept for historical context on the original reasoning; `/dek/issue` and
+`/dek/unwrap` are now endpoints on `hsm-core-service` itself, with
+deployment-level (not codebase-level) traffic isolation instead. The audit
+trail point still holds: both endpoints log into the same `AuditLogger`
+pipeline as `/encrypt`/`/decrypt`, now trivially unified since it's one
+process, not two.
 
 **On/off is a deployment operation, not a code path.** A separate
 Helm-managed Deployment, scaled to zero (or fully undeployed) between
@@ -544,6 +601,15 @@ required for a first version.
   reused DEK stayed current, and the new File-job `dek-name` (above) would
   have made that gap worse, not better, since a persistent per-job name is
   explicitly meant to live across every future run.
+  **Superseded (still further later round)**: with `hsm-bulk-service` merged
+  into `hsm-core-service` (see the "Architecture correction" above), the
+  separate scheduler this bullet describes no longer exists — it was never
+  ported, deliberately. `hsm-core-service`'s own existing
+  `NamedDekRotationScheduler`/`rotateNamedDeks()` already sweeps every
+  `edek_records` row with a non-null `current_dek_name` regardless of which
+  endpoint (`/encrypt`, `/dek/issue`) minted it, since both write into the
+  same table. Running a second, separate scheduler post-merge would have
+  meant two schedulers racing to rotate the same rows for no benefit.
 - ~~Bounded concurrent fan-out for `/encrypt/batch`/`/decrypt/batch` was
   deliberately deferred until real Managed HSM throughput numbers exist~~ —
   **resolved, built (later round)**: `BatchExecutorConfig` adds one shared,
@@ -619,7 +685,8 @@ Phase 0 calls out (RSA-OAEP-256, long-lived per-app keypairs, the
 made explicitly and deliberately, not assumed — but that happened as
 build-time decisions during this PoC, not through the dedicated
 "take this document to security/crypto review" step this section describes.
-That review has not happened. Treat the current `hsm-bulk-service`/
+That review has not happened. Treat the current `/dek/issue`/`/dek/unwrap`
+(on `hsm-core-service` — see the "Architecture correction" above) and
 `hsm-bulk-client` code as PoC-stage, not as something that's cleared the bar
 this doc itself set for building Tier 3 at all.
 

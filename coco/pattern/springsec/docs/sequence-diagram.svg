@@ -1,6 +1,6 @@
 <svg viewBox="0 0 1530 1540" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>HSM Core Service - Sequence Diagram</title>
-  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to hsm-bulk-service), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
+  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
   <rect width="1530" height="1540" fill="#0f1117"/>
           <rect width="1530" height="80" fill="#0f1117"/>
           <!-- subscription boundary divider — Auditor SPN is to the right -->
@@ -230,15 +230,17 @@
           <rect x="18" y="960" width="1494" height="22" rx="3" fill="#1a1d27"/>
           <text x="757" y="974" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Auditor SPN: no write access to any DB table · Redis cache not accessible · never routes through /decrypt endpoint</text>
 
-          <!-- SECTION 6 — TIER 3: dek_name REUSE (hsm-bulk-service / hsm-bulk-client) — added later round -->
-          <!-- Local participants + lifelines, scoped to this section only — CLNT/SVC never appear in any earlier section -->
+          <!-- SECTION 6 — TIER 3: dek_name REUSE (hsm-bulk-client → CORE SERVICE's /dek/issue,/dek/unwrap) — added later round -->
+          <!-- Local participants + lifelines, scoped to this section only — CLNT/SVC never appear in any earlier section.
+               SVC lane = the SAME HSM Service process as above (formerly a separate hsm-bulk-service codebase, since merged) —
+               kept as its own lane only because CLNT still makes a real network hop to reach it, same as any other caller. -->
           <rect x="10" y="994" width="1500" height="350" rx="5" fill="#1a0a2e" stroke="#a78bfa" stroke-width="0.6"/>
-          <text x="18" y="1007" fill="#a78bfa" font-size="9" font-family="monospace" letter-spacing="1">TIER 3: dek_name REUSE  (hsm-bulk-client → hsm-bulk-service — separate deployables, not on HSM Service above)</text>
+          <text x="18" y="1007" fill="#a78bfa" font-size="9" font-family="monospace" letter-spacing="1">TIER 3: dek_name REUSE  (hsm-bulk-client → HSM Service's own /dek/issue · /dek/unwrap — not a separate codebase)</text>
 
           <rect x="140" y="1016" width="170" height="28" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
           <text x="225" y="1034" text-anchor="middle" fill="#3b82f6" font-size="9" font-family="monospace">hsm-bulk-client (CLNT)</text>
           <rect x="420" y="1016" width="170" height="28" rx="6" fill="#1a1d27" stroke="#a78bfa" stroke-width="1.5"/>
-          <text x="505" y="1034" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace">hsm-bulk-service (SVC)</text>
+          <text x="505" y="1034" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace">HSM Service (SVC endpoints)</text>
           <line x1="225" y1="1044" x2="225" y2="1254" stroke="#3b82f6" stroke-width="0.8" stroke-dasharray="6,4"/>
           <line x1="505" y1="1044" x2="505" y2="1254" stroke="#a78bfa" stroke-width="0.8" stroke-dasharray="6,4"/>
 
@@ -247,7 +249,7 @@
 
           <text x="363" y="1073" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">26. SVC: lookup (app_id, current_dek_name)</text>
           <line x1="505" y1="1084" x2="509" y2="1084" stroke="#10b981" stroke-width="1.2"/>
-          <text x="363" y="1096" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">26a. [FOUND] reuse: unwrap existing edek_blob  [SVC's own Workload Identity · Managed HSM]</text>
+          <text x="363" y="1096" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">26a. [FOUND] reuse: unwrap existing edek_blob  [HSM Service's Workload Identity · Managed HSM]</text>
           <text x="363" y="1109" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">— skip mint, skip INSERT — same edek_id every call for this name</text>
           <text x="363" y="1124" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">26b. [NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — same table HSM Service writes above</text>
 
@@ -261,15 +263,15 @@
           <text x="365" y="1193" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">29. one edek_id → many rows/values, each with its OWN token (fresh IV per call)</text>
           <text x="365" y="1206" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">token format identical to HSM Service's own — its real /decrypt reads it with zero awareness of this flow</text>
 
-          <text x="18" y="1236" fill="#555b7a" font-size="8" font-family="monospace">ciphertext written directly into CLNT's own target table/file — never sent back to SVC or HSM Service</text>
+          <text x="18" y="1236" fill="#555b7a" font-size="8" font-family="monospace">ciphertext written directly into CLNT's own target table/file — never sent back to HSM Service</text>
           <text x="18" y="1250" fill="#555b7a" font-size="8" font-family="monospace">NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above — new lookups then fall to 26b</text>
-          <text x="18" y="1263" fill="#555b7a" font-size="8" font-family="monospace">SVC runs its OWN copy of this scheduler (later round) — coverage of SVC-minted rows no longer depends on HSM Service being deployed too</text>
+          <text x="18" y="1263" fill="#555b7a" font-size="8" font-family="monospace">One scheduler instance covers rows from BOTH /encrypt and /dek/issue (same process, same edek_records table) — no separate SVC scheduler needed since the merge</text>
 
           <line x1="18" y1="1274" x2="1502" y2="1274" stroke="#2d3148" stroke-width="0.6"/>
           <text x="18" y="1289" fill="#10b981" font-size="8" font-family="monospace">30. BULK File job specifically: each chunk's plaintext is base64-encoded before AES-256-GCM — survives HSM Service's own /decrypt UTF-8 response encoding losslessly</text>
           <text x="18" y="1302" fill="#10b981" font-size="8" font-family="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format as line 29 above, now true for files too, not just DB columns</text>
           <text x="18" y="1315" fill="#10b981" font-size="8" font-family="monospace">Optional compress-before-encrypt: each chunk gzipped, then a 1-byte raw/gzip marker prepended inside the base64 — decrypt always reads it, encrypt-side-only config</text>
-          <text x="18" y="1328" fill="#555b7a" font-size="8" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client, real hsm-core-service + hsm-bulk-service processes) — encrypts via SVC, decrypts via HSM Service's real /decrypt, both directions + compression, every build</text>
+          <text x="18" y="1328" fill="#555b7a" font-size="8" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client, real hsm-core-service process) — encrypts via /dek/issue, decrypts via HSM Service's real /decrypt, both directions + compression, every build</text>
 
           </g><!-- /translate(0,40) -->
 
