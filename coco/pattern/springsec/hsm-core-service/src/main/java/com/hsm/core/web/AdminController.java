@@ -3,6 +3,7 @@ package com.hsm.core.web;
 import com.hsm.core.audit.AuditLogger;
 import com.hsm.core.auth.AppRegistryException;
 import com.hsm.core.auth.AppRegistryService;
+import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.crypto.MockKekClient;
 import com.hsm.core.dto.AppStatusRequest;
@@ -11,6 +12,9 @@ import com.hsm.core.dto.GrantListResponse;
 import com.hsm.core.dto.GrantRequest;
 import com.hsm.core.dto.GrantResponse;
 import com.hsm.core.dto.HealthResponse;
+import com.hsm.core.dto.RekeyRequest;
+import com.hsm.core.dto.RekeyResponse;
+import com.hsm.core.dto.RevertRekeyRequest;
 import com.hsm.core.dto.RotateKekResponse;
 import com.hsm.core.model.AppDecryptGrant;
 import com.hsm.core.service.RotationService;
@@ -42,25 +46,52 @@ public class AdminController {
     private final RotationService rotationService;
     private final AuditLogger auditLogger;
     private final JdbcTemplate jdbcTemplate;
+    private final String healthCheckKekName;
 
     public AdminController(AppRegistryService appRegistry, KekClient kekClient, RotationService rotationService,
-                            AuditLogger auditLogger, JdbcTemplate jdbcTemplate) {
+                            AuditLogger auditLogger, JdbcTemplate jdbcTemplate, HsmProperties hsmProperties) {
         this.appRegistry = appRegistry;
         this.kekClient = kekClient;
         this.rotationService = rotationService;
         this.auditLogger = auditLogger;
         this.jdbcTemplate = jdbcTemplate;
+        // The legacy single-KEK config value, repurposed purely as a reachability
+        // ping target here -- health has never been about one specific business
+        // KEK, just "is the vault/HSM endpoint up," so any resolvable key proves that.
+        this.healthCheckKekName = hsmProperties.azure().kekName();
     }
 
     @PostMapping("${hsm.service.api-v1-prefix}/admin/rotate-kek")
     public RotateKekResponse rotateKek(@AuthenticationPrincipal AuthenticatedCaller caller) {
         // Demo HSM stand-in must mint a new key version itself; Azure does this via
-        // its own rotation policy, so the real client has no such method.
+        // its own rotation policy, so the real client has no such method. Multi-KEK
+        // aware: every distinct demo key this instance has created so far gets a
+        // fresh version, so the grouped sweep below has something to converge each
+        // one's lagging EDEKs to -- not just "the one KEK" the way this worked
+        // before kek_name existed.
         if (kekClient instanceof MockKekClient mock) {
-            mock.rotateToNewVersion();
+            for (String kekName : mock.getKnownKekNames()) {
+                mock.rotateToNewVersion(kekName);
+            }
         }
 
         return rotationService.rotateKek("api:" + caller.sub());
+    }
+
+    /**
+     * Manual, explicit -- compromise response or key decommissioning, not part
+     * of any schedule. Moves every current EDEK under fromKekName to
+     * toKekName; see RotationService.rekey.
+     */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/rekey-kek")
+    public RekeyResponse rekeyKek(@Valid @RequestBody RekeyRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        return rotationService.rekey(body.fromKekName(), body.toKekName(), "api:" + caller.sub());
+    }
+
+    /** Undoes the most recent rekey into kekName -- see RotationService.revertRekey. */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/rekey-kek/revert")
+    public RekeyResponse revertRekeyKek(@Valid @RequestBody RevertRekeyRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        return rotationService.revertRekey(body.kekName(), "api:" + caller.sub());
     }
 
     @GetMapping("${hsm.service.api-v1-prefix}/admin/health")
@@ -68,7 +99,9 @@ public class AdminController {
         boolean vaultOk = false;
         boolean dbOk = false;
         try {
-            kekClient.getCurrentKekVersion();
+            // Reachability check only -- any resolvable key proves the vault/HSM
+            // endpoint itself is up, this isn't about a specific business KEK.
+            kekClient.getCurrentKekVersion(healthCheckKekName);
             vaultOk = true;
         } catch (Exception e) {
             // degraded
