@@ -311,10 +311,10 @@ function ArchitectureDiagram() {
         <text x="785" y="613" textAnchor="middle" fill="#fb923c" fontSize="7" fontFamily="monospace">schema: hsm_access · Managed Access team</text>
         <rect x="705" y="619" width="160" height="22" rx="4" fill="#22263a" />
         <text x="785" y="632" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_registrations</text>
-        <text x="785" y="643" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">app_id · allowed_scopes · active</text>
+        <text x="785" y="643" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">app_id · allowed_scopes · active · ts</text>
         <rect x="705" y="649" width="160" height="22" rx="4" fill="#22263a" />
         <text x="785" y="662" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_decrypt_grants</text>
-        <text x="785" y="673" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">grantee → owner pairs · default-deny</text>
+        <text x="785" y="673" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">grantee → owner pairs · default-deny · ts</text>
         <rect x="705" y="677" width="160" height="14" rx="3" fill="#22263a" />
         <text x="785" y="688" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">HSM SPN: grant check (decrypt path)</text>
 
@@ -323,7 +323,7 @@ function ArchitectureDiagram() {
         <text x="220" y="670" textAnchor="middle" fill="#8b92b8" fontSize="10" letterSpacing="1" fontFamily="monospace">ENCRYPT / DECRYPT PAYLOAD FLOW</text>
         <text x="36" y="690" fill="#10b981" fontSize="10" fontFamily="monospace">Encrypt:</text>
         <rect x="36" y="698" width="365" height="60" rx="4" fill="#22263a" />
-        <text x="50" y="712" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, data_classification, end_user_id, context {'}'}</text>
+        <text x="50" y="712" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:  {'{'} plaintext, encoding, data_classification, end_user_id {'}'}</text>
         <text x="50" y="726" fill="#10b981" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)  (or reuse via dek_name)</text>
         <text x="50" y="740" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="752" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
@@ -501,18 +501,18 @@ const FLOWS = [
     title: '0. Startup (at service init — not per request)',
     color: '#14b8a6',
     steps: [
-      'HSM Service fetches current_key — a single string combining slot and version, e.g. "alpha:12" — then fetches cek-alpha at that exact version from Azure KV Secrets, using its Service SPN.',
-      'Azure KV Secrets returns the CEK-alpha bytes for that version, plus the previous slot\'s value if the pod already has one cached (beta, if this isn\'t the first startup) — the pod\'s DEKCache initializes with this, identically across every pod.',
-      'The Service starts a background task (cek_reload_loop) that polls current_key every 30s and calls rotate(cek, slot, kv_version) — with slot and kv_version parsed back out of the "slot:version" string — whenever it changes; see the CEK Rotation Flow below for what drives that change.',
+      'HSM Service fetches current_key — a plain pointer to "alpha" or "beta" — then fetches cek-alpha and its own separately-returned kv_version from Azure KV Secrets, using its Service SPN.',
+      'Azure KV Secrets returns the CEK-alpha bytes plus their kv_version, plus the previous slot\'s value if the pod already has one cached (beta, if this isn\'t the first startup) — the pod\'s DEKCache initializes with this, identically across every pod.',
+      'The Service starts a background task (cek_reload_loop) that polls current_key every 30s and calls rotate(cek, slot, kv_version) whenever it changes; see the CEK Rotation Flow below for what drives that change.',
     ],
     actors: [
       { id: 'service', label: 'HSM Service' },
       { id: 'kvsecrets', label: 'Azure KV Secrets' },
     ],
     messages: [
-      { from: 'service', to: 'kvsecrets', label: 'fetch current_key → "alpha:12" · fetch cek-alpha (v12) → CEK bytes', stepNum: '0a' },
-      { from: 'kvsecrets', to: 'service', dashed: true, label: 'CEK-alpha bytes (v12) + prev slot (beta, if cached) → DEKCache init', stepNum: '0b' },
-      { from: 'service', to: 'service', self: true, label: 'cek_reload_loop: poll current_key every 30s → rotate() on change', stepNum: '0c' },
+      { from: 'service', to: 'kvsecrets', label: 'fetch current_key → "alpha" · fetch cek-alpha → (CEK bytes, kv_version)', stepNum: '0a' },
+      { from: 'kvsecrets', to: 'service', dashed: true, label: 'CEK-alpha bytes + kv_version + prev slot (beta, if cached) → DEKCache init', stepNum: '0b' },
+      { from: 'service', to: 'service', self: true, label: 'cek_reload_loop: poll current_key every 30s → rotate(cek, slot, kv_ver) on change', stepNum: '0c' },
     ],
   },
   {
@@ -617,9 +617,9 @@ const FLOWS = [
     steps: [
       'CEK Rotation Svc generates a new 32-byte CEK and writes it to whichever slot is currently inactive — only alpha and beta ever exist, so this is always "the other one" from current_key (shown here as alpha active → writes cek-beta) — using its Rotation SPN, write-only on KV Secrets.',
       'Azure KV Secrets returns the new kv_version for that slot.',
-      'CEK Rotation Svc updates current_key to a new combined "slot:version" string — "beta:{new_ver}" in this example — only after the slot bytes are already written, never before.',
-      'HSM Service\'s 30s poll (Service SPN, read-only) detects current_key\'s "slot:version" string has changed.',
-      'HSM Service parses the slot and version back out of that string, then fetches that exact cek-beta version\'s bytes from Azure KV Secrets.',
+      'CEK Rotation Svc updates current_key to point at the newly-written slot — "beta" in this example — only after the slot bytes are already written, never before.',
+      'HSM Service\'s 30s poll (Service SPN, read-only) detects current_key now points at "beta" along with its new kv_version.',
+      'HSM Service fetches that slot\'s bytes plus its kv_version from Azure KV Secrets.',
       'HSM Service calls rotate(new_cek, slot, kv_version) — this promotes the previously-active slot to "previous" and installs the newly-written slot as current. Every rotation flips current_key to whichever of alpha/beta was NOT already active, so the next rotation after this one flips right back — alpha→beta→alpha→beta, alternating indefinitely, never a third slot. New cache MISS entries are written under the new slot\'s key; old-slot entries simply expire via their 60s TTL — dual-read covers the ~30s convergence window while pods catch up. If the Rotation Svc itself is down at the 4h mark, pods hold their current CEK indefinitely with no errors, and rotation resumes immediately once it recovers.',
     ],
     actors: [
@@ -630,9 +630,9 @@ const FLOWS = [
     messages: [
       { from: 'cekrotationsvc', to: 'kvsecrets', label: 'gen new 32-byte CEK · write to the inactive slot — alpha or beta, whichever isn\'t current [Rotation SPN]', stepNum: 'R1' },
       { from: 'kvsecrets', to: 'cekrotationsvc', dashed: true, label: 'returns new kv_version for that slot', stepNum: 'R2' },
-      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'update current_key → "beta:{new_ver}" (slot:version combined) [Rotation SPN · AFTER slot bytes written]', stepNum: 'R3' },
-      { from: 'service', to: 'kvsecrets', dashed: true, label: 'poll detects current_key\'s "slot:version" string changed [Service SPN · 30s]', stepNum: 'R4' },
-      { from: 'kvsecrets', to: 'service', dashed: true, label: 'fetch cek-beta bytes at the version parsed from current_key', stepNum: 'R5' },
+      { from: 'cekrotationsvc', to: 'kvsecrets', label: 'update current_key → "beta" [Rotation SPN · AFTER slot bytes written]', stepNum: 'R3' },
+      { from: 'service', to: 'kvsecrets', dashed: true, label: 'poll detects current_key="beta" + new kv_version [Service SPN · 30s]', stepNum: 'R4' },
+      { from: 'kvsecrets', to: 'service', dashed: true, label: 'fetch cek-beta bytes + kv_version', stepNum: 'R5' },
       { from: 'service', to: 'service', self: true, label: 'rotate(new_cek, slot, kv_version) → flips current_key to the other of alpha/beta each time — alternates indefinitely, never a third slot', stepNum: 'R6' },
     ],
   },
