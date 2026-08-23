@@ -94,18 +94,22 @@ public class DemoController {
 
     @GetMapping("${hsm.service.api-v1-prefix}/demo/hsm-state")
     public Map<String, Object> hsmState() {
+        // Multi-KEK aware: shows every demo key this instance has lazily created so
+        // far (see MockKekClient.getOrCreateKeyState), not just one -- there's no
+        // longer a single implicit KEK to report on.
         if (kekClient instanceof MockKekClient mock) {
-            MockKekClient.DemoState state = mock.getState();
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("current_version", state.currentVersion());
-            result.put("total_versions", state.totalVersions());
-            result.put("versions", state.versions());
-            return result;
+            Map<String, Object> keys = new LinkedHashMap<>();
+            for (String kekName : mock.getKnownKekNames()) {
+                MockKekClient.DemoState state = mock.getState(kekName);
+                Map<String, Object> keyState = new LinkedHashMap<>();
+                keyState.put("current_version", state.currentVersion());
+                keyState.put("total_versions", state.totalVersions());
+                keyState.put("versions", state.versions());
+                keys.put(kekName, keyState);
+            }
+            return Map.of("keys", keys);
         }
-        Map<String, Object> fallback = new LinkedHashMap<>();
-        fallback.put("current_version", kekClient.getCurrentKekVersion());
-        fallback.put("versions", List.of());
-        return fallback;
+        return Map.of("keys", Map.of());
     }
 
     @GetMapping("${hsm.service.api-v1-prefix}/demo/edek-records")
