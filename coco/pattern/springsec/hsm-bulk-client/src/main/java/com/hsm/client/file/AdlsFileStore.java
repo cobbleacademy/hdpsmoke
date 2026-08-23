@@ -14,6 +14,7 @@ import com.azure.storage.file.datalake.models.PathItem;
 import com.azure.storage.file.datalake.models.ListPathsOptions;
 
 import java.io.File;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -23,6 +24,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -100,16 +102,47 @@ public class AdlsFileStore implements FileStore {
         // FileBulkJob writes push-style (OutputStream) to stay symmetric with
         // LocalFileStore -- bridge with a piped stream, uploading on a background
         // thread as the caller writes.
+        //
+        // The returned stream's close() blocks until that upload thread actually
+        // finishes and rethrows anything it threw -- closing a PipedOutputStream
+        // only signals EOF to the reader, it does not wait for the upload to
+        // finish committing to ADLS. Without this join, a caller (FileBulkJob)
+        // that closes and moves on -- or a short-lived process that exits right
+        // after, killing this daemon thread outright -- can believe the write
+        // succeeded while the blob is still incomplete on the ADLS side. Found
+        // live: a DECRYPT job reading back a file this store had "finished"
+        // writing failed to decode a chunk as valid base64, i.e. it read past
+        // where the real upload had actually gotten to.
         try {
             PipedOutputStream out = new PipedOutputStream();
             PipedInputStream in = new PipedInputStream(out, 64 * 1024);
+            AtomicReference<Throwable> uploadError = new AtomicReference<>();
             Thread uploader = new Thread(() -> {
-                fileClient.create(true);
-                fileClient.upload(in, -1, true);
+                try {
+                    fileClient.create(true);
+                    fileClient.upload(in, -1, true);
+                } catch (Throwable t) {
+                    uploadError.set(t);
+                }
             });
             uploader.setDaemon(true);
             uploader.start();
-            return out;
+            return new FilterOutputStream(out) {
+                @Override
+                public void close() throws IOException {
+                    super.close();
+                    try {
+                        uploader.join();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("Interrupted waiting for ADLS upload to finish: " + relativePath, e);
+                    }
+                    Throwable err = uploadError.get();
+                    if (err != null) {
+                        throw new IOException("ADLS upload failed for " + relativePath, err);
+                    }
+                }
+            };
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to open ADLS path " + relativePath + " for write", e);
         }
