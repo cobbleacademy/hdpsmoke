@@ -1,6 +1,6 @@
 apiVersion: v2
 name: hsm-bulk-service
-description: Tier 3 bulk PoC SVC -- issues/unwraps DEKs (POST /dek/issue, POST /dek/unwrap) for hsm-bulk-client, backed by the same Azure Key Vault Managed HSM as hsm-core-service
+description: Second, independently-scaled Deployment of the hsm-core-service image, isolating bulk DEK-issuance traffic (POST /dek/issue, POST /dek/unwrap) from ordinary /encrypt /decrypt traffic -- see java/docs/BULK_OPERATIONS.md. Not a separate codebase; deploys the identical hsm-core-service artifact this chart's values.image.repository points at.
 type: application
 version: 1.0.0
 appVersion: "1.0.0"
@@ -8,6 +8,7 @@ keywords:
   - encryption
   - hsm
   - security
+  - envelope-encryption
   - bulk
 home: https://example.internal/hsm-bulk-service
 maintainers:
