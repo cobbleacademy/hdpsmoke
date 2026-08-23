@@ -26,6 +26,33 @@ public class EdekRecord {
     @Column(name = "kek_version", nullable = false, length = 64)
     private String kekVersion;
 
+    /**
+     * Which KEK actually wrapped edekBlob -- required, not just informational,
+     * once there's more than one KEK: kekVersion alone ("version 3") is
+     * meaningless without knowing which key it's a version of. NULL on rows
+     * written before this column existed, meaning "the single legacy KEK from
+     * static config" -- see KekRegistryService and V8's migration comment.
+     */
+    @Column(name = "kek_name", length = 127)
+    private String kekName;
+
+    /**
+     * Single-level undo buffer for "rekey" (moving this EDEK from one KEK to a
+     * different one -- compromise response, retroactive isolation changes, key
+     * decommissioning), not a multi-row history table. rekey copies this row's
+     * pre-rekey kekName/kekVersion/edekBlob here before overwriting them;
+     * reversion swaps them back and clears these three columns. See
+     * RotationService.rekey/revertRekey.
+     */
+    @Column(name = "previous_kek_name", length = 127)
+    private String previousKekName;
+
+    @Column(name = "previous_kek_version", length = 64)
+    private String previousKekVersion;
+
+    @Column(name = "previous_edek_blob", columnDefinition = "TEXT")
+    private String previousEdekBlob;
+
     @Column(name = "algorithm", nullable = false, length = 32)
     private String algorithm = "AES-256-GCM";
 
@@ -73,13 +100,14 @@ public class EdekRecord {
         // JPA
     }
 
-    public EdekRecord(UUID edekId, String appId, String edekBlob, String kekVersion,
+    public EdekRecord(UUID edekId, String appId, String edekBlob, String kekVersion, String kekName,
                        String algorithm, String encoding, String dataClassification,
                        String fingerprint, String dekName) {
         this.edekId = edekId;
         this.appId = appId;
         this.edekBlob = edekBlob;
         this.kekVersion = kekVersion;
+        this.kekName = kekName;
         this.algorithm = algorithm;
         this.encoding = encoding;
         this.dataClassification = dataClassification;
@@ -112,6 +140,48 @@ public class EdekRecord {
 
     public void setKekVersion(String kekVersion) {
         this.kekVersion = kekVersion;
+    }
+
+    public String getKekName() {
+        return kekName;
+    }
+
+    public void setKekName(String kekName) {
+        this.kekName = kekName;
+    }
+
+    public String getPreviousKekName() {
+        return previousKekName;
+    }
+
+    public String getPreviousKekVersion() {
+        return previousKekVersion;
+    }
+
+    public String getPreviousEdekBlob() {
+        return previousEdekBlob;
+    }
+
+    /** Stashes this row's current kekName/kekVersion/edekBlob as the single-level undo buffer, before rekey overwrites them. */
+    public void stashCurrentAsPrevious() {
+        this.previousKekName = this.kekName;
+        this.previousKekVersion = this.kekVersion;
+        this.previousEdekBlob = this.edekBlob;
+    }
+
+    /** Swaps the stashed previous_* values back into the live columns and clears them -- one level of undo, not a stack. */
+    public void restorePreviousAndClear() {
+        this.kekName = this.previousKekName;
+        this.kekVersion = this.previousKekVersion;
+        this.edekBlob = this.previousEdekBlob;
+        this.previousKekName = null;
+        this.previousKekVersion = null;
+        this.previousEdekBlob = null;
+    }
+
+    /** True only after a rekey has stashed something to revert to. */
+    public boolean hasPreviousKekState() {
+        return previousKekName != null;
     }
 
     public String getAlgorithm() {

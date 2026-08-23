@@ -25,6 +25,14 @@ public class AppRegistration {
     @Column(name = "active", nullable = false)
     private boolean active = true;
 
+    /**
+     * PEM-encoded RSA public key used by DekIssueService/DekUnwrapService to
+     * transport-wrap a raw DEK for this app -- see TransportWrapper. Nullable:
+     * only apps calling /dek/issue or /dek/unwrap need one provisioned.
+     */
+    @Column(name = "public_key_pem", columnDefinition = "TEXT")
+    private String publicKeyPem;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
@@ -63,6 +71,15 @@ public class AppRegistration {
 
     public boolean isActive() {
         return active;
+    }
+
+    public String getPublicKeyPem() {
+        return publicKeyPem;
+    }
+
+    public void setPublicKeyPem(String publicKeyPem) {
+        this.publicKeyPem = publicKeyPem;
+        this.updatedAt = OffsetDateTime.now();
     }
 
     public OffsetDateTime getCreatedAt() {
