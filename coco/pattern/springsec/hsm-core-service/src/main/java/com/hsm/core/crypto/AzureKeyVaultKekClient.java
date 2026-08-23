@@ -23,12 +23,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Base64;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Azure Key Vault HSM client for KEK wrap/unwrap operations. Ported from
  * app/crypto/kek_client.py. The KEK never leaves the HSM boundary. Authentication
  * uses Managed Identity / Workload Identity federation -- no static credentials.
+ *
+ * <p>Deliberately parameterized by kekName on every call, not configured with
+ * one fixed key at construction time -- see KekClient's own javadoc for why.
+ * Resolves and caches one CryptographyClient per distinct kekName (latest
+ * version) lazily, keyed in a plain ConcurrentHashMap; unwrapDek's
+ * version-specific client is cheap enough (no network call, just a keyId
+ * string) to build fresh per call rather than also caching per
+ * (kekName, kekVersion) pair.
  */
 public class AzureKeyVaultKekClient implements KekClient {
 
@@ -36,20 +44,15 @@ public class AzureKeyVaultKekClient implements KekClient {
     private static final KeyWrapAlgorithm WRAP_ALGORITHM = KeyWrapAlgorithm.RSA_OAEP_256;
     private static final String DEFAULT_TOKEN_FILE = "/var/run/secrets/azure/tokens/azure-identity-token";
 
-    private final String kekName;
-    private final String kekVersion;
     private final String keyvaultUrl;
     private final TokenCredential credential;
     private final KeyClient keyClient;
     private final SecretClient secretClient;
 
-    private volatile CryptographyClient cryptographyClient;
-    private final ReentrantLock lock = new ReentrantLock();
+    private final ConcurrentHashMap<String, CryptographyClient> cryptographyClientsByKekName = new ConcurrentHashMap<>();
 
     public AzureKeyVaultKekClient(HsmProperties properties) {
         HsmProperties.Azure azureProps = properties.azure();
-        this.kekName = azureProps.kekName();
-        this.kekVersion = azureProps.kekVersion();
         this.keyvaultUrl = azureProps.keyvaultUrl();
         this.credential = buildCredential(azureProps);
         this.keyClient = new KeyClientBuilder().vaultUrl(keyvaultUrl).credential(credential).buildClient();
@@ -61,34 +64,23 @@ public class AzureKeyVaultKekClient implements KekClient {
         this.secretClient = new SecretClientBuilder().vaultUrl(secretVaultUrl).credential(credential).buildClient();
     }
 
-    private CryptographyClient getCryptographyClient() {
-        CryptographyClient client = cryptographyClient;
-        if (client == null) {
-            lock.lock();
-            try {
-                client = cryptographyClient;
-                if (client == null) {
-                    KeyVaultKey key = kekVersion.isBlank() ? keyClient.getKey(kekName) : keyClient.getKey(kekName, kekVersion);
-                    client = new CryptographyClientBuilder().keyIdentifier(key.getId()).credential(credential).buildClient();
-                    cryptographyClient = client;
-                }
-            } finally {
-                lock.unlock();
-            }
-        }
-        return client;
+    private CryptographyClient getCryptographyClient(String kekName) {
+        return cryptographyClientsByKekName.computeIfAbsent(kekName, name -> {
+            KeyVaultKey key = keyClient.getKey(name);
+            return new CryptographyClientBuilder().keyIdentifier(key.getId()).credential(credential).buildClient();
+        });
     }
 
     @Override
-    public WrapResult wrapDek(byte[] dek) {
-        var result = getCryptographyClient().wrapKey(WRAP_ALGORITHM, dek);
+    public WrapResult wrapDek(byte[] dek, String kekName) {
+        var result = getCryptographyClient(kekName).wrapKey(WRAP_ALGORITHM, dek);
         String keyId = result.getKeyId();
         String version = keyId.substring(keyId.lastIndexOf('/') + 1);
         return new WrapResult(result.getEncryptedKey(), version);
     }
 
     @Override
-    public byte[] unwrapDek(byte[] edek, String kekVersionToUse) {
+    public byte[] unwrapDek(byte[] edek, String kekName, String kekVersionToUse) {
         // Unwrap with the *specific* KEK version this EDEK was wrapped with -- old
         // versions remain usable after rotation until all EDEKs are re-wrapped.
         String keyId = trimTrailingSlash(keyvaultUrl) + "/keys/" + kekName + "/" + kekVersionToUse;
@@ -98,7 +90,7 @@ public class AzureKeyVaultKekClient implements KekClient {
     }
 
     @Override
-    public String getCurrentKekVersion() {
+    public String getCurrentKekVersion(String kekName) {
         KeyVaultKey key = keyClient.getKey(kekName);
         String version = key.getProperties().getVersion();
         return version == null ? "" : version;
