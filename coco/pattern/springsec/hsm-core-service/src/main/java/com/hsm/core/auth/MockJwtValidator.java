@@ -20,7 +20,7 @@ public class MockJwtValidator implements JwtValidator {
     public static final Map<String, List<String>> DEMO_SCOPES = Map.of(
             "payments-svc", List.of("encrypt", "decrypt", "dek_issue", "dek_unwrap"),
             "reporting-app", List.of("decrypt"),
-            "ops-admin", List.of("encrypt", "decrypt", "rotate", "grant", "manage_apps")
+            "ops-admin", List.of("encrypt", "decrypt", "rotate", "grant", "manage_apps", "provision_app_keys")
     );
 
     /** (granteeAppId, ownerAppId) pairs. reporting-app may decrypt anything payments-svc encrypted. */
