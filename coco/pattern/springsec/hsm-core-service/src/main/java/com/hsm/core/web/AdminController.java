@@ -6,6 +6,9 @@ import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.crypto.MockKekClient;
+import com.hsm.core.crypto.TransportWrapper;
+import com.hsm.core.dto.AppKeysRequest;
+import com.hsm.core.dto.AppKeysResponse;
 import com.hsm.core.dto.AppStatusRequest;
 import com.hsm.core.dto.AppStatusResponse;
 import com.hsm.core.dto.GrantListResponse;
@@ -17,6 +20,7 @@ import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RevertRekeyRequest;
 import com.hsm.core.dto.RotateKekResponse;
 import com.hsm.core.model.AppDecryptGrant;
+import com.hsm.core.model.AppRegistration;
 import com.hsm.core.service.RotationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -157,5 +161,58 @@ public class AdminController {
         auditLogger.log("app_status_changed", "app_id", caller.appId(), "sub", caller.sub(),
                 "target_app_id", body.appId(), "active", body.active(), "status", "success");
         return new AppStatusResponse(body.appId(), body.active());
+    }
+
+    /**
+     * Provisions or rotates an app's encryption key (DEK-transport-wrap,
+     * TransportWrapper) and/or signing key (SelfSignedAppKeyJwtValidator).
+     * Replaces the earlier no-admin-endpoint approach of writing
+     * app_registrations.public_key_pem directly via SQL -- this validates the
+     * PEM at write time instead of failing later at first use, and gives the
+     * change a real audit trail. Own scope (provision_app_keys), not
+     * manage_apps -- this key becomes part of the authentication trust
+     * boundary once SelfSignedAppKeyJwtValidator is in play, not just DEK
+     * confidentiality, a meaningfully bigger blast radius than the
+     * active/inactive toggle above.
+     */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/keys")
+    public AppKeysResponse setAppKeys(@Valid @RequestBody AppKeysRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        if (body.encryptionPublicKeyPem() == null && body.signingPublicKeyPem() == null) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "at least one of encryption_public_key_pem or signing_public_key_pem is required");
+        }
+        if (body.encryptionPublicKeyPem() != null) {
+            parsePublicKeyOrReject(body.encryptionPublicKeyPem(), "encryption_public_key_pem");
+        }
+        if (body.signingPublicKeyPem() != null) {
+            parsePublicKeyOrReject(body.signingPublicKeyPem(), "signing_public_key_pem");
+        }
+
+        AppRegistration saved;
+        try {
+            saved = appRegistry.updateKeys(body.appId(), body.encryptionPublicKeyPem(), body.signingPublicKeyPem());
+        } catch (AppRegistryException e) {
+            throw new ApiException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+
+        auditLogger.log("app_keys_updated", "app_id", caller.appId(), "sub", caller.sub(),
+                "target_app_id", body.appId(),
+                "encryption_key_updated", body.encryptionPublicKeyPem() != null,
+                "signing_key_updated", body.signingPublicKeyPem() != null,
+                "status", "success");
+
+        return new AppKeysResponse(
+                saved.getAppId(),
+                saved.getPublicKeyPem() != null && !saved.getPublicKeyPem().isBlank(),
+                saved.getSigningPublicKeyPem() != null && !saved.getSigningPublicKeyPem().isBlank(),
+                saved.getUpdatedAt());
+    }
+
+    private static void parsePublicKeyOrReject(String pem, String fieldName) {
+        try {
+            TransportWrapper.parsePublicKeyPem(pem);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "invalid " + fieldName + ": " + e.getMessage());
+        }
     }
 }
