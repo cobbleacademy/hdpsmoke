@@ -33,6 +33,18 @@ public class AppRegistration {
     @Column(name = "public_key_pem", columnDefinition = "TEXT")
     private String publicKeyPem;
 
+    /**
+     * PEM-encoded RSA public key used by SelfSignedAppKeyJwtValidator to verify
+     * this app's self-issued bearer JWTs (RFC 7523-style: the caller signs a
+     * short-lived assertion locally instead of renewing a token from an
+     * external IdP). Nullable -- NULL is the deliberate legacy switch: falls
+     * back to publicKeyPem (the DEK-transport key) for signature verification
+     * too, for callers that would rather manage one keypair than two. See
+     * AppRegistryService.getSigningPublicKey.
+     */
+    @Column(name = "signing_public_key_pem", columnDefinition = "TEXT")
+    private String signingPublicKeyPem;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
@@ -79,6 +91,15 @@ public class AppRegistration {
 
     public void setPublicKeyPem(String publicKeyPem) {
         this.publicKeyPem = publicKeyPem;
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    public String getSigningPublicKeyPem() {
+        return signingPublicKeyPem;
+    }
+
+    public void setSigningPublicKeyPem(String signingPublicKeyPem) {
+        this.signingPublicKeyPem = signingPublicKeyPem;
         this.updatedAt = OffsetDateTime.now();
     }
 
