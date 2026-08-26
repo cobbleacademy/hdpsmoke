@@ -38,6 +38,43 @@ decides *what* that app may do.** The resource-path → permission mapping
 (`hsm.security.access-rules`) has no connection to Entra ID App Roles or
 Security Groups today.
 
+## 1a. Two authentication mechanisms, one authorization step
+
+Step 1 above (authentication) now has two independent paths into the same
+step 2 (local-DB authorization) — added for callers (typically legacy apps)
+that find Entra ID client-credentials/JWT-renewal machinery operationally
+painful but can manage a one-time RSA keypair, the same operational shape as
+an SSH key:
+
+| | Entra ID (`RsaJwtValidator`) | Self-issued (`SelfSignedAppKeyJwtValidator`) |
+|---|---|---|
+| Trust anchor | Entra ID's JWKS (or a static configured PEM) | The caller's own key, registered per-app via `POST /admin/apps/keys` (`app_registrations.signing_public_key_pem`) |
+| Who mints the token | Entra ID, via client-credentials flow | The caller itself, locally, immediately before each call |
+| "Renewal" | A network round-trip to Entra ID | Pure local computation — re-sign a small JWT with a key already in memory, never a network call |
+| Token lifetime | Entra ID's own policy (~1h typical) | Capped server-side at 5 minutes (`SelfSignedAppKeyJwtValidator.MAX_TTL`) regardless of what the token claims — the caller fully controls its own claims, unlike an Entra-ID-issued token, so this can't be left to the token alone |
+| `iss` claim | The configured Entra ID issuer URL | The caller's own `app_id` |
+
+**Routing between the two is automatic, not a deployment-wide switch.**
+`SelfIssuedRoutingJwtValidator` peeks a token's *unverified* `iss` claim
+before trusting anything in it: `iss` matching the configured Entra ID
+issuer routes to `RsaJwtValidator`; anything else (including every demo-mode
+`MockJwtValidator` literal token, which isn't JWT-shaped at all and fails
+the peek outright) routes to `SelfSignedAppKeyJwtValidator`, which then
+verifies the signature against whichever app the `iss`/`sub` claims to be —
+still fully untrusted until that verification succeeds. Both mechanisms
+feed the exact same `Map.of("sub", appId, "app_id", appId)` shape into step
+2, so nothing downstream (scope resolution, `AuthenticatedCaller`) needs to
+know or care which path a given request took.
+
+**One keypair or two, per app.** `signing_public_key_pem` is independent of
+`public_key_pem` (the pre-existing DEK-transport-wrap key `/dek/issue` and
+`/dek/unwrap` use) — an app can register a dedicated signing key, or leave
+it unset and let `SelfSignedAppKeyJwtValidator` fall back to the encryption
+key for signature verification too (the legacy one-keypair switch — see
+`AppRegistryService.getSigningPublicKey`). Modern callers should register
+both; the fallback exists specifically for callers that would rather manage
+one keypair than two.
+
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 
 For a service-to-service (client-credentials) scenario like this one, the

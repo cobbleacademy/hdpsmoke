@@ -14,11 +14,54 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | Endpoint | Authority | What it does |
 |---|---|---|
 | `POST /admin/apps/status` | `manage_apps` | Activate/deactivate an **existing** app_id |
+| `POST /admin/apps/keys` | `provision_app_keys` | Provision/rotate an app's encryption and/or signing public key (see below) |
 | `POST /admin/grants` | `grant` | Add a cross-app decrypt grant (`grantee_app_id` may now decrypt `owner_app_id`'s data) |
 | `DELETE /admin/grants` | `grant` | Remove a grant |
 | `GET /admin/grants` | `grant` | List all grants |
-| `POST /admin/rotate-kek` | `rotate` | Trigger KEK rotation (see `RUNBOOK.md`) |
+| `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
+| `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
+| `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
 | `GET /admin/health` | none (public) | Vault + DB reachability |
+
+## Provisioning an app's public key(s) — `POST /admin/apps/keys`
+
+Replaces the earlier no-admin-endpoint approach (a direct SQL `UPDATE` against
+`app_registrations.public_key_pem`/`signing_public_key_pem`) with a real
+endpoint — same "prefer the admin API over direct SQL" reasoning as the rest
+of this doc, now closed for this specific gap too. `encryption_public_key_pem`
+is the DEK-transport-wrap key (`TransportWrapper`, used by `/dek/issue` and
+`/dek/unwrap`); `signing_public_key_pem` is optional and used only by
+`SelfSignedAppKeyJwtValidator` to verify that app's self-issued bearer JWTs
+(see `AUTHORIZATION.md`'s "Two authentication mechanisms" section) — an app
+with only the encryption key registered runs on the legacy one-keypair
+fallback (that same key verifies its signing too). Either field may be
+omitted to leave that key unchanged; at least one is required. Both PEMs are
+parsed and validated at write time (422 on a malformed key), not left to fail
+later at first use, and the target `app_id` must already exist (404
+otherwise — same "onboarding is a versioned migration, not a live API"
+stance as everywhere else in this doc). A separate scope
+(`provision_app_keys`, not `manage_apps`) gates this specifically because
+this key becomes part of the authentication trust boundary once
+`SelfSignedAppKeyJwtValidator` is in play, not just DEK confidentiality — a
+bigger blast radius than the active/inactive toggle above.
+
+```bash
+# Provision both keys for a new self-signed-JWT-capable caller
+curl -X POST "$BASE/admin/apps/keys" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "app_id": "payments-svc",
+    "encryption_public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n",
+    "signing_public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+  }'
+
+# Rotate just the signing key later, leaving the encryption key untouched
+curl -X POST "$BASE/admin/apps/keys" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "signing_public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"}'
+```
 
 ## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented
 

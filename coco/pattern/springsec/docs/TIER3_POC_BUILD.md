@@ -23,6 +23,40 @@ deploys the `hsm-core-service` image as a second, independently-scaled
 release (deployment-level traffic isolation, not a separate codebase);
 `Dockerfile.hsm-bulk-service` was retired outright.
 
+**Update, still later round: `hsm-crypto-client` extracted as an embeddable
+library; two new authentication/provisioning capabilities added.** Three
+more changes since the merge above, all still on `hsm-core-service`/the
+`hsm-bulk-client` family, none touching the merge itself:
+
+1. **New module `java/hsm-crypto-client`.** `SvcClient`, `TransportWrapper`,
+   `DekManager`, `IvFactory`, `FipsBootstrap`, and the `TokenProvider` family
+   (`Static`/`AzureAd`/`SelfSignedJwt`) moved out of `hsm-bulk-client` into
+   their own plain-Java module -- zero Spring dependency, so importing it
+   never drags Spring Boot autoconfiguration into a host application. New
+   public entry point `HsmCryptoClient` (stateful, `AutoCloseable`, its own
+   independent encrypt-by-`dekName` / decrypt-by-`edek_id` caches) is the
+   actual answer to "other JVM applications should be able to import this
+   and call encrypt/decrypt directly" rather than driving a config-file
+   batch job -- see the class's own javadoc. `hsm-bulk-client` (the CLI)
+   now depends on this module for the exact same classes instead of owning
+   duplicated copies -- `DbBulkJob`/`FileBulkJob` are behaviorally
+   unchanged, only their imports moved. This is the first genuine
+   inter-module dependency in this repo's Java tree; every other module
+   here still deliberately duplicates rather than shares.
+2. **Self-issued bearer JWT authentication** (`SelfSignedAppKeyJwtValidator`
+   on `hsm-core-service`, `SelfSignedJwtTokenProvider` in
+   `hsm-crypto-client`) -- an RFC 7523-style alternative to Entra ID
+   client-credentials tokens, for callers (typically legacy apps) that find
+   OAuth2/JWT-renewal machinery operationally painful but can manage a
+   one-time RSA keypair. See `AUTHORIZATION.md`'s "Two authentication
+   mechanisms" section for the full design and `HsmCryptoClient.builder()
+   .selfSignedJwt(signingKeyPem)` for the client-side entry point.
+3. **`POST /admin/apps/keys`** -- provisions/rotates an app's encryption
+   and/or signing public key via a real, validated, audited endpoint,
+   replacing the ad hoc direct-SQL approach `getPublicKey`'s absence forced
+   until now (see `BulkVsBatchBenchmark.provisionAppKeyAndScopes`, which
+   used exactly that workaround). See `ADMIN_OPERATIONS.md`.
+
 ## What's built
 
 - **New module**: `java/hsm-bulk-service` -- `POST /dek/issue`, `POST /dek/unwrap`.
