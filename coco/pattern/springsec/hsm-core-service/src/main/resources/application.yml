@@ -214,3 +214,11 @@ hsm:
       - pattern: /admin/apps/status
         methods: [POST]
         authorities: [manage_apps]
+      # Own scope, not manage_apps -- this key becomes part of the
+      # authentication trust boundary once SelfSignedAppKeyJwtValidator is in
+      # play (impersonation risk), not just DEK confidentiality -- a bigger
+      # blast radius than the active/inactive toggle above, so it doesn't
+      # inherit that scope's broader grant. See AdminController.setAppKeys.
+      - pattern: /admin/apps/keys
+        methods: [POST]
+        authorities: [provision_app_keys]
