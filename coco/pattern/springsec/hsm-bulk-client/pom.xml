@@ -16,6 +16,17 @@
     <description>Standalone client for hsm-core-service's bulk DEK endpoints (SVC): bulk DB column encrypt/decrypt and bulk file encrypt/decrypt with chunking, against local disk or ADLS. See java/docs/BULK_OPERATIONS.md (Tier 3) and java/docs/TIER3_POC_BUILD.md.</description>
 
     <dependencies>
+        <!-- SvcClient, TransportWrapper, DekManager, IvFactory, FipsBootstrap, and the
+             TokenProvider family: the same primitives HsmCryptoClient (the embeddable
+             library) is built on, no longer duplicated here. DbBulkJob/FileBulkJob call
+             these exact classes; ClientProperties.svc's type (SvcConfig) also comes from
+             here now, not a nested record of its own. -->
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-crypto-client</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- Headless: config/CLI conveniences only, no inbound requests; this module only calls out to SVC. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -54,10 +65,6 @@
             <version>23.26.3.0.0</version>
         </dependency>
 
-        <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bc-fips</artifactId>
-        </dependency>
 
         <!-- Same azure-identity -> reactor-netty-http HTTP/3 codec + legacy Jackson 2
              escaped-artifact issue as every other module depending on azure-identity in this
