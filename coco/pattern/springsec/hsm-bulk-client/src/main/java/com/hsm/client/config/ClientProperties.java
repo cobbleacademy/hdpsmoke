@@ -1,6 +1,7 @@
 package com.hsm.client.config;
 
 import com.hsm.client.db.DbDialect;
+import com.hsm.client.svc.SvcConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.util.List;
@@ -8,13 +9,19 @@ import java.util.List;
 /**
  * Typed config for hsm-bulk-client. Deliberately narrow -- this module has no server
  * side at all, so unlike HsmBulkProperties/HsmProperties there's no jwt/azure-kek
- * section here: authenticating TO SVC (hsm-bulk-service) is just a bearer token +
- * X-App-ID header (svc.token/svc.app-id below), not a JWT this module validates.
+ * section here: authenticating TO SVC is just a bearer token + X-App-ID header
+ * (svc.token/svc.app-id below), not a JWT this module validates.
+ *
+ * <p>svc's type (SvcConfig) lives in hsm-crypto-client, not nested here -- it's a
+ * plain, non-Spring-annotated record shared with HsmCryptoClient (the embeddable
+ * library other JVM apps import directly), not something specific to this CLI's
+ * own YAML binding. Spring's relaxed binding works the same either way; the type
+ * just happens to come from a dependency instead of being defined locally.
  */
 @ConfigurationProperties(prefix = "client")
 public record ClientProperties(
         Job job,
-        Svc svc,
+        SvcConfig svc,
         Db db,
         File file
 ) {
@@ -26,19 +33,6 @@ public record ClientProperties(
     ) {
         public enum Type { DB, FILE }
         public enum Mode { ENCRYPT, DECRYPT }
-    }
-
-    public record Svc(
-            String baseUrl,
-            String apiV1Prefix,    // must match SVC's own API_V1_PREFIX (hsm.service.api-v1-prefix) -- the two are configured independently and not auto-synced
-            String appId,
-            AuthMode authMode,     // STATIC (default) uses token below, unchanged; AZURE_AD acquires a fresh bearer token per call via Workload Identity -- see AzureAdTokenProvider
-            String token,          // only used when authMode=STATIC -- a real Azure AD JWT here would expire mid-job on any run longer than its TTL
-            String azureTokenScope, // only used when authMode=AZURE_AD -- must match whatever SVC's own Azure AD app registration exposes as its audience/scope
-            int dekBatchMaxItems,  // mirrors hsm.service.dek-batch-max-items on SVC -- self-limit client-side rather than rely on SVC's 422 rejection
-            String privateKeyPem   // PKCS#8 PEM, the private half of the public key registered on app_registrations.public_key_pem for appId -- never sent anywhere, only used locally to unwrap what SVC returns
-    ) {
-        public enum AuthMode { STATIC, AZURE_AD }
     }
 
     public record Db(
