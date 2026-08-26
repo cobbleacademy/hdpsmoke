@@ -4,6 +4,7 @@ import com.hsm.client.config.ClientProperties;
 import com.hsm.client.crypto.DekManager;
 import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.svc.SvcClient;
+import com.hsm.client.svc.SvcConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,7 +102,7 @@ public class FileBulkJob {
     private static final Logger log = LoggerFactory.getLogger(FileBulkJob.class);
 
     private final ClientProperties.File config;
-    private final ClientProperties.Svc svcConfig;
+    private final SvcConfig svcConfig;
     private final SvcClient svcClient;
     private final PrivateKey privateKey;
     private final FileStore sourceStore;
@@ -116,7 +117,7 @@ public class FileBulkJob {
     // behavior, no persistent cache, no benefit to caching a one-off value anyway.
     private final Map<UUID, byte[]> namedDekCache;
 
-    public FileBulkJob(ClientProperties.File config, ClientProperties.Svc svcConfig, SvcClient svcClient) {
+    public FileBulkJob(ClientProperties.File config, SvcConfig svcConfig, SvcClient svcClient) {
         this.config = config;
         this.svcConfig = svcConfig;
         this.svcClient = svcClient;
