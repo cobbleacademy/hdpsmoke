@@ -19,6 +19,7 @@ COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 # Maven's reactor needs every module's pom.xml present (parent's <modules> list
 # must resolve) even with -pl/-am limiting what actually gets *built* -- these two
 # don't need their src copied in, only their pom.xml.
+COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY cek-rotation-service/src cek-rotation-service/src
 RUN mvn -q -pl cek-rotation-service -am package -DskipTests

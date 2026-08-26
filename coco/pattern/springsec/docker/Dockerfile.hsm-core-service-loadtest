@@ -25,6 +25,7 @@ COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 # three don't need their src copied in, only their pom.xml, same as every
 # other single-module Dockerfile in this repo.
 COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope

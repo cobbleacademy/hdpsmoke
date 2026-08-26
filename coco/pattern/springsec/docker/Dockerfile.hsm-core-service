@@ -19,6 +19,7 @@ COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 # must resolve) even with -pl/-am limiting what actually gets *built* -- these two
 # don't need their src copied in, only their pom.xml, same as cek-rotation-service
 # above.
+COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
 RUN mvn -q -pl hsm-core-service -am package -DskipTests

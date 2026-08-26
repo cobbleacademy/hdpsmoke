@@ -18,6 +18,8 @@ WORKDIR /workspace
 COPY pom.xml .
 COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
+COPY hsm-crypto-client/src hsm-crypto-client/src
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-bulk-client/src hsm-bulk-client/src
 RUN mvn -q -pl hsm-bulk-client -am package -DskipTests
