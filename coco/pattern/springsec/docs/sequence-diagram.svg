@@ -128,7 +128,7 @@
           <text x="140" y="64" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">2b. [ALLOW] — JWT enriched with AD group claim</text>
           <text x="140" y="74" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">caller proceeds to HSM service</text>
           <line x1="173" y1="84" x2="64" y2="84" stroke="#10b981" stroke-width="1.5" marker-end="url(#sq-green)"/>
-          <text x="18" y="106" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT</text>
+          <text x="18" y="106" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT (Entra ID, or a caller-signed self-issued JWT — see AUTHORIZATION.md)</text>
 
           <!-- SECTION 2 — ENCRYPT FLOW -->
           <rect x="10" y="122" width="1130" height="256" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>
@@ -245,7 +245,7 @@
           <line x1="505" y1="1044" x2="505" y2="1254" stroke="#a78bfa" stroke-width="0.8" stroke-dasharray="6,4"/>
 
           <line x1="225" y1="1058" x2="501" y2="1058" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
-          <text x="363" y="1053" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">25. POST /dek/issue  { key, data_classification, name: dek_name }</text>
+          <text x="363" y="1053" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">25. POST /dek/issue  { key, data_classification, name: dek_name }  [Bearer: static, Workload Identity, or self-signed JWT]</text>
 
           <text x="363" y="1073" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">26. SVC: lookup (app_id, current_dek_name)</text>
           <line x1="505" y1="1084" x2="509" y2="1084" stroke="#10b981" stroke-width="1.2"/>

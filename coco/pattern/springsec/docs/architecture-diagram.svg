@@ -264,7 +264,7 @@
           <!-- CLNT: external caller, outside the subscription (same convention as MULTIPLE CLIENTS above) -->
           <rect x="940" y="1055" width="340" height="175" rx="8" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
           <text x="1110" y="1075" text-anchor="middle" fill="#3b82f6" font-size="10" letter-spacing="1" font-family="monospace">hsm-bulk-client (CLNT)</text>
-          <text x="1110" y="1088" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">standalone batch job · BULK DB / BULK File</text>
+          <text x="1110" y="1088" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">standalone batch job · built on hsm-crypto-client (embeddable library)</text>
           <rect x="955" y="1096" width="310" height="30" rx="4" fill="#22263a" stroke="#3b82f6" stroke-width="1"/>
           <text x="1110" y="1109" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">RSA-OAEP-256 unwrap → AES-256-GCM locally</text>
           <text x="1110" y="1121" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">plaintext never leaves CLNT's host; real KEK never seen</text>
@@ -272,14 +272,14 @@
           <text x="1110" y="1143" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">dek-name on a column: ONE /dek/issue for</text>
           <text x="1110" y="1155" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">the whole job run, not once per row</text>
           <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a"/>
-          <text x="1110" y="1177" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">TokenProvider: static (demo) or Azure AD</text>
-          <text x="1110" y="1189" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">Workload Identity (jobs longer than a token's TTL)</text>
+          <text x="1110" y="1177" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">TokenProvider: static, Azure AD, or self-signed JWT</text>
+          <text x="1110" y="1189" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">Workload Identity, or a local keypair — renewal never leaves CLNT</text>
           <text x="1110" y="1214" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">ciphertext format unchanged —</text>
           <text x="1110" y="1225" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
 
           <!-- Arrow: CLNT → SVC, crossing the subscription boundary -->
           <line x1="940" y1="1115" x2="690" y2="1115" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
-          <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (static or Workload Identity) + X-App-ID</text>
+          <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (static, Workload Identity, or self-signed JWT) + X-App-ID</text>
 
           <!-- File-format interop note — added later round: BULK File job specifically, DB columns already covered by the note above -->
           <rect x="440" y="1240" width="840" height="75" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
