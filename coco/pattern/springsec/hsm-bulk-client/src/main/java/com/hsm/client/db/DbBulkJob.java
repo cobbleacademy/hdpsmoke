@@ -4,6 +4,7 @@ import com.hsm.client.config.ClientProperties;
 import com.hsm.client.crypto.DekManager;
 import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.svc.SvcClient;
+import com.hsm.client.svc.SvcConfig;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -61,7 +62,7 @@ public class DbBulkJob {
     private static final Logger log = LoggerFactory.getLogger(DbBulkJob.class);
 
     private final ClientProperties.Db config;
-    private final ClientProperties.Svc svcConfig;
+    private final SvcConfig svcConfig;
     private final SvcClient svcClient;
     private final PrivateKey privateKey;
     private final JdbcTemplate sourceJdbc;
@@ -86,7 +87,7 @@ public class DbBulkJob {
     // count, typically a handful, the same assumption issueNamedColumnDeks() makes.
     private final Map<UUID, byte[]> namedColumnDekCache = new ConcurrentHashMap<>();
 
-    public DbBulkJob(ClientProperties.Db config, ClientProperties.Svc svcConfig, SvcClient svcClient) {
+    public DbBulkJob(ClientProperties.Db config, SvcConfig svcConfig, SvcClient svcClient) {
         this.config = config;
         this.svcConfig = svcConfig;
         this.svcClient = svcClient;
