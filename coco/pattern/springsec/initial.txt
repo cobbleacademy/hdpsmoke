@@ -293,3 +293,65 @@ helm install my-adls-job helm/hsm-bulk-client-job \
   -n <namespace>
 -----------------------------------------------------------------------------------------------------------
 
+Here's the full deployment sequence for an existing Spark cluster — most of the Spark-side steps are already documented in SPARK_ADAPTER.md, but there's one prerequisite (registering the app identity in hsm-core-service) that lives outside that doc, so I'm folding both together into one ordered walkthrough.
+
+0. Register the app identity in hsm-core-service (one-time, before any Spark job runs)
+
+The adapter authenticates as an app registered in hsm-core-service — this has to exist before the first hsm_encrypt/hsm_decrypt call, or every call fails with 401.
+
+Generate an RSA keypair for DEK-transport (and a second one if using SELF_SIGNED_JWT auth mode for signing).
+Register the app and its public key(s) via the admin API:
+curl -X POST https://<hsm-core-service>/admin/apps/keys \
+  -H "Authorization: Bearer <admin-token-with-provision_app_keys-scope>" \
+  -H "Content-Type: application/json" \
+  -d '{"appId":"spark-analytics-job","encryptionPublicKeyPem":"-----BEGIN PUBLIC KEY-----..."}'
+
+Full details in ADMIN_OPERATIONS.md. The corresponding private key never goes to hsm-core-service — it stays on the Spark side only (step 3 below).
+
+1. Get the jar onto the cluster
+
+Build it (mvn package -pl hsm-spark-adapter -am) — produces one self-contained ~37MB shaded jar, hsm-spark-adapter-1.0.0.jar. Distribution mechanics depend on how the cluster is run:
+
+Standalone / vanilla YARN: copy the jar to a path reachable from every node (shared filesystem, or the same local path replicated to each node), then reference it via spark.jars=/path/to/hsm-spark-adapter.jar in spark-defaults.conf.
+Spark on Kubernetes (raw spark-submit --master k8s://... or the Spark Operator): bake the jar into the driver/executor container image, or reference it via spark.jars / the Operator's SparkApplication CRD spec.deps.jars.
+Databricks / EMR / managed platforms: install via the platform's cluster-scoped library mechanism (Databricks cluster libraries UI, EMR bootstrap action, etc.) rather than a raw path.
+2. Deliver the two private key files to every executor
+
+Never via --conf — these are Secret-mounted files, identical path on every executor:
+
+Standalone/YARN: distribute via spark-submit --files or place at a fixed path pre-provisioned on every node (e.g. via config management).
+Kubernetes: mount a Kubernetes Secret as a volume at the same path on every executor pod.
+Databricks/EMR: use the platform's own secret-scope/secret-manager integration, mounted to a local path.
+
+spark.hsm.privateKeyPath always required; spark.hsm.signingKeyPath only if authMode=SELF_SIGNED_JWT.
+
+3. Choose a registration path and set spark.sql.extensions (if cluster-wide)
+Cluster-wide, zero per-job code (recommended for "existing cluster, many jobs"): set in spark-defaults.conf on every node —
+spark.sql.extensions=com.hsm.spark.HsmUdfExtension
+
+Every application on the cluster then gets hsm_encrypt/hsm_decrypt automatically.
+
+Per-application, no cluster-wide config change: skip spark.sql.extensions entirely; call HsmUdfRegistration.registerAll(spark) once in each job's own code, right after building the SparkSession.
+4. Set the connection/identity config, per application
+
+Every application still sets its own identity at submit time, since one appId = one identity shared by every job in that application:
+
+--conf spark.hsm.baseUrl=https://hsm-core-service.internal
+--conf spark.hsm.appId=spark-analytics-job
+--conf spark.hsm.authMode=STATIC              # or AZURE_AD / SELF_SIGNED_JWT
+--conf spark.hsm.staticToken=...              # only for authMode=STATIC
+--conf spark.hsm.privateKeyPath=/secrets/dek-transport-private-key.pem
+
+Full config table (all keys, delivery method, which auth mode needs what) is in SPARK_ADAPTER.md § Configuration.
+
+5. Restart / roll
+spark.sql.extensions and spark.jars in spark-defaults.conf only take effect on new SparkSessions — restart the driver/gateway service (Thrift server, notebook kernels, any long-lived Spark app) after updating them. Existing running applications don't pick up the change live.
+Per-application --conf values apply at each spark-submit naturally, no cluster restart needed.
+6. Verify
+SELECT hsm_encrypt('test-value', 'my_table.my_column', 'pii') AS enc;
+SELECT hsm_decrypt(enc) AS dec FROM (SELECT hsm_encrypt('test-value', 'my_table.my_column', 'pii') AS enc);
+
+A clean round trip confirms the whole chain — jar on classpath, extension/registration active, keys mounted, identity registered in hsm-core-service — is wired correctly.
+
+----------------------------------------------------------------------------------------------------------------------------------
+
