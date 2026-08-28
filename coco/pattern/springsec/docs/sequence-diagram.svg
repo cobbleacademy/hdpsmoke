@@ -234,7 +234,7 @@
           <!-- Local participants + lifelines, scoped to this section only — CLNT/SVC never appear in any earlier section.
                SVC lane = the SAME HSM Service process as above (formerly a separate hsm-bulk-service codebase, since merged) —
                kept as its own lane only because CLNT still makes a real network hop to reach it, same as any other caller. -->
-          <rect x="10" y="994" width="1500" height="350" rx="5" fill="#1a0a2e" stroke="#a78bfa" stroke-width="0.6"/>
+          <rect x="10" y="994" width="1500" height="364" rx="5" fill="#1a0a2e" stroke="#a78bfa" stroke-width="0.6"/>
           <text x="18" y="1007" fill="#a78bfa" font-size="9" font-family="monospace" letter-spacing="1">TIER 3: dek_name REUSE  (hsm-bulk-client → HSM Service's own /dek/issue · /dek/unwrap — not a separate codebase)</text>
 
           <rect x="140" y="1016" width="170" height="28" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
@@ -272,6 +272,7 @@
           <text x="18" y="1302" fill="#10b981" font-size="8" font-family="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format as line 29 above, now true for files too, not just DB columns</text>
           <text x="18" y="1315" fill="#10b981" font-size="8" font-family="monospace">Optional compress-before-encrypt: each chunk gzipped, then a 1-byte raw/gzip marker prepended inside the base64 — decrypt always reads it, encrypt-side-only config</text>
           <text x="18" y="1328" fill="#555b7a" font-size="8" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client, real hsm-core-service process) — encrypts via /dek/issue, decrypts via HSM Service's real /decrypt, both directions + compression, every build</text>
+          <text x="18" y="1341" fill="#a78bfa" font-size="8" font-family="monospace">31. hsm-spark-adapter shares this exact flow via hsm-crypto-client's SvcClient/DekManager — same /dek/issue, /dek/unwrap, and RSA-OAEP-256→AES-256-GCM steps above, driven from Spark UDFs (hsm_encrypt/hsm_decrypt) instead of a batch job</text>
 
           </g><!-- /translate(0,40) -->
 

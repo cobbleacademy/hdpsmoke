@@ -75,6 +75,78 @@ key for signature verification too (the legacy one-keypair switch — see
 both; the fallback exists specifically for callers that would rather manage
 one keypair than two.
 
+## 1b. Considered alternative: mutual TLS (mTLS) — not built
+
+Before settling on the self-issued JWT design in §1a, mutual TLS was
+considered as the mechanism for the same "legacy caller, one-time keypair"
+population and rejected in favor of it. Recorded here for anyone revisiting
+this decision later — nothing below is implemented.
+
+**What it would replace.** mTLS establishes caller identity at the TLS
+handshake itself (the client also presents a certificate, which the server
+verifies), instead of at the application layer via a bearer token. Like
+§1a's self-issued JWT, it would only ever replace *authentication* — step 2
+(local-DB authorization via `AppRegistryService.getScopes`) is unaffected
+either way.
+
+**Phase 0 — provisioning, before any calls.** A bare keypair isn't enough;
+TLS needs an X.509 certificate binding the public key to an identity (e.g.
+`CN=payments-svc`). Two ways to get one: **self-signed** (the app signs its
+own cert — closest analog to today's `POST /admin/apps/keys` model, just a
+certificate instead of a bare PEM public key) or **CA-issued** (the app
+submits a CSR to an internal CA — this repo's Istio mesh has one built in —
+which issues a time-limited signed cert). Either way this needs a new admin
+endpoint (e.g. `POST /admin/apps/mtls-cert`) registering the app's cert or
+public-key fingerprint — none of this exists today.
+
+**Phase 1 — the handshake.** Client opens an HTTPS connection; because the
+server requires client certs (Istio `PeerAuthentication: STRICT`, or Spring
+Boot's `ssl.client-auth: need` if terminated in the JVM), the client
+presents its Phase-0 cert too. If verification fails, **the connection never
+completes — the request never reaches any Java code at all**, unlike a bad
+JWT, which still reaches `JwtAppIdAuthenticationFilter` and gets a clean
+401.
+
+**Phase 2 — resolving who's calling.** A certificate doesn't carry an
+`app_id` claim the way a JWT does, so something has to extract identity from
+it: either Istio terminates the handshake and forwards identity via a header
+(Envoy's `X-Forwarded-Client-Cert`), or the app pulls the peer certificate
+off the servlet request directly and a new filter reads the CN as `app_id`.
+Either way this is new code — nothing reuses `JwtAppIdAuthenticationFilter`
+as-is.
+
+**Phase 3 — actual single/batch/bulk calls.** Request/response shapes for
+`/encrypt`, `/encrypt/batch`, `/decrypt`, `/decrypt/batch` would be
+unchanged — only the `Authorization: Bearer ...` header disappears, since
+auth already happened when the connection opened. `/dek/issue`/`/dek/unwrap`
+(bulk) are the same, **but with one important clarification: mTLS only
+replaces the authentication keypair, not the separate DEK-transport keypair**
+(`encryption_public_key_pem`, `TransportWrapper`) that wraps the raw DEK in
+the response body. A bulk caller under mTLS would still need to register and
+hold that second keypair — mTLS gets a caller in the door, it doesn't touch
+DEK wrapping. Single/batch calls never need that second keypair at all,
+regardless of auth mechanism, since the server does the AES-GCM itself.
+
+**Phase 4 — renewal, and why this wasn't the pick.** Self-signed certs have
+no external expiry, so "renewal" is a manual re-registration — same
+operational shape as rotating the §1a signing key, just with X.509
+parsing/generation overhead on top. CA-issued certs get real expiry and
+revocation (the actual security benefit of this route), but then *renewal
+before expiry* is back on the caller — Istio automates this for workloads
+already inside the mesh, but the population this was aimed at is explicitly
+callers that aren't comfortably inside that automation, so the CA route
+reintroduces almost exactly the "renewal is operationally painful" problem
+§1a was built to eliminate.
+
+**One place mTLS is genuinely better, for balance:** the handshake happens
+once per TCP connection, not once per request, so a client hammering the API
+with keep-alive pays the auth cost once per connection rather than attaching
+a JWT to every request — a real efficiency edge for high-volume callers.
+That didn't outweigh the added certificate/CA machinery and the renewal-burden
+fork above for the target audience, but it's worth revisiting if a future
+caller's traffic pattern makes that efficiency matter more than setup
+simplicity.
+
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 
 For a service-to-service (client-credentials) scenario like this one, the
