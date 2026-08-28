@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.hsm</groupId>
+        <artifactId>hsm-bouncy-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>hsm-spark-adapter</artifactId>
+    <packaging>jar</packaging>
+    <name>HSM Spark Adapter</name>
+    <description>Registers hsm_encrypt/hsm_decrypt as Spark SQL functions backed by hsm-crypto-client's HsmCryptoClient -- one lazily-built client per executor JVM, reused across every job in an application. Two registration paths: HsmUdfRegistration (explicit, per-application, stable public Spark API only) and HsmUdfExtension (automatic for every application on a cluster, via spark.sql.extensions -- see java/docs/SPARK_ADAPTER.md for the full design and deployment steps).</description>
+
+    <properties>
+        <!-- spark-sql is provided-scope: this module never ships its own copy.
+             Pin here only to compile/test against a concrete API surface; the
+             actual runtime class always comes from whatever Spark distribution
+             the target cluster already has. Must be adjusted to match that
+             cluster's exact Spark + Scala version if it differs from this pin.
+             Catalyst-internal APIs (SparkSessionExtensions.injectFunction,
+             org.apache.spark.sql.classic.ExpressionUtils) are not guaranteed
+             stable across Spark releases the way UDF1/UDF3/UDFRegistration
+             are. Pinned to 4.2.0/Scala 2.13 since Spark 4.x publishes no
+             _2.12 artifacts at all, only _2.13, so this is not just a
+             version bump but a required coordinate change for any 4.x
+             cluster. -->
+        <spark.version>4.2.0</spark.version>
+        <scala.binary.version>2.13</scala.binary.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-crypto-client</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_${scala.binary.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Produces a single self-contained jar for spark.jars / a driver-executor
+                 container image: hsm-crypto-client and its own dependencies (bc-fips,
+                 nimbus-jose-jwt, jackson-databind, azure-identity) all get bundled in,
+                 everything spark-sql-scoped stays out since that dependency is
+                 provided-scope, which the shade plugin excludes by default. Netty is
+                 relocated because azure-identity pulls a different Netty version
+                 (4.1.x) than Spark's own runtime (4.2.x for this pin), confirmed a
+                 real collision, not a hypothetical one, while assembling a flat
+                 classpath for this module's own live-verification run: with both
+                 unrelocated on one classpath, Maven's nearest-wins dependency
+                 mediation picked the wrong (older) netty-transport-classes-kqueue and
+                 broke SparkContext's own RPC layer at startup with a
+                 NoClassDefFoundError. Relocating avoids that for real cluster
+                 deployments even though Spark's parent-first classloading would
+                 likely shadow an unrelocated duplicate anyway, not worth relying on
+                 that classloading detail when relocation is nearly free. Jackson is
+                 deliberately left unrelocated: Spark 4.2.0 itself depends on
+                 jackson-databind 2.21.2, a patch release of the exact 2.21.x line
+                 this module pins (2.21.4), binary-compatible, and relocating a
+                 library HsmCryptoClient calls directly (ObjectMapper et al.) risks
+                 breaking annotation-based reflection for no real benefit here. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <relocations>
+                                <relocation>
+                                    <pattern>io.netty</pattern>
+                                    <shadedPattern>com.hsm.spark.shaded.io.netty</shadedPattern>
+                                </relocation>
+                            </relocations>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
