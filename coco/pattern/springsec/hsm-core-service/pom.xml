@@ -252,6 +252,23 @@
             <artifactId>spring-boot-restclient</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Load-test harness only, see java/docs/PERFORMANCE_TESTING.md. Test-scoped so
+             it never ships in the Spring Boot fat jar; gatling-charts-highcharts pulls in
+             gatling-app/gatling-core/gatling-http transitively, giving the Java DSL
+             (io.gatling.javaapi.*) used by the simulations under src/test/java, plus the
+             self-contained HTML report writer. Never bound to the normal test/package
+             lifecycle (see gatling-maven-plugin below, no executions block) since it
+             targets a running service over real HTTP, so it must stay opt-in, invoked
+             explicitly via `mvn gatling:test`, the same reasoning BulkVsBatchBenchmark's
+             own exec:java-only invocation already established for this repo's other
+             measurement tools. -->
+        <dependency>
+            <groupId>io.gatling.highcharts</groupId>
+            <artifactId>gatling-charts-highcharts</artifactId>
+            <version>3.13.5</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -264,6 +281,43 @@
                     <parameters>true</parameters>
                 </configuration>
             </plugin>
+            <!-- Injects docs/architecture-diagram.svg and docs/sequence-diagram.svg into
+                 index.html at build time, see generate_demo_index.py's own module
+                 docstring for the full reasoning (single source of truth; a separate
+                 Python-based project reads this file's raw source, so the SVG markup
+                 has to stay textually inline as-is, not be swapped for an element
+                 reference).
+                 Bound to process-resources, the SAME phase as the normal resource copy
+                 (default-resources) that places the checked-in template, still containing
+                 @@ARCHITECTURE_DIAGRAM_SVG@@ etc. markers, at this same path, explicitly
+                 declared plugin executions run after Maven's own implicit default-lifecycle
+                 bindings for that phase, so this always runs second and overwrites the
+                 template with the generated file. Excluding static/index.html from the
+                 resources plugin's own copy instead, so this could run first at
+                 generate-resources, was tried and did not take effect, so this
+                 runs-after-and-overwrites approach is used instead; it doesn't depend on
+                 that exclude parameter working at all. -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>generate-demo-index</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>python3</executable>
+                            <arguments>
+                                <argument>${project.basedir}/scripts/generate_demo_index.py</argument>
+                                <argument>${project.build.outputDirectory}/static/index.html</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -274,6 +328,14 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+            <!-- No executions block bound deliberately, see the gatling-charts-highcharts
+                 dependency's comment above. Run explicitly: mvn -pl hsm-core-service
+                 gatling:test -Dgatling.simulationClass=com.hsm.core.loadtest.EncryptDecryptLoadSimulation -->
+            <plugin>
+                <groupId>io.gatling</groupId>
+                <artifactId>gatling-maven-plugin</artifactId>
+                <version>4.16.3</version>
             </plugin>
         </plugins>
     </build>
