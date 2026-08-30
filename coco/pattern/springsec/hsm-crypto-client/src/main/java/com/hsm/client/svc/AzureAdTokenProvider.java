@@ -2,6 +2,7 @@ package com.hsm.client.svc;
 
 import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
+import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
 import com.azure.identity.WorkloadIdentityCredentialBuilder;
@@ -17,13 +18,18 @@ import java.io.File;
  * extra on the common (cache-hit) path, and requires no manual TTL tracking
  * here at all.
  *
- * <p>No client secret anywhere in this chain -- the credential cascade below
- * (Workload Identity first) derives everything from the pod's own Kubernetes
- * identity via a kubelet-rotated federated token file, same as
- * AzureKeyVaultKekClient.buildCredential() (hsm-bulk-service) and
- * AdlsFileStore.buildCredential() (this module) already do for their own
- * purposes -- kept as its own copy here rather than shared, matching this
- * repo's no-shared-library-between-modules convention.
+ * <p>No client secret required for the common (in-cluster) case -- the
+ * credential cascade below tries Workload Identity first, deriving
+ * everything from the pod's own Kubernetes identity via a kubelet-rotated
+ * federated token file. An explicit AZURE_CLIENT_SECRET is supported as a
+ * fallback (checked before Managed Identity) for callers running off
+ * Azure-hosted compute entirely -- e.g. a local/manual verification run --
+ * where neither Workload Identity nor Managed Identity's IMDS endpoint is
+ * reachable. Same cascade shape as AzureKeyVaultKekClient.buildCredential()
+ * (hsm-core-service), AdlsFileStore.buildCredential() and
+ * AzureBlobFileStore.buildCredential() (hsm-bulk-client) -- kept as its own
+ * copy here rather than shared, matching this repo's
+ * no-shared-library-between-modules convention.
  */
 public class AzureAdTokenProvider implements TokenProvider {
 
@@ -52,6 +58,20 @@ public class AzureAdTokenProvider implements TokenProvider {
                     .tenantId(tenantId)
                     .clientId(clientId)
                     .tokenFilePath(tokenFile)
+                    .build();
+        }
+        // Explicit App Registration secret, only when configured -- checked before the
+        // Managed Identity/IMDS fallback below since a caller who set a client secret
+        // clearly intends to use it, not fall through to node-identity resolution (which
+        // also fails outright off Azure-hosted compute, e.g. a local dev machine). Same
+        // ordering as AzureKeyVaultKekClient.buildCredential() (hsm-core-service).
+        String clientSecret = System.getenv("AZURE_CLIENT_SECRET");
+        if (clientSecret != null && !clientSecret.isBlank() && clientId != null && !clientId.isBlank()
+                && tenantId != null && !tenantId.isBlank()) {
+            return new ClientSecretCredentialBuilder()
+                    .tenantId(tenantId)
+                    .clientId(clientId)
+                    .clientSecret(clientSecret)
                     .build();
         }
         if (clientId != null && !clientId.isBlank()) {
