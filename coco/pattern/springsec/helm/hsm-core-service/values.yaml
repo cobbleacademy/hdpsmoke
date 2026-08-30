@@ -1,15 +1,8 @@
 
 # ── Image ──────────────────────────────────────────────────────────────────────
-# NOT a separate codebase or image -- this chart deploys the exact same
-# hsm-core-service artifact as helm/hsm-core-service's own chart, as a second,
-# independently-scaled Deployment/release. The original motivation for a
-# separate hsm-bulk-service process (noisy-neighbor / traffic-fairness
-# isolation for bulk DEK-issuance calls, POST /dek/issue and POST /dek/unwrap,
-# away from ordinary /encrypt /decrypt traffic -- see java/docs/BULK_OPERATIONS.md)
-# is satisfied at the deployment level: route bulk traffic to THIS release's
-# Service (e.g. via an Istio VirtualService path match on /dek/issue,
-# /dek/unwrap) and everything else to the primary hsm-core-service release.
-# Point this at the identical image the primary release uses.
+# Built from java/docker/Dockerfile.hsm-service (Spring Boot + Bouncy Castle FIPS),
+# not the legacy Python docker/Dockerfile -- that image is retained in the repo
+# for reference/rollback only and is no longer built or deployed via this chart.
 image:
   repository: your-registry.azurecr.io/hsm-core-service
   tag: "1.0.0"
@@ -29,15 +22,14 @@ replicaCount: 2
 # is created by this chart) — it exists purely as a federation anchor, not
 # as a way for the pod to talk to the Kubernetes API. Least privilege means
 # the pod can mint a Key Vault token and nothing else inside the cluster.
-#
-# Can share the same Azure AD application/managed identity as the primary
-# hsm-core-service release (both need identical Key Vault permissions), or a
-# distinct one if you want independent audit trails per release -- either
-# works, this chart doesn't assume which.
 serviceAccount:
   create: true
   name: ""   # defaults to the chart's fullname if empty
   annotations:
+    # Required for Workload Identity federation — set to the Azure AD
+    # application (or user-assigned managed identity) client ID that has
+    # been granted "wrap key" / "unwrap key" / "get key" on the target Key
+    # Vault, and nothing broader than that.
     azure.workload.identity/client-id: "<AZURE_CLIENT_ID>"
   labels: {}
 
@@ -47,38 +39,75 @@ workloadIdentity:
   enabled: true
 
 # ── Istio ──────────────────────────────────────────────────────────────────────
-# See helm/hsm-core-service/values.yaml's istio block for the full explanation
-# of why this matters under STRICT mTLS and the one known unresolved issue.
+# If this namespace has Istio sidecar injection enabled, set this to true
+# (the default) so liveness/readiness probes are explicitly rewritten to
+# Istio's interception-exempt status port. Without it, under STRICT mTLS,
+# kubelet's plain-HTTP probe can hit Envoy's intercepted listener directly
+# and get a 400 instead of a real health check. Set to false only if this
+# namespace has no Istio sidecar at all — the annotation is harmless but
+# pointless without one.
 istio:
   rewriteAppHTTPProbers: true
+  # KNOWN UNRESOLVED ISSUE (as of this chart's last update): in at least
+  # one environment, with rewriting enabled, the rewritten probe target
+  # (port 15020, path /app-health/<container>/livez) failed persistently
+  # even though:
+  #   - The app's real endpoint answered correctly when queried directly
+  #     on its own port, confirming the app itself was healthy.
+  #   - The sidecar's own native readiness (port 15021) was passing.
+  # This isolates the failure to the istio-agent's internal forward from
+  # 15020 to the app's real port — not the app, not this chart's probe
+  # config. Root cause was not confirmed (could not reliably replicate
+  # kubelet's exact probe request from inside the pod to test it
+  # directly). If you hit this: check istio-agent/pilot-agent logs for
+  # the specific forwarding error, and consider this a mesh-side question
+  # for whoever owns the Istio installation, not a chart bug to keep
+  # tuning blindly. Workaround used: disable both probes entirely (loses
+  # automatic restart-on-hang and readiness gating — treat as temporary).
 
 # ── Service ────────────────────────────────────────────────────────────────────
-# Same port as the primary hsm-core-service release -- this is the identical
-# image with the identical baked-in default (hsm.service default SERVER_PORT),
-# not hsm-bulk-service's old 3006. Each release gets its own ClusterIP, so
-# both Services can front port 3005 with no collision.
 service:
   type: ClusterIP
   port: 3005
 
 # ── Probes & health ────────────────────────────────────────────────────────────
-# Real http health check now available (GET /admin/health, same endpoint the
-# primary release uses) -- unlike the old hsm-bulk-service, which had no
-# health endpoint of its own and defaulted to a bare tcp probe.
+# Matches AdminController's /admin/health endpoint (com.hsm.encryption.web),
+# mounted under the configured apiV1Prefix -- same path as the Python version,
+# health response shape unchanged.
 probes:
+  # http — full HTTP health check (default). Verifies the app is genuinely
+  #        serving, including Key Vault/DB reachability. Subject to the
+  #        istio.rewriteAppHTTPProbers issue noted above if it applies to
+  #        your mesh.
+  # tcp   — connection-level only, no HTTP request goes through. Doesn't
+  #         confirm the app is genuinely healthy, but still catches a
+  #         dead/hung process, and isn't subject to Istio's HTTP-probe
+  #         rewrite path. The middle ground once you're past demo mode.
+  # none  — no liveness/readiness at all. No auto-restart-on-hang, no
+  #         readiness gating. Temporary workaround only — e.g. while in
+  #         DEMO_MODE and the Istio question above is still being raised
+  #         with whoever owns the mesh. Not a target state to leave set.
   type: http
   path: /api/sensec/hsm/v1/admin/health
+  # Liveness — failing this kills and restarts the container.
+  # initialDelaySeconds bumped from the Python version's 10s: JVM + Spring
+  # context startup (Hibernate, Flyway, bean graph) measured ~7s locally even
+  # unconstrained; under real container CPU limits, budget more headroom.
   initialDelaySeconds: 20
   periodSeconds: 15
   timeoutSeconds: 5
   failureThreshold: 3
+  # Readiness — failing this only pulls the pod out of Service rotation,
+  # it does NOT restart the container. Separate knobs since you often want
+  # readiness checking sooner than liveness's grace period.
   readinessInitialDelaySeconds: 15
   readinessPeriodSeconds: 10
 
 # ── Resources ──────────────────────────────────────────────────────────────────
-# Same defaults as the primary hsm-core-service release -- it's the identical
-# workload. Re-tune down (or up) once real traffic-split numbers between the
-# two releases exist; nothing here assumes a particular split.
+# Bumped from the Python version's 256Mi/512Mi: a Spring Boot app (Hibernate,
+# Flyway, Tomcat, Azure/Nimbus/BC-FIPS libraries all loaded) needs more heap +
+# metaspace headroom than a uvicorn/FastAPI process at idle. Re-tune against
+# real load/GC behavior before trusting these in production.
 resources:
   requests:
     cpu: 250m
@@ -100,8 +129,12 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ── Security ───────────────────────────────────────────────────────────────────
-# Mirrors the Dockerfile exactly -- see helm/hsm-core-service/values.yaml for
-# the full explanation of the distroless :nonroot uid/gid 65532 convention.
+# Mirrors the Dockerfile exactly: gcr.io/distroless/java21-debian13's :nonroot
+# tag bakes in a fixed uid/gid 65532 user (the standard distroless
+# convention -- no groupadd/useradd, there's no shell to run them with
+# anyway). Pod and container security contexts both pin to that same UID so
+# Kubernetes can't be configured to run the image as a different (e.g. root)
+# user than the image itself expects.
 securityContext:
   pod:
     runAsNonRoot: true
@@ -116,69 +149,73 @@ securityContext:
     capabilities:
       drop: ["ALL"]
 
+# Writable scratch space — the app itself doesn't need to write to disk in
+# production (DEMO_MODE is off, real DB is Postgres), but the JVM wants a
+# writable /tmp regardless of readOnlyRootFilesystem, and demo mode's H2 file
+# lives here too (bumped from 64Mi to fit both comfortably).
 tmpVolume:
   enabled: true
   sizeLimit: 128Mi
 
 # ── Network policy ─────────────────────────────────────────────────────────────
 # Off by default so the chart installs cleanly without assuming your CNI
-# supports NetworkPolicy. This release should only ever need to reach Key
-# Vault, Postgres, Splunk HEC, and DNS -- plus inbound from wherever routes
-# bulk (/dek/issue, /dek/unwrap) traffic to it (e.g. an Istio ingress gateway
-# or hsm-bulk-client jobs directly).
+# supports NetworkPolicy. Turn on and fill in egress targets for real
+# deployments — this app should only ever need to reach Key Vault, Postgres,
+# Splunk HEC, and DNS; nothing else.
 networkPolicy:
   enabled: false
-  ingressFromNamespaces: []   # e.g. namespaces that run hsm-bulk-client jobs
+  ingressFromNamespaces: []   # e.g. ["istio-system"]
   egressCIDRs: []             # e.g. Postgres / Key Vault / Splunk endpoints
 
 # ── Application configuration ──────────────────────────────────────────────────
-# Full config surface, identical to the primary hsm-core-service release's own
-# values.yaml -- same image, same complete set of env vars (this release also
-# serves /encrypt, /decrypt, and /admin/* if anything routes traffic there;
-# nothing in the binary itself restricts it to bulk endpoints only, the
-# isolation is enforced at the routing layer, not in config).
+# Non-secret settings → ConfigMap. Secret settings → Kubernetes Secret (see
+# `secrets` below) — never put a credential-shaped value here.
 config:
   demoMode: "false"
-  skipAkv: "false"
-  dbSslEnabled: "false"
-  dbSslCaCert: ""
-  dbSchema: ""
-  cryptoSchema: "hsm_crypto"
-  accessSchema: "hsm_access"
+  skipAkv: "false"      # true = mock KEK + real Postgres/JWT; temporary AKV bypass only
+  dbSslEnabled: "false" # true = connect to Postgres over SSL (required by most managed PG)
+  dbSslCaCert: ""       # path to CA cert; if corporateCa.enabled use /etc/ssl/corporate/ca.crt
+  # Fourth, optional authentication mechanism (see AUTHORIZATION.md) -- coexists
+  # with STATIC/AZURE_AD/SELF_SIGNED_JWT, never replaces them. Turning this on
+  # is NOT self-contained via this one flag: it also requires server.ssl.* (a
+  # server keystore -- deliver via a mounted Secret, same pattern as any other
+  # credential in this chart, not wired here since it needs a real keystore
+  # file this chart doesn't generate) and a liveness/readiness probe scheme
+  # change to HTTPS once server.ssl.enabled=true (this chart's probes assume
+  # plain HTTP today -- see templates/deployment.yaml). Leave false unless
+  # you're also doing that additional setup.
+  mtlsEnabled: "false"
+  dbSchema: ""          # Postgres schema name; empty = default "public"
+  cryptoSchema: "hsm_crypto"   # schema for edek_records (hsm_crypto in production, empty = public)
+  accessSchema: "hsm_access"   # schema for app_registrations / app_decrypt_grants (hsm_access in production, empty = public)
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
+  # Bounds concurrent item-level work WITHIN a batch, via one shared
+  # ExecutorService used across every /encrypt/batch and /decrypt/batch
+  # request in the pod -- an aggregate cap on concurrent HSM-bound calls,
+  # not a per-batch degree of parallelism. Default "1" reproduces the
+  # original strictly-sequential batch behavior (see BULK_OPERATIONS.md:
+  # bounded concurrent fan-out was deliberately deferred until real Managed
+  # HSM throughput numbers exist). Raise only once real numbers justify it.
   batchExecutorPoolSize: "1"
-  # Item-count cap per /dek/issue or /dek/unwrap call -- hsm-bulk-client
-  # mirrors this same value client-side so it never sends an oversized batch.
-  dekBatchMaxItems: "100"
-  # Hikari max connections to DATABASE_URL. Spring Boot's unconfigured default
-  # is 10 -- fine for ordinary per-request traffic, but a bulk DB job whose
-  # columns aren't using dek-name reuse issues/persists one EdekRecord per
-  # row, sequentially per request; several concurrent client.db.parallelism
-  # workers hitting unnamed columns can otherwise queue behind a too-small
-  # pool. Named-DEK columns barely touch this (one issue/unwrap per column
-  # per job), so this mainly matters for genuinely per-row DEK traffic at
-  # volume -- exactly what this release exists to absorb.
-  dbPoolMaxSize: "20"
+  # Only read when demoMode=true. Must point inside the writable tmpVolume
+  # mount (/tmp) — readOnlyRootFilesystem makes everywhere else on disk
+  # unwritable, and demo mode's H2 store needs to create this file at
+  # startup. H2 (not literal SQLite) is the Java port's demo-mode database;
+  # same "zero external deps" experience, JDBC URL format instead of a
+  # SQLAlchemy DSN. MODE=PostgreSQL keeps the same Flyway migrations working
+  # against both H2 (demo) and real Postgres (production).
   demoDatabaseUrl: "jdbc:h2:file:/tmp/demo_hsm_h2;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_ON_EXIT=FALSE"
 
-  # Rotates named DEKs (edek_records rows with a non-null current_dek_name,
-  # including ones minted via /dek/issue) once they've been current longer
-  # than maxAgeHours. Only needs to run on ONE release when both point at the
-  # same database -- consider disabling here if the primary hsm-core-service
-  # release already has this enabled, to avoid both releases sweeping the
-  # same rows redundantly.
-  namedDekRotationCron: "0 3 * * *"
-  namedDekRotationEnabled: "true"
-  namedDekRotationMaxAgeHours: "720"
-
-  azureClientId: ""
-  azureTenantId: ""
+  # Managed identity / app registration client ID.
+  # Set this when the workload identity webhook does not auto-inject AZURE_CLIENT_ID
+  # (i.e. the service account annotation is absent). If the webhook handles it, leave empty.
+  azureClientId: ""    # managed identity client ID; auto-read from token JWT if empty
+  azureTenantId: ""    # Azure AD tenant ID; read from AZURE_TENANT_ID env var if empty
   azureKeyVaultUrl: "https://<your-vault>.managedhsm.azure.net/"
   azureKekName: "hsm-master-kek"
   azureKekVersion: ""
-  azureKeyVaultSecretUrl: ""
 
   jwtAudience: "hsm-core-service"
   jwtIssuer: "https://login.microsoftonline.com/<tenant-id>/v2.0"
@@ -187,77 +224,145 @@ config:
   splunkEnabled: "false"
   splunkHecUrl: ""
   splunkIndex: "hsm_audit"
-  # Distinct default from the primary release's "hsm-core-service" so Splunk
-  # queries can tell which Deployment emitted a given audit event, even
-  # though both run the identical binary.
-  splunkSource: "hsm-bulk-service"
+  splunkSource: "hsm-core-service"
   splunkSourcetype: "_json"
   splunkVerifySsl: "true"
   splunkBatchSize: "50"
   splunkFlushIntervalSeconds: "5"
 
   kekRotationCron: "0 2 1 * *"
-  # Only needs to run on ONE release -- rotateKek sweeps every KEK with
-  # current EDEKs regardless of which release minted them (shared DB), so
-  # running it on both is redundant work, not a correctness issue. Consider
-  # disabling here if the primary release already handles it.
   kekRotationEnabled: "true"
 
+  # PlainID PBAC — per-user policy gate for encrypt/decrypt.
+  # When disabled (default), NullPBACClient is used (always permits).
+  # end_user_id must be present in the request for the check to fire;
+  # service-to-service calls without end_user_id skip PBAC entirely.
   pbacEnabled: "false"
-  plainidUrl: ""
-  plainidApiKeySecretName: "plainid-api-key"
-  pbacCacheTtlSeconds: "30"
-  pbacFailOpen: "false"
+  plainidUrl: ""                          # https://<tenant>.plainid.io
+  plainidApiKeySecretName: "plainid-api-key"  # AKV Secrets name; fetched at startup
+  pbacCacheTtlSeconds: "30"              # cache per (user, action, resource)
+  pbacFailOpen: "false"                  # false = deny on PlainID unreachable
   pbacHttpTimeoutSeconds: "3.0"
   pbacIntegrationConfigPath: "/app/config/pbac_integration.json"
 
+  # Azure Key Vault — Secrets (regular vault, not Managed HSM)
+  # Managed HSM does not support the Secrets API. Set this to your regular
+  # Key Vault URL (https://<name>.vault.azure.net/) when azureKeyVaultUrl
+  # points to an MHSM endpoint. Leave empty if using a regular vault for both.
+  azureKeyVaultSecretUrl: ""
+
+  # Redis DEK Cache
+  # When enabled, unwrapped DEK bytes are CEK-encrypted and stored in Redis
+  # for dekCacheTtlSeconds to avoid redundant HSM unwrap round-trips.
   dekCacheEnabled: "false"
   dekCacheTtlSeconds: "60"
-  cekCurrentKeySecretName: "cek-current-key"
-  cekAlphaSecretName: "cek-alpha"
-  cekBetaSecretName: "cek-beta"
+  # Alpha/beta CEK slot secrets (vault.azure.net — Secrets API).
+  # Service SPN holds secrets/get on all three; Rotation SPN holds secrets/set.
+  cekCurrentKeySecretName: "cek-current-key"   # value is "alpha" or "beta"
+  cekAlphaSecretName: "cek-alpha"               # base64 32-byte AES-256 key
+  cekBetaSecretName: "cek-beta"                 # base64 32-byte AES-256 key
+  # How often each pod polls AKV for a current_key change (seconds).
+  # Must be ≤ dekCacheTtlSeconds so old entries expire before pods drop prev CEK.
   dekCacheReloadIntervalSeconds: "30"
-  dekCacheExcludedClassifications: ""
+  dekCacheExcludedClassifications: ""   # comma-sep, e.g. "pci,pii"
 
 # ── Secrets ────────────────────────────────────────────────────────────────────
-# Same DB/Key Vault backing as the primary hsm-core-service release -- these
-# values are typically identical to that release's own secret (both point at
-# the same Postgres and the same Key Vault), just materialized under this
-# release's own Secret name. See helm/hsm-core-service/values.yaml for the
-# full secrets.create tradeoff explanation.
+# DATABASE_URL (and, if used, JWT_PUBLIC_KEY_PEM / SPLUNK_HEC_TOKEN) are
+# credential-shaped and must never sit in a ConfigMap or in values.yaml
+# committed to source control.
+#
+# `secrets.create: true` lets this chart create a plain Kubernetes Secret
+# from `secrets.values` below — useful for a quick environment, but a plain
+# K8s Secret is base64, not encrypted-at-rest by default in every cluster.
+# For real production, prefer secrets.create: false and instead mount
+# credentials via the Azure Key Vault CSI driver or External Secrets
+# Operator into the same env var names this chart expects — consistent
+# with this service's own "no static secrets where avoidable" design.
 secrets:
   create: false
-  existingSecretName: "hsm-bulk-service-secrets"
+  existingSecretName: "hsm-core-service-secrets"
   values:
+    # NOTE: value FORMAT changed with the Java port, even though the env var
+    # name (DATABASE_URL) didn't. The JDBC driver needs "jdbc:postgresql://...",
+    # not SQLAlchemy's "postgresql+asyncpg://...". Update any existing secret
+    # value when cutting a namespace over from the Python image to the Java one.
+    #
+    # Do NOT embed credentials in databaseUrl itself (the old
+    # "postgresql://user:pass@host/db" convention) -- Hikari and Hibernate both
+    # print the JDBC URL at startup unconditionally, which ships to Splunk via
+    # this service's own log pipeline; an embedded password would land in
+    # plaintext in every pod's logs. Use a bare URL (no credentials) plus these
+    # two separate fields instead.
     databaseUrl: ""
     databaseUsername: ""
     databasePassword: ""
     jwtPublicKeyPem: ""
+    # Optional -- only needed for explicit App Registration client-secret auth
+    # to Key Vault (config.azureClientId must also be set to that App
+    # Registration's client ID). Leave empty to keep using Workload
+    # Identity/Managed Identity, which need no static secret at all.
     azureClientSecret: ""
     splunkHecToken: ""
+    # Redis connection string for the DEK cache — credential-shaped, never in ConfigMap.
+    # Use rediss:// (TLS) for production. Empty disables the cache even if dekCacheEnabled=true.
     redisUrl: ""
 
 # ── PlainID integration wire-format config ────────────────────────────────────
+# Mounted as /app/config/pbac_integration.json inside the container.
+# Change any field here to adapt to a different PlainID API version or tenant
+# without touching code or rebuilding the image.
+# Set enabled: true when pbacEnabled is also "true".
 pbacIntegration:
   enabled: false
+
   endpointPath: "/v2/isPermitted"
+
   auth:
     headerName: "Authorization"
-    headerValueTemplate: "Bearer {api_key}"
+    headerValueTemplate: "Bearer {api_key}"   # {api_key} is substituted at runtime
+
   request:
-    principalField: "principal"
-    actionField:    "action"
-    resourceField:  "resource"
-    contextField:   "context"
+    principalField: "principal"   # field that carries end_user_id
+    actionField:    "action"      # field that carries "encrypt" or "decrypt"
+    resourceField:  "resource"    # field that carries the resource string
+    contextField:   "context"     # field that carries extra metadata; set to "" to omit
+
   response:
+    # Dot-notation path to the boolean in PlainID's response body.
+    # Examples:
+    #   "permitted"              → { "permitted": true }
+    #   "result.allowed"         → { "result": { "allowed": true } }
+    #   "data.decision.isAllow"  → { "data": { "decision": { "isAllow": true } } }
     permittedPath: "permitted"
+
   resourceTemplates:
+    # {data_classification} is substituted at runtime (falls back to "default").
+    # {action} is also available if you need it in the template.
     encrypt: "hsm:encrypt:{data_classification}"
     decrypt: "hsm:decrypt:{data_classification}"
 
 # ── Corporate proxy CA ────────────────────────────────────────────────────────
-# Same mechanism as the primary hsm-core-service release -- see that chart's
-# values.yaml corporateCa block for the full explanation.
+# Set enabled: true when the cluster sits behind a proxy that does SSL
+# inspection. The import-corporate-ca initContainer walks configMapName's
+# mount recursively and imports every .pem/.crt/.cer file it finds -- so a
+# single cert works the same as with --from-file=ca.crt=corporate-ca.crt, and
+# so does any number of certs from a projected volume of several
+# ConfigMaps/Secrets, each mapped to its own subpath (a single ConfigMap's own
+# keys can't contain "/", so genuine child folders under the mount need that
+# kind of projected source, not a plain ConfigMap).
+#
+# The import-corporate-ca initContainer needs `sh` + `keytool`, which the
+# distroless runtime image (gcr.io/distroless/java21-debian13) no longer has.
+# utilityImage is a separate, non-distroless JDK image used ONLY for this
+# initContainer -- the main container still runs distroless. Alpine (not a
+# Jammy/Ubuntu variant) keeps the OS-package CVE surface minimal, matching
+# why the main image moved off Ubuntu; cacerts format is portable across
+# vendors/versions, so it doesn't need to match the runtime image's JDK build.
+# trustStorePassword: cacerts holds only public CA certs (no private key
+# material), so this password protects integrity, not confidentiality --
+# "changeit" is the JDK's own built-in default. Parameterized here mainly so
+# it isn't a literal hardcoded string a secret-scanner flags, not because it
+# guards anything actually secret.
 corporateCa:
   enabled: false
   configMapName: "corporate-ca"
