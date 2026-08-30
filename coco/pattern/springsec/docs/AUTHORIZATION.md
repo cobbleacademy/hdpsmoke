@@ -52,7 +52,7 @@ an SSH key:
 | Who mints the token | Entra ID, via client-credentials flow | The caller itself, locally, immediately before each call |
 | "Renewal" | A network round-trip to Entra ID | Pure local computation — re-sign a small JWT with a key already in memory, never a network call |
 | Token lifetime | Entra ID's own policy (~1h typical) | Capped server-side at 5 minutes (`SelfSignedAppKeyJwtValidator.MAX_TTL`) regardless of what the token claims — the caller fully controls its own claims, unlike an Entra-ID-issued token, so this can't be left to the token alone |
-| `iss` claim | The configured Entra ID issuer URL | The caller's own `app_id` |
+| `iss` claim | One of the configured Entra ID issuer URLs (`JWT_ISSUER` accepts a comma-separated list -- e.g. a v1.0- and a v2.0-endpoint issuer for the same app registration) | The caller's own `app_id` |
 
 **Routing between the two is automatic, not a deployment-wide switch.**
 `SelfIssuedRoutingJwtValidator` peeks a token's *unverified* `iss` claim

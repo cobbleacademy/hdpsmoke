@@ -9,7 +9,11 @@ migration.
 
 - [ ] Confirm the new app has an Entra ID (Azure AD) app registration /
       service principal, configured for client-credentials flow against this
-      service's expected audience/issuer (`JWT_AUDIENCE`, `JWT_ISSUER`).
+      service's expected audience/issuer (`JWT_AUDIENCE`, `JWT_ISSUER`) --
+      each accepts a comma-separated list of exact values if this app's
+      tokens can carry more than one form (e.g. v1.0- vs v2.0-endpoint
+      tokens have different `aud`/`iss` for the same app registration; see
+      `RsaJwtValidator`).
 - [ ] Decide the app's `app_id` string — must be stable, must match what
       the app's JWT will carry as the `app_id` claim (or Entra ID's built-in
       `appid` claim, which `RsaJwtValidator` accepts as equivalent).
