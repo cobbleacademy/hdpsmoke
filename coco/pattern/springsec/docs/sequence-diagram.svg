@@ -128,7 +128,7 @@
           <text x="140" y="64" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">2b. [ALLOW] — JWT enriched with AD group claim</text>
           <text x="140" y="74" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">caller proceeds to HSM service</text>
           <line x1="173" y1="84" x2="64" y2="84" stroke="#10b981" stroke-width="1.5" marker-end="url(#sq-green)"/>
-          <text x="18" y="106" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT (Entra ID, or a caller-signed self-issued JWT — see AUTHORIZATION.md)</text>
+          <text x="18" y="106" fill="#555b7a" font-size="8" font-family="monospace">↳ ALLOW path assumed below  ·  PBAC decision stays client-side — HSM service only sees the Bearer JWT (Entra ID, a caller-signed self-issued JWT, or a client cert via mTLS — see AUTHORIZATION.md)</text>
 
           <!-- SECTION 2 — ENCRYPT FLOW -->
           <rect x="10" y="122" width="1130" height="256" rx="5" fill="#051405" stroke="#10b981" stroke-width="0.6"/>

@@ -213,19 +213,43 @@ Two categories, delivered two different ways -- **do not** mix them:
 | hsm-core-service base URL | `spark.hsm.baseUrl` | plain `--conf`, non-secret |
 | API path prefix (default `/api/sensec/hsm/v1`) | `spark.hsm.apiV1Prefix` | plain `--conf`, non-secret |
 | App identity | `spark.hsm.appId` | plain `--conf`, non-secret |
-| Auth mode: `STATIC` \| `AZURE_AD` \| `SELF_SIGNED_JWT` | `spark.hsm.authMode` | plain `--conf`, non-secret |
+| Auth mode: `STATIC` \| `AZURE_AD` \| `SELF_SIGNED_JWT` \| `MTLS` | `spark.hsm.authMode` | plain `--conf`, non-secret |
 | Static bearer token (authMode=STATIC) | `spark.hsm.staticToken` | plain `--conf` -- fine for demo tokens only; a real static value here is itself credential-shaped |
 | Azure AD token scope (authMode=AZURE_AD) | `spark.hsm.azureTokenScope` | plain `--conf`, non-secret |
-| Self-signed JWT audience (authMode=SELF_SIGNED_JWT) | `spark.hsm.selfSignedAudience` | plain `--conf`, non-secret |
+| Self-signed JWT audience (authMode=SELF_SIGNED_JWT) | `spark.hsm.selfSignedAudience` | plain `--conf`, non-secret; omit to use hsm-core-service's own default |
 | **DEK-transport private key** (always required) | `spark.hsm.privateKeyPath` | **file path**, Secret-mounted identically on every executor |
 | **Signing private key** (authMode=SELF_SIGNED_JWT only) | `spark.hsm.signingKeyPath` | **file path**, Secret-mounted identically on every executor |
+| **mTLS client certificate** (authMode=MTLS only) | `spark.hsm.mtlsCertPath` | **file path**, Secret-mounted identically on every executor -- its fingerprint must be registered via `POST /admin/apps/mtls-cert` |
+| **mTLS client private key** (authMode=MTLS only) | `spark.hsm.mtlsKeyPath` | **file path**, Secret-mounted identically on every executor -- PKCS#8 PEM, matching the certificate above |
 
-The two key paths are read from local disk at lazy-init time -- they never
+The key paths are read from local disk at lazy-init time -- they never
 travel through Spark's own config propagation or UDF closure serialization.
 Putting raw key PEM into a `--conf` value (or a UDF constructor field) would
 put it on that path instead, which is exactly what this design avoids: see
 `AUTHORIZATION.md`'s mTLS section for the same class of concern in a
-different mechanism.
+different mechanism. `authMode=MTLS` sends no `Authorization` header at all
+-- the certificate itself is the credential, presented at the TLS handshake
+when `HsmCryptoClientHolder` lazily builds the executor's `HsmCryptoClient`.
+
+### DEK cache size/TTL and memory hardening
+
+`HsmCryptoClient`'s two DEK caches (encrypt-by-`dekName`, decrypt-by-`edek_id`)
+are bounded and TTL-evicting by default (`maxSize=1000`, `ttl=30 minutes`,
+zeroed on eviction) -- see `AUTHORIZATION.md`'s "mTLS does not address
+client-side DEK memory exposure" for why this matters for a long-running
+Spark executor specifically. `HsmSparkConfig` doesn't currently expose these
+as `spark.hsm.*` conf keys (they use `HsmCryptoClient.Builder`'s own
+defaults); if a job's `dekName` cardinality or memory-exposure tolerance
+needs different values, adjust `HsmSparkConfig.buildClient()` directly
+rather than reaching for reflection or a config workaround.
+
+Recommended, not enforced by this module (Spark controls its own JVM
+flags): add `-XX:-HeapDumpOnOutOfMemoryError` to
+`spark.executor.extraJavaOptions` (and `spark.driver.extraJavaOptions` if
+the driver itself also calls `hsm_encrypt`/`hsm_decrypt` outside a
+distributed job) so a crashing executor never writes a heap dump containing
+whatever DEKs were cached at the time -- the same reasoning
+`Dockerfile.hsm-bulk-client` already applies to that image's own JVM flags.
 
 ## Deploying into an existing cluster
 

@@ -272,14 +272,14 @@
           <text x="1110" y="1143" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">dek-name on a column: ONE /dek/issue for</text>
           <text x="1110" y="1155" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">the whole job run, not once per row</text>
           <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a"/>
-          <text x="1110" y="1177" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">TokenProvider: static, Azure AD, or self-signed JWT</text>
+          <text x="1110" y="1177" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">TokenProvider: static, Azure AD, self-signed JWT, or mTLS</text>
           <text x="1110" y="1189" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">Workload Identity, or a local keypair — renewal never leaves CLNT</text>
           <text x="1110" y="1214" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">ciphertext format unchanged —</text>
           <text x="1110" y="1225" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
 
           <!-- Arrow: CLNT → SVC, crossing the subscription boundary -->
           <line x1="940" y1="1115" x2="690" y2="1115" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#arr-blue)"/>
-          <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (static, Workload Identity, or self-signed JWT) + X-App-ID</text>
+          <text x="815" y="1109" text-anchor="middle" fill="#3b82f6" font-size="7" font-family="monospace">Bearer (3 modes) or mTLS client cert + X-App-ID</text>
 
           <!-- File-format interop note — added later round: BULK File job specifically, DB columns already covered by the note above -->
           <rect x="440" y="1240" width="840" height="75" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>

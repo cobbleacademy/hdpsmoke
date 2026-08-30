@@ -15,6 +15,7 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 |---|---|---|
 | `POST /admin/apps/status` | `manage_apps` | Activate/deactivate an **existing** app_id |
 | `POST /admin/apps/keys` | `provision_app_keys` | Provision/rotate an app's encryption and/or signing public key (see below) |
+| `POST /admin/apps/mtls-cert` | `provision_app_keys` | Provision/rotate an app's mTLS client certificate (see below) |
 | `POST /admin/grants` | `grant` | Add a cross-app decrypt grant (`grantee_app_id` may now decrypt `owner_app_id`'s data) |
 | `DELETE /admin/grants` | `grant` | Remove a grant |
 | `GET /admin/grants` | `grant` | List all grants |
@@ -61,6 +62,32 @@ curl -X POST "$BASE/admin/apps/keys" \
   -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
   -H "Content-Type: application/json" \
   -d '{"app_id": "payments-svc", "signing_public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"}'
+```
+
+## Provisioning an app's mTLS client certificate — `POST /admin/apps/mtls-cert`
+
+The fourth, optional authentication mechanism — see `AUTHORIZATION.md`'s
+"mTLS as a fourth, optional authentication mechanism" for the full design.
+`cert_pem` is the full PEM-encoded X.509 certificate, not just its public
+key; only its SHA-256 fingerprint is stored (computed here, at write time)
+— the certificate itself is never kept, since identity resolution only ever
+needs to compare fingerprints against whatever certificate is presented at
+the TLS handshake. Same scope as `POST /admin/apps/keys`
+(`provision_app_keys`, not `manage_apps`): this is another
+authentication-trust-boundary credential, not a new blast-radius category.
+The target `app_id` must already exist (404 otherwise), same convention as
+every other provisioning endpoint here. Requires
+`hsm.security.mtls-enabled=true` on the server for the certificate to
+actually be usable for authentication afterward — provisioning one while
+mTLS is disabled succeeds but has no effect until it's turned on.
+
+```bash
+# Register a self-signed client certificate for an app
+curl -X POST "$BASE/admin/apps/mtls-cert" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "cert_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"}'
+# -> {"app_id":"payments-svc","fingerprint":"4cc8c5b3...","updated_at":"..."}
 ```
 
 ## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented

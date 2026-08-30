@@ -75,77 +75,244 @@ key for signature verification too (the legacy one-keypair switch — see
 both; the fallback exists specifically for callers that would rather manage
 one keypair than two.
 
-## 1b. Considered alternative: mutual TLS (mTLS) — not built
+## 1b. mTLS as a fourth, optional authentication mechanism
 
-Before settling on the self-issued JWT design in §1a, mutual TLS was
-considered as the mechanism for the same "legacy caller, one-time keypair"
-population and rejected in favor of it. Recorded here for anyone revisiting
-this decision later — nothing below is implemented.
+mTLS was first considered as a *replacement* for the self-issued JWT design
+in §1a and rejected in that shape — the history below (originally written
+when nothing here was built) explains why. It was later revisited, not as a
+replacement but as a genuinely **optional fourth mechanism** apps can adopt
+independently of the other three, and built on that basis. Like §1a, it only
+ever replaces *authentication* — step 2 (local-DB authorization via
+`AppRegistryService.getScopes`) is identical regardless of which of the four
+mechanisms got a caller in the door.
 
-**What it would replace.** mTLS establishes caller identity at the TLS
-handshake itself (the client also presents a certificate, which the server
-verifies), instead of at the application layer via a bearer token. Like
-§1a's self-issued JWT, it would only ever replace *authentication* — step 2
-(local-DB authorization via `AppRegistryService.getScopes`) is unaffected
-either way.
+### What's actually built
+
+- **Fingerprint-pinned, not PKI.** `app_registrations.mtls_cert_fingerprint`
+  stores the SHA-256 fingerprint of one X.509 certificate per app
+  ([`V13__add_mtls_cert_fingerprint_to_app_registrations.sql`](../hsm-core-service/src/main/resources/db/migration/V13__add_mtls_cert_fingerprint_to_app_registrations.sql)),
+  provisioned via `POST /admin/apps/mtls-cert`
+  ([`AdminController.setMtlsCert`](../hsm-core-service/src/main/java/com/hsm/core/web/AdminController.java)) —
+  the same "provision a credential over the admin API, validated at write
+  time" shape as `POST /admin/apps/keys`, just a certificate instead of a
+  bare public key. Identity is decided by comparing the fingerprint of
+  whatever certificate was *actually presented* at the TLS handshake against
+  this column — not chain-of-trust validation, since a self-signed cert has
+  no CA to validate a chain against. This is the same trust shape as SSH
+  host-key pinning, chosen deliberately over the CA-issued route Phase 4
+  below explains was rejected for the renewal-burden reason.
+- **The TLS layer accepts any client cert; the filter decides trust.**
+  [`MtlsServerConfig`](../hsm-core-service/src/main/java/com/hsm/core/security/MtlsServerConfig.java)
+  configures the embedded Tomcat connector with `certificateVerification:
+  optional` (Tomcat's "want", not "need") and
+  [`PermissiveClientTrustManager`](../hsm-core-service/src/main/java/com/hsm/core/security/PermissiveClientTrustManager.java)
+  (accepts any cert at the handshake -- self-signed certs have no CA to
+  validate). Real validation happens afterward in
+  [`MtlsAppIdAuthenticationFilter`](../hsm-core-service/src/main/java/com/hsm/core/security/MtlsAppIdAuthenticationFilter.java),
+  which resolves the caller from the `X-App-ID` header (same header every
+  other mechanism already requires), looks up that app's registered
+  fingerprint, and compares it against the certificate's actual fingerprint.
+  A request with no client certificate at all skips this filter entirely and
+  falls through to `JwtAppIdAuthenticationFilter` unchanged -- **this is what
+  makes mTLS genuinely optional**, not a breaking change to any existing
+  caller. A request *with* a certificate that doesn't match is rejected
+  outright (401) here, not silently passed through to the JWT filter --
+  presenting a certificate is an explicit choice to authenticate via mTLS.
+- **Off by default, cluster-wide.** `hsm.security.mtls-enabled` (env
+  `MTLS_ENABLED`, default `false`) gates all of the above -- when false,
+  `MtlsServerConfig` and `MtlsAppIdAuthenticationFilter` aren't even
+  registered as beans, so the connector and filter chain are exactly what
+  they were before this existed.
+- **Client side:** a fourth `SvcConfig.AuthMode` (`STATIC`, `AZURE_AD`,
+  `SELF_SIGNED_JWT`, `MTLS`) in `hsm-crypto-client`. `HsmCryptoClient.Builder.mtls(certPem,
+  keyPem)` builds an in-memory PKCS12 keystore from the same bare PEM
+  cert/key pair every other credential in this module uses (see
+  [`MtlsSupport`](../hsm-crypto-client/src/main/java/com/hsm/client/svc/MtlsSupport.java)),
+  never written to disk. **No `Authorization` header is sent at all** in
+  this mode -- identity was already established at the handshake.
+
+### Worked example -- create, use, validate
+
+```bash
+# 1. Generate a self-signed client certificate (the caller's own identity)
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out client-key.pem
+openssl req -new -x509 -key client-key.pem -out client-cert.pem -days 365 -subj "/CN=payments-svc"
+
+# 2. Register it -- fingerprint computed and stored server-side, cert itself is not
+curl -X POST "$BASE/admin/apps/mtls-cert" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "cert_pem": "'"$(cat client-cert.pem)"'"}'
+# -> {"app_id":"payments-svc","fingerprint":"4cc8c5b3...","updated_at":"..."}
+
+# 3. Use it -- no Authorization header, the certificate IS the credential
+curl --cert client-cert.pem --key client-key.pem \
+  -H "X-App-ID: payments-svc" -H "Content-Type: application/json" \
+  -X POST "$BASE/encrypt" -d '{"plaintext":"hello","data_classification":"pii"}'
+# -> 201 {"ciphertext":"v1...","status":"success",...}
+
+# 4. Validate the negative case -- a DIFFERENT, unregistered cert must be rejected
+curl --cert wrong-cert.pem --key wrong-key.pem \
+  -H "X-App-ID: payments-svc" -X POST "$BASE/encrypt" -d '...'
+# -> 401 {"detail":"Client certificate not recognized for this app_id"}
+
+# 5. Validate "optional" -- the SAME app_id, with NO certificate, using its
+#    existing token-based auth, must still work unchanged
+curl -H "Authorization: Bearer $EXISTING_TOKEN" -H "X-App-ID: payments-svc" \
+  -X POST "$BASE/encrypt" -d '...'
+# -> 201, exactly as before mTLS existed
+```
+All five steps above were run against a real instance during this feature's
+own verification, including the client-side Java path
+(`HsmCryptoClient.builder().mtls(certPem, keyPem)`) — not just curl.
+
+For `hsm-spark-adapter`, the equivalent is `spark.hsm.authMode=MTLS` plus
+`spark.hsm.mtlsCertPath`/`spark.hsm.mtlsKeyPath` (Secret-mounted file paths,
+same convention as `privateKeyPath`/`signingKeyPath`) — see
+[`SPARK_ADAPTER.md`](SPARK_ADAPTER.md).
+
+### Why not one of the other three, once mTLS is available?
+
+Technically, an app fully migrated to mTLS needs none of `STATIC`/
+`AZURE_AD`/`SELF_SIGNED_JWT` — `AppRegistryService.getScopes(appId)` is a
+server-side DB lookup keyed by `app_id`, not something read out of token
+claims, so a certificate-derived `app_id` authorizes exactly the same way a
+JWT-derived one does. The other three mechanisms stay valuable for
+**coexistence**, not because mTLS depends on them: callers not yet
+migrated, deployments where TLS terminates somewhere mTLS can't reach, and
+callers who'd rather not manage a certificate at all. The DEK-transport
+keypair (`encryption_public_key_pem`) is unaffected either way regardless of
+which of the four authenticates a caller — see Phase 3 below, unchanged by
+this build.
+
+### History: why the original (CA-issued, replacement) design was rejected
 
 **Phase 0 — provisioning, before any calls.** A bare keypair isn't enough;
 TLS needs an X.509 certificate binding the public key to an identity (e.g.
 `CN=payments-svc`). Two ways to get one: **self-signed** (the app signs its
-own cert — closest analog to today's `POST /admin/apps/keys` model, just a
-certificate instead of a bare PEM public key) or **CA-issued** (the app
+own cert — the route actually built, above) or **CA-issued** (the app
 submits a CSR to an internal CA — this repo's Istio mesh has one built in —
-which issues a time-limited signed cert). Either way this needs a new admin
-endpoint (e.g. `POST /admin/apps/mtls-cert`) registering the app's cert or
-public-key fingerprint — none of this exists today.
+which issues a time-limited signed cert — the route considered and not
+taken, for the renewal reason in Phase 4).
 
-**Phase 1 — the handshake.** Client opens an HTTPS connection; because the
-server requires client certs (Istio `PeerAuthentication: STRICT`, or Spring
-Boot's `ssl.client-auth: need` if terminated in the JVM), the client
-presents its Phase-0 cert too. If verification fails, **the connection never
-completes — the request never reaches any Java code at all**, unlike a bad
-JWT, which still reaches `JwtAppIdAuthenticationFilter` and gets a clean
-401.
+**Phase 1 — the handshake.** The route originally considered would have
+made the server *require* a client cert (Istio `PeerAuthentication: STRICT`,
+or `ssl.client-auth: need`) — connection failure for a bad cert, before any
+Java code runs, unlike a bad JWT (which still reaches
+`JwtAppIdAuthenticationFilter` for a clean 401). The route actually built
+uses `client-auth: want` instead specifically so a missing or non-matching
+certificate can fall through to (or fail through to) the existing filter
+chain in Java, which is what "optional" requires.
 
 **Phase 2 — resolving who's calling.** A certificate doesn't carry an
 `app_id` claim the way a JWT does, so something has to extract identity from
-it: either Istio terminates the handshake and forwards identity via a header
-(Envoy's `X-Forwarded-Client-Cert`), or the app pulls the peer certificate
-off the servlet request directly and a new filter reads the CN as `app_id`.
-Either way this is new code — nothing reuses `JwtAppIdAuthenticationFilter`
-as-is.
+it — this was correctly anticipated (Istio forwarding identity via a
+header, or a new filter reading the cert directly); the route actually
+built does the latter (`MtlsAppIdAuthenticationFilter`), keyed off
+`X-App-ID` plus fingerprint comparison rather than the certificate's CN
+alone.
 
 **Phase 3 — actual single/batch/bulk calls.** Request/response shapes for
-`/encrypt`, `/encrypt/batch`, `/decrypt`, `/decrypt/batch` would be
-unchanged — only the `Authorization: Bearer ...` header disappears, since
-auth already happened when the connection opened. `/dek/issue`/`/dek/unwrap`
-(bulk) are the same, **but with one important clarification: mTLS only
-replaces the authentication keypair, not the separate DEK-transport keypair**
-(`encryption_public_key_pem`, `TransportWrapper`) that wraps the raw DEK in
-the response body. A bulk caller under mTLS would still need to register and
-hold that second keypair — mTLS gets a caller in the door, it doesn't touch
-DEK wrapping. Single/batch calls never need that second keypair at all,
-regardless of auth mechanism, since the server does the AES-GCM itself.
+`/encrypt`, `/encrypt/batch`, `/decrypt`, `/decrypt/batch` are unchanged —
+only the `Authorization: Bearer ...` header disappears, since auth already
+happened when the connection opened. `/dek/issue`/`/dek/unwrap` (bulk) are
+the same, **but with one important clarification that still holds: mTLS
+only replaces the authentication keypair, not the separate DEK-transport
+keypair** (`encryption_public_key_pem`, `TransportWrapper`) that wraps the
+raw DEK in the response body. A bulk caller under mTLS still registers and
+holds that second keypair — mTLS gets a caller in the door, it doesn't
+touch DEK wrapping. Single/batch calls never need that second keypair at
+all, regardless of auth mechanism, since the server does the AES-GCM
+itself.
 
-**Phase 4 — renewal, and why this wasn't the pick.** Self-signed certs have
-no external expiry, so "renewal" is a manual re-registration — same
-operational shape as rotating the §1a signing key, just with X.509
-parsing/generation overhead on top. CA-issued certs get real expiry and
-revocation (the actual security benefit of this route), but then *renewal
-before expiry* is back on the caller — Istio automates this for workloads
-already inside the mesh, but the population this was aimed at is explicitly
-callers that aren't comfortably inside that automation, so the CA route
-reintroduces almost exactly the "renewal is operationally painful" problem
-§1a was built to eliminate.
+**Phase 4 — renewal, and why CA-issued certs specifically weren't the
+pick.** Self-signed certs (the route built) have no external expiry, so
+"renewal" is a manual re-registration — same operational shape as rotating
+the §1a signing key, just with X.509 parsing/generation overhead on top.
+CA-issued certs get real expiry and revocation (a real security benefit),
+but then *renewal before expiry* is back on the caller — Istio automates
+this for workloads already inside the mesh, but the population this was
+aimed at is explicitly callers that aren't comfortably inside that
+automation, so the CA route would have reintroduced almost exactly the
+"renewal is operationally painful" problem §1a was built to eliminate. This
+reasoning is why the fingerprint-pinned, self-signed route was built instead
+of the CA-issued one — not a reason to skip mTLS altogether, which is the
+part that changed between the original write-up and this one.
 
 **One place mTLS is genuinely better, for balance:** the handshake happens
 once per TCP connection, not once per request, so a client hammering the API
 with keep-alive pays the auth cost once per connection rather than attaching
 a JWT to every request — a real efficiency edge for high-volume callers.
-That didn't outweigh the added certificate/CA machinery and the renewal-burden
-fork above for the target audience, but it's worth revisiting if a future
-caller's traffic pattern makes that efficiency matter more than setup
-simplicity.
+
+## 1c. mTLS does not address client-side DEK memory exposure
+
+Raised in review: a caller-side JVM (`hsm-bulk-client`, `hsm-crypto-client`,
+or a Spark executor running `hsm-spark-adapter`) is compromised and its heap
+dumped to extract cached plaintext DEKs. Worth recording explicitly, since
+mTLS (§1b above) sounds like it might be relevant and isn't.
+
+**Why it's real.** `HsmCryptoClient` keeps two unbounded, no-TTL
+`ConcurrentHashMap` caches of plaintext DEK bytes — one keyed by `dekName`
+(encrypt side), one by `edek_id` (decrypt side) — for as long as the
+process runs, by design (that's what avoids a fresh `/dek/issue` round trip
+per row). `close()` zeroes both, but only at graceful shutdown; a live
+`jmap`/core dump captures whatever's currently cached, in the clear.
+
+**Why mTLS doesn't help.** mTLS authenticates a *network connection* —
+it's a control over who's allowed to open a TLS session to hsm-core-service.
+It has no visibility into, or control over, what an already-authenticated
+client does with data after the connection delivered it. By the time
+`TransportWrapper` has unwrapped a DEK, mTLS's job is finished; the DEK now
+lives purely in the client's own address space, a domain mTLS was never
+designed to reach. An attacker who can dump that JVM's memory already *is*
+the authenticated client, as far as mTLS is concerned — this is a different
+threat category (endpoint/memory security) from what mTLS or the self-issued
+JWT in §1a addresses (network authentication).
+
+**Rotation doesn't help either — checked against the actual code, not
+assumed.** `RotationService.rekey()` unwraps the old EDEK and re-wraps the
+*same* `dekBytes` under the new KEK (`kekClient.unwrapDek(...)` then
+`kekClient.wrapDek(dekBytes, ...)` — one variable, in and out); KEK
+rotation/rekey changes which KEK protects a DEK at rest and never touches
+the DEK itself. `NamedDekRotationScheduler` does mint a genuinely fresh DEK
+for a `(app_id, dek_name)` pair, but the retired `EdekRecord` row is kept,
+not deleted (`RotationStatus.ROTATED`, not removed) — every ciphertext
+token already issued references that row's `edek_id` and must stay
+decryptable forever, so the old DEK's ability to decrypt everything already
+encrypted with it is permanent and no rotation policy can revoke it without
+re-encrypting the underlying data, which nothing here automates. Rotation
+also doesn't reliably protect *future* writes either: `HsmCryptoClient`'s
+`encryptCacheByName` has no server-pushed invalidation, so a caller already
+holding a warm cache entry for that `dekName` keeps encrypting new rows with
+its own cached (possibly-compromised) copy regardless of what the scheduler
+did server-side, until that specific cache entry is evicted or the process
+restarts. Net: DEK rotation, of either kind, is key hygiene for future
+writes from callers that haven't already cached the name — not a mitigation
+for this threat, and not counted as one below.
+
+**What actually mitigates this, cheapest first:**
+
+1. **Already built, partial:** `HsmCryptoClient.close()` zeros both caches
+   — closes the window only at clean shutdown, not while the process is
+   live and serving.
+2. **Client-side hardening, not yet built — shrink the window and make it
+   harder to open:** bound `encryptCacheByName`/`decryptCacheByEdekId`
+   with a max-size/TTL eviction instead of unbounded process-lifetime
+   caching, so less plaintext DEK material is resident at any one instant;
+   pair that with host/container hardening on whatever runs these JVMs —
+   disable core dumps and `-XX:-HeapDumpOnOutOfMemoryError`, disable or
+   encrypt swap so a DEK never gets paged to disk in the clear, drop
+   `CAP_SYS_PTRACE`/apply a seccomp profile so dumping memory needs a
+   kernel-level exploit rather than `jmap`. Neither half alone is much of a
+   barrier; together they cut both how much is exposed and how easy it is
+   to actually get at it.
+3. **The real structural fix, not built, and in direct tension with the
+   current design:** move DEK-holding operations behind a hardware
+   boundary on the client side too (confidential-computing VM / enclave),
+   or stop caching DEKs client-side entirely and route every record back
+   through the server's Managed HSM. That reverses the exact
+   performance-vs-exposure tradeoff `DekManager`/`HsmCryptoClient` were
+   built to make in the first place — not a patch, a different design.
 
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 
