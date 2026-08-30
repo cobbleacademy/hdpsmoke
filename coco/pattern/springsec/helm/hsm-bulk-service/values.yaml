@@ -142,6 +142,11 @@ config:
   skipAkv: "false"
   dbSslEnabled: "false"
   dbSslCaCert: ""
+  # Fourth, optional authentication mechanism (see AUTHORIZATION.md) -- same
+  # image as hsm-core-service's own chart, same caveat: also requires
+  # server.ssl.* (a mounted keystore Secret, not wired here) and a probe
+  # scheme change to HTTPS once enabled. Leave false unless doing that too.
+  mtlsEnabled: "false"
   dbSchema: ""
   cryptoSchema: "hsm_crypto"
   accessSchema: "hsm_access"
