@@ -9,7 +9,24 @@ client:
   svc:
     base-url: http://localhost:3005
     app-id: payments-svc
+    # auth-mode defaults to STATIC when unset (token below sent as-is). AZURE_AD,
+    # SELF_SIGNED_JWT, MTLS also supported -- see AUTHORIZATION.md and
+    # db-encrypt-example.yml (java/hsm-bulk-client/config-examples/) for the full
+    # commented-out example of each.
     token: "<bearer token for app-id>"
+    # azure-token-scope: "api://hsm-core-service/.default"   # only when auth-mode: AZURE_AD
+    # signing-private-key-pem: |                              # only when auth-mode: SELF_SIGNED_JWT
+    #   -----BEGIN PRIVATE KEY-----
+    #   <PKCS#8 signing private key -- public half registered via POST /admin/apps/keys>
+    #   -----END PRIVATE KEY-----
+    # mtls-cert-pem: |                                         # only when auth-mode: MTLS
+    #   -----BEGIN CERTIFICATE-----
+    #   <PEM cert -- fingerprint registered via POST /admin/apps/mtls-cert, not the cert itself>
+    #   -----END CERTIFICATE-----
+    # mtls-key-pem: |                                          # only when auth-mode: MTLS
+    #   -----BEGIN PRIVATE KEY-----
+    #   <PKCS#8 private key matching mtls-cert-pem>
+    #   -----END PRIVATE KEY-----
     dek-batch-max-items: 100
     private-key-pem: |
       -----BEGIN PRIVATE KEY-----
