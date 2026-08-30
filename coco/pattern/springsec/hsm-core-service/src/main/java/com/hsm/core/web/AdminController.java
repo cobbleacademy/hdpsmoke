@@ -15,6 +15,8 @@ import com.hsm.core.dto.GrantListResponse;
 import com.hsm.core.dto.GrantRequest;
 import com.hsm.core.dto.GrantResponse;
 import com.hsm.core.dto.HealthResponse;
+import com.hsm.core.dto.MtlsCertRequest;
+import com.hsm.core.dto.MtlsCertResponse;
 import com.hsm.core.dto.RekeyRequest;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RevertRekeyRequest;
@@ -33,6 +35,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
+import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -213,6 +222,47 @@ public class AdminController {
             TransportWrapper.parsePublicKeyPem(pem);
         } catch (IllegalArgumentException e) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "invalid " + fieldName + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Provisions or rotates an app's mTLS client certificate -- the fourth,
+     * optional authentication mechanism alongside STATIC/AZURE_AD/SELF_SIGNED_JWT
+     * (see AUTHORIZATION.md's "mTLS as a fourth, optional authentication
+     * mechanism"). Stores only the certificate's SHA-256 fingerprint, computed
+     * here at write time, not the certificate itself -- MtlsAppIdAuthenticationFilter
+     * only ever compares fingerprints against whatever cert was presented at the
+     * TLS handshake. Same scope as key provisioning (provision_app_keys, not
+     * manage_apps): this is another authentication-trust-boundary credential,
+     * the same blast-radius category as the signing key above, not a new one.
+     */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/mtls-cert")
+    public MtlsCertResponse setMtlsCert(@Valid @RequestBody MtlsCertRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        String fingerprint = fingerprintOrReject(body.certPem());
+
+        AppRegistration saved;
+        try {
+            saved = appRegistry.updateMtlsCertFingerprint(body.appId(), fingerprint);
+        } catch (AppRegistryException e) {
+            throw new ApiException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+
+        auditLogger.log("app_mtls_cert_updated", "app_id", caller.appId(), "sub", caller.sub(),
+                "target_app_id", body.appId(), "fingerprint", fingerprint, "status", "success");
+
+        return new MtlsCertResponse(saved.getAppId(), saved.getMtlsCertFingerprint(), saved.getUpdatedAt());
+    }
+
+    /** SHA-256 of the DER-encoded certificate, lowercase hex -- same fingerprint MtlsAppIdAuthenticationFilter computes from the TLS peer certificate at request time. */
+    private static String fingerprintOrReject(String certPem) {
+        try {
+            CertificateFactory factory = CertificateFactory.getInstance("X.509");
+            X509Certificate cert = (X509Certificate) factory.generateCertificate(
+                    new ByteArrayInputStream(certPem.getBytes(StandardCharsets.UTF_8)));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(cert.getEncoded()));
+        } catch (CertificateException | java.security.NoSuchAlgorithmException | ClassCastException e) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "invalid cert_pem: " + e.getMessage());
         }
     }
 }
