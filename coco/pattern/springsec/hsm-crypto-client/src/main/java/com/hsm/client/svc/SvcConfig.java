@@ -30,7 +30,16 @@ public record SvcConfig(
         // Only used when authMode=SELF_SIGNED_JWT -- the assertion's aud claim. Must
         // match SVC's own hsm.jwt.audience or SelfSignedAppKeyJwtValidator rejects it.
         // Blank/unset defaults to "hsm-core-service", SVC's own default.
-        String selfSignedAudience
+        String selfSignedAudience,
+        // Only used when authMode=MTLS -- PEM-encoded X.509 certificate presented at
+        // the TLS handshake. Its SHA-256 fingerprint must match what's registered on
+        // app_registrations.mtls_cert_fingerprint for appId (POST /admin/apps/mtls-cert).
+        // No Authorization header is sent in this mode at all -- see SvcClient.
+        String mtlsCertPem,
+        // Only used when authMode=MTLS -- PKCS#8 PEM, the private key matching
+        // mtlsCertPem. Never sent anywhere; used only to complete the TLS handshake
+        // locally, proving possession of the certificate's private key.
+        String mtlsKeyPem
 ) {
     public SvcConfig {
         if (selfSignedAudience == null || selfSignedAudience.isBlank()) {
@@ -38,5 +47,5 @@ public record SvcConfig(
         }
     }
 
-    public enum AuthMode { STATIC, AZURE_AD, SELF_SIGNED_JWT }
+    public enum AuthMode { STATIC, AZURE_AD, SELF_SIGNED_JWT, MTLS }
 }

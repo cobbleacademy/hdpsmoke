@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.hsm.client.crypto.TransportWrapper;
 
+import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManager;
@@ -34,38 +35,9 @@ public class SvcClient {
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
 
-    private final HttpClient http = buildHttpClient();
-
-    /**
-     * TLS certificate verification is only ever skipped when SVC_INSECURE_TLS=true
-     * is set in the environment -- deliberately an env var, not a config field, so
-     * it can never be checked into a job.yml and silently ship. Testing/
-     * throwaway-deployment escape hatch only (e.g. proof-ui against a self-signed
-     * remote SVC): prefer importing the real certificate into the JVM's trust
-     * store instead whenever that's an option.
-     */
-    private static HttpClient buildHttpClient() {
-        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5));
-        if (Boolean.parseBoolean(System.getenv("SVC_INSECURE_TLS"))) {
-            System.err.println("WARNING: SVC_INSECURE_TLS=true -- TLS certificate verification to SVC is DISABLED. Testing only.");
-            try {
-                TrustManager[] trustAll = { new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) { }
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) { }
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                } };
-                SSLContext sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, trustAll, new SecureRandom());
-                SSLParameters sslParameters = new SSLParameters();
-                sslParameters.setEndpointIdentificationAlgorithm(""); // also skip hostname verification
-                builder.sslContext(sslContext).sslParameters(sslParameters);
-            } catch (Exception e) {
-                throw new IllegalStateException("Failed to configure SVC_INSECURE_TLS", e);
-            }
-        }
-        return builder.build();
-    }
+    private final HttpClient http;
     private final SvcConfig config;
+    /** Null only for authMode=MTLS -- that mode authenticates at the TLS handshake, not via a bearer token, so no Authorization header is sent at all. */
     private final TokenProvider tokenProvider;
 
     public SvcClient(SvcConfig config) {
@@ -77,7 +49,53 @@ public class SvcClient {
                     TransportWrapper.parsePrivateKeyPem(config.signingPrivateKeyPem()),
                     config.appId(),
                     config.selfSignedAudience());
+            case MTLS -> null;
         };
+        this.http = buildHttpClient(config);
+    }
+
+    /**
+     * Builds two independent, orthogonal TLS behaviors from config: whether this
+     * client trusts SVC's own presented certificate (SVC_INSECURE_TLS env var --
+     * deliberately not a config field, so it can never be checked into a job.yml
+     * and silently ship; testing/throwaway-deployment escape hatch only, prefer
+     * importing the real certificate into the JVM's trust store instead), and
+     * whether this client presents its own certificate during the handshake
+     * (authMode=MTLS -- config.mtlsCertPem/mtlsKeyPem). Either, both, or neither
+     * may apply to a given SvcClient instance.
+     */
+    private static HttpClient buildHttpClient(SvcConfig config) {
+        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5));
+        boolean insecure = Boolean.parseBoolean(System.getenv("SVC_INSECURE_TLS"));
+        boolean mtls = config.authMode() == SvcConfig.AuthMode.MTLS;
+        if (!insecure && !mtls) {
+            return builder.build();
+        }
+        try {
+            KeyManager[] keyManagers = mtls
+                    ? MtlsSupport.buildKeyManagers(config.mtlsCertPem(), config.mtlsKeyPem())
+                    : null;
+            TrustManager[] trustManagers = null;
+            if (insecure) {
+                System.err.println("WARNING: SVC_INSECURE_TLS=true -- TLS certificate verification to SVC is DISABLED. Testing only.");
+                trustManagers = new TrustManager[]{ new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) { }
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) { }
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                } };
+            }
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(keyManagers, trustManagers, new SecureRandom());
+            builder.sslContext(sslContext);
+            if (insecure) {
+                SSLParameters sslParameters = new SSLParameters();
+                sslParameters.setEndpointIdentificationAlgorithm(""); // also skip hostname verification
+                builder.sslParameters(sslParameters);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to configure TLS (SVC_INSECURE_TLS and/or authMode=MTLS)", e);
+        }
+        return builder.build();
     }
 
     /** name is optional -- see SvcConfig's javadoc / ClientProperties.Db.ColumnMapping.dekName's javadoc for what it does. */
@@ -110,13 +128,16 @@ public class SvcClient {
     private <T, R> List<R> post(String path, ItemsRequest<T> body, Class<R> resultType) {
         try {
             String json = MAPPER.writeValueAsString(body);
-            HttpRequest request = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiV1Prefix() + path))
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiV1Prefix() + path))
                     .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + tokenProvider.getBearerToken())
-                    .header("X-App-ID", config.appId())
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
-                    .build();
+                    .header("X-App-ID", config.appId());
+            // tokenProvider is null only for authMode=MTLS -- identity was already
+            // established at the TLS handshake, no bearer token needed or sent.
+            if (tokenProvider != null) {
+                requestBuilder.header("Authorization", "Bearer " + tokenProvider.getBearerToken());
+            }
+            HttpRequest request = requestBuilder.POST(HttpRequest.BodyPublishers.ofString(json)).build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 300) {
                 throw new SvcClientException("POST " + path + " -> HTTP " + response.statusCode() + ": " + response.body());
