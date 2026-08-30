@@ -110,6 +110,10 @@ hsm:
   jwt:
     public-key-pem: ${JWT_PUBLIC_KEY_PEM:}
     jwks-url: ${JWT_JWKS_URL:}
+    # Comma-separated list of exact values accepted, not just one -- e.g. a single
+    # Azure AD app registration's v1.0- and v2.0-endpoint tokens carry different
+    # aud/iss (see HsmProperties.Jwt's javadoc). A token matching ANY listed value
+    # passes; this is still an explicit allow-list, not a pattern/wildcard match.
     audience: ${JWT_AUDIENCE:hsm-core-service}
     issuer: ${JWT_ISSUER:}
   service:
