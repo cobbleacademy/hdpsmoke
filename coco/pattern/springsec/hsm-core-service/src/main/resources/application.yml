@@ -173,6 +173,12 @@ hsm:
     excluded-classifications: ${DEK_CACHE_EXCLUDED_CLASSIFICATIONS:}
     reload-interval-seconds: ${DEK_CACHE_RELOAD_INTERVAL_SECONDS:30}
   security:
+    # Fourth, optional authentication mechanism alongside STATIC/AZURE_AD/
+    # SELF_SIGNED_JWT -- off by default (opt-in, same convention as demo-mode).
+    # When true, requires server.ssl.* to also be configured (this app needs
+    # its own cert to present) -- see MtlsServerConfig and AUTHORIZATION.md's
+    # "mTLS as a fourth, optional authentication mechanism".
+    mtls-enabled: ${MTLS_ENABLED:false}
     # Single source of truth for which endpoints require which scope (authority).
     # Read by both JwtAppIdAuthenticationFilter (which requests need a bearer
     # token at all) and SecurityConfig's authorizeHttpRequests (whether the
@@ -220,5 +226,11 @@ hsm:
       # blast radius than the active/inactive toggle above, so it doesn't
       # inherit that scope's broader grant. See AdminController.setAppKeys.
       - pattern: /admin/apps/keys
+        methods: [POST]
+        authorities: [provision_app_keys]
+
+      # Same scope as apps/keys above -- another authentication-trust-boundary
+      # credential, not a new blast-radius category. See AdminController.setMtlsCert.
+      - pattern: /admin/apps/mtls-cert
         methods: [POST]
         authorities: [provision_app_keys]
