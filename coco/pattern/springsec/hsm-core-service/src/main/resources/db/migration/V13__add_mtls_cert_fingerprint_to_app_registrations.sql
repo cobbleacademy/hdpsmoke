@@ -1,0 +1,15 @@
+-- Third, independent identity credential per app: mtls_cert_fingerprint (SHA-256
+-- of the DER-encoded X.509 certificate, hex-encoded) is used by
+-- MtlsAppIdAuthenticationFilter to accept a mutual-TLS client certificate as an
+-- alternative to a bearer token (STATIC/AZURE_AD/SELF_SIGNED_JWT). Fingerprint,
+-- not the raw cert PEM: identity is decided by comparing the fingerprint of the
+-- certificate actually presented at the TLS handshake against this column, not
+-- by chain-of-trust validation -- self-signed certs have no CA to validate
+-- against, so this is deliberately a pinned-fingerprint model (same trust
+-- shape as SSH host-key pinning), not a PKI one. NULL means this app has not
+-- registered a certificate and cannot authenticate via mTLS -- unlike
+-- signing_public_key_pem, there is no legacy-key fallback here, since a
+-- fingerprint has no natural substitute the way a signing key does. mTLS is
+-- fully optional per app and coexists with the other three auth mechanisms --
+-- see AUTHORIZATION.md's "mTLS as a fourth, optional authentication mechanism".
+ALTER TABLE ${access_schema}.app_registrations ADD COLUMN mtls_cert_fingerprint TEXT;
