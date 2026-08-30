@@ -46,4 +46,17 @@ COPY --from=build --chown=65532:65532 /workspace/hsm-bulk-client/target/hsm-bulk
 # per-run job.yml Secret at exactly this path (helm/hsm-bulk-client-job's
 # job-config volume). This is what makes the image itself config-free: the
 # path never changes, only what's mounted there per run.
-ENTRYPOINT ["java", "-jar", "app.jar", "--spring.config.additional-location=file:/config/job.yml"]
+#
+# -XX:-HeapDumpOnOutOfMemoryError / -XX:+DisableAttachMechanism: this process
+# holds plaintext DEKs in memory via HsmCryptoClient's caches (bounded by
+# DekCache's own maxSize/TTL now, but still real material while resident) --
+# see AUTHORIZATION.md's "mTLS does not address client-side DEK memory
+# exposure". HeapDumpOnOutOfMemoryError's HotSpot default is already off;
+# set explicitly so no inherited/overridden default can silently turn it on.
+# DisableAttachMechanism blocks jmap/jcmd-style live dumping via the
+# standard JVM attach API -- the easiest way to pull a heap dump from a
+# process with mere process-level access, short of a full OS-level core
+# dump (which this can't reach from inside a shell-less distroless image;
+# see RUNBOOK.md/SPARK_ADAPTER.md for the equivalent OS/container-level
+# guidance this Dockerfile can't enforce itself).
+ENTRYPOINT ["java", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:+DisableAttachMechanism", "-jar", "app.jar", "--spring.config.additional-location=file:/config/job.yml"]
