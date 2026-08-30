@@ -21,12 +21,15 @@ import java.security.spec.X509EncodedKeySpec;
 import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 /** Ported from app/auth/jwt_validator.py's JWTValidator, backed by Nimbus JOSE + JWT. */
 public class RsaJwtValidator implements JwtValidator {
@@ -36,6 +39,8 @@ public class RsaJwtValidator implements JwtValidator {
     private final HsmProperties.Jwt config;
     private final HttpClient httpClient;
     private final ReentrantLock lock = new ReentrantLock();
+    private final Set<String> acceptedAudiences;
+    private final Set<String> acceptedIssuers;
 
     private volatile JWKSet cachedJwks;
     private volatile long jwksFetchedAtEpochSeconds = 0;
@@ -43,6 +48,22 @@ public class RsaJwtValidator implements JwtValidator {
     public RsaJwtValidator(HsmProperties.Jwt config) {
         this.config = config;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        this.acceptedAudiences = splitCommaSeparated(config.audience());
+        this.acceptedIssuers = splitCommaSeparated(config.issuer());
+    }
+
+    /** Empty input (unset audience/issuer) yields an empty set -- every token is then
+     * correctly rejected on that check, same as the old single-value ""/null default did.
+     * Package-visible: SelfIssuedRoutingJwtValidator reuses this to parse the same
+     * hsm.jwt.issuer value the same way for its own routing decision. */
+    static Set<String> splitCommaSeparated(String value) {
+        if (value == null || value.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -88,11 +109,11 @@ public class RsaJwtValidator implements JwtValidator {
         }
 
         List<String> audiences = claims.getAudience();
-        if (audiences == null || !audiences.contains(config.audience())) {
+        if (audiences == null || audiences.stream().noneMatch(acceptedAudiences::contains)) {
             throw new TokenValidationException("Invalid audience");
         }
         String issuer = claims.getIssuer();
-        if (issuer == null || !issuer.equals(config.issuer())) {
+        if (issuer == null || !acceptedIssuers.contains(issuer)) {
             throw new TokenValidationException("Invalid issuer");
         }
 
