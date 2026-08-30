@@ -1,6 +1,7 @@
 package com.hsm.client;
 
 import com.hsm.client.config.FipsBootstrap;
+import com.hsm.client.crypto.DekCache;
 import com.hsm.client.crypto.DekManager;
 import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.svc.SvcClient;
@@ -9,11 +10,13 @@ import com.hsm.client.svc.SvcConfig;
 import javax.crypto.AEADBadTagException;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Stateful, embeddable client for hsm-core-service's bulk DEK endpoints
@@ -60,19 +63,40 @@ public class HsmCryptoClient implements AutoCloseable {
         FipsBootstrap.register();
     }
 
+    /** How often the background sweeper checks for expired cache entries -- independent of the configured TTL, since the sweeper's job is to catch entries that are never accessed again after caching (getOrLoad's own lazy expiry check only fires on access). */
+    private static final Duration SWEEP_INTERVAL = Duration.ofSeconds(60);
+
     private final SvcClient svcClient;
     private final PrivateKey privateKey;
     private final String appId;
 
-    private final Map<String, CachedDek> encryptCacheByName = new ConcurrentHashMap<>();
-    private final Map<UUID, byte[]> decryptCacheByEdekId = new ConcurrentHashMap<>();
+    private final DekCache<String, CachedDek> encryptCacheByName;
+    private final DekCache<UUID, byte[]> decryptCacheByEdekId;
+    private final ScheduledExecutorService sweeper;
 
     private volatile boolean closed = false;
 
-    private HsmCryptoClient(SvcClient svcClient, PrivateKey privateKey, String appId) {
+    private HsmCryptoClient(SvcClient svcClient, PrivateKey privateKey, String appId, int dekCacheMaxSize, Duration dekCacheTtl) {
         this.svcClient = svcClient;
         this.privateKey = privateKey;
         this.appId = appId;
+        this.encryptCacheByName = new DekCache<>(dekCacheMaxSize, dekCacheTtl, CachedDek::dek);
+        this.decryptCacheByEdekId = new DekCache<>(dekCacheMaxSize, dekCacheTtl, java.util.function.Function.identity());
+        this.sweeper = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "hsm-crypto-client-dek-cache-sweeper");
+            t.setDaemon(true);
+            return t;
+        });
+        this.sweeper.scheduleAtFixedRate(this::sweepExpired, SWEEP_INTERVAL.toSeconds(), SWEEP_INTERVAL.toSeconds(), TimeUnit.SECONDS);
+    }
+
+    private void sweepExpired() {
+        try {
+            encryptCacheByName.evictExpired();
+            decryptCacheByEdekId.evictExpired();
+        } catch (Exception e) {
+            // Never let a sweep failure kill the scheduler -- next tick just retries.
+        }
     }
 
     public static Builder builder() {
@@ -108,7 +132,7 @@ public class HsmCryptoClient implements AutoCloseable {
         checkOpen();
         boolean named = dekName != null && !dekName.isBlank();
         CachedDek cached = named
-                ? encryptCacheByName.computeIfAbsent(dekName, name -> issueOne(name, dataClassification))
+                ? encryptCacheByName.getOrLoad(dekName, name -> issueOne(name, dataClassification))
                 : issueOne(null, dataClassification);
 
         DekManager.EncryptResult encrypted = DekManager.encrypt(plaintext, cached.dek(), appId);
@@ -152,7 +176,7 @@ public class HsmCryptoClient implements AutoCloseable {
     public byte[] decrypt(String ciphertextToken) {
         checkOpen();
         DekManager.UnpackedToken unpacked = DekManager.unpackToken(ciphertextToken);
-        byte[] dek = decryptCacheByEdekId.computeIfAbsent(unpacked.edekId(), this::unwrapOne);
+        byte[] dek = decryptCacheByEdekId.getOrLoad(unpacked.edekId(), this::unwrapOne);
         try {
             return DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, appId);
         } catch (AEADBadTagException e) {
@@ -182,13 +206,12 @@ public class HsmCryptoClient implements AutoCloseable {
         }
     }
 
-    /** Zeroes every cached DEK. Idempotent; safe to call more than once. */
+    /** Stops the background cache sweeper and zeroes every cached DEK. Idempotent; safe to call more than once. */
     @Override
     public void close() {
         closed = true;
-        encryptCacheByName.values().forEach(c -> DekManager.zeroDek(c.dek()));
+        sweeper.shutdownNow();
         encryptCacheByName.clear();
-        decryptCacheByEdekId.values().forEach(DekManager::zeroDek);
         decryptCacheByEdekId.clear();
     }
 
@@ -204,6 +227,10 @@ public class HsmCryptoClient implements AutoCloseable {
         private String azureTokenScope;
         private String signingKeyPem;
         private String selfSignedAudience;
+        private String mtlsCertPem;
+        private String mtlsKeyPem;
+        private int dekCacheMaxSize = 1000;
+        private Duration dekCacheTtl = Duration.ofMinutes(30);
 
         private Builder() {
         }
@@ -264,6 +291,48 @@ public class HsmCryptoClient implements AutoCloseable {
             return selfSignedJwt(signingKeyPem, null);
         }
 
+        /**
+         * Authenticates at the TLS handshake with a client certificate instead of a
+         * bearer token -- see SelfIssuedRoutingJwtValidator's server-side counterpart,
+         * MtlsAppIdAuthenticationFilter. No Authorization header is sent in this mode
+         * at all. certPem's SHA-256 fingerprint must match what's registered on
+         * app_registrations.mtls_cert_fingerprint for appId (POST /admin/apps/mtls-cert);
+         * keyPem is PKCS#8 PEM, the private key matching certPem, never sent anywhere.
+         * Fully optional and independent of the other three modes -- an app not using
+         * mTLS is unaffected either way.
+         */
+        public Builder mtls(String certPem, String keyPem) {
+            this.authMode = SvcConfig.AuthMode.MTLS;
+            this.mtlsCertPem = certPem;
+            this.mtlsKeyPem = keyPem;
+            return this;
+        }
+
+        /**
+         * Caps how many distinct DEKs (per cache -- encrypt-by-name and decrypt-by-edek_id
+         * are sized independently) may be resident in memory at once. Default 1000.
+         * Bounds worst-case exposure if this process's memory is ever dumped -- see
+         * AUTHORIZATION.md's "mTLS does not address client-side DEK memory exposure".
+         * Lower this for a caller handling many distinct dekNames/edek_ids where tighter
+         * bounding matters more than avoiding occasional re-issue/re-unwrap round trips.
+         */
+        public Builder dekCacheMaxSize(int dekCacheMaxSize) {
+            this.dekCacheMaxSize = dekCacheMaxSize;
+            return this;
+        }
+
+        /**
+         * How long a cached DEK may sit in memory before being zeroed and evicted,
+         * even if still being actively reused. Default 30 minutes. A background
+         * sweeper checks every 60 seconds, so actual exposure time is at most
+         * ttl + 60s, not just ttl. Shortening this trades more frequent
+         * /dek/issue-and-/dek/unwrap round trips for a smaller exposure window.
+         */
+        public Builder dekCacheTtl(Duration dekCacheTtl) {
+            this.dekCacheTtl = dekCacheTtl;
+            return this;
+        }
+
         public HsmCryptoClient build() {
             if (baseUrl == null || baseUrl.isBlank()) {
                 throw new IllegalStateException("baseUrl is required");
@@ -272,7 +341,7 @@ public class HsmCryptoClient implements AutoCloseable {
                 throw new IllegalStateException("appId is required");
             }
             if (authMode == null) {
-                throw new IllegalStateException("exactly one of staticToken(...)/azureAdToken(...)/selfSignedJwt(...) is required");
+                throw new IllegalStateException("exactly one of staticToken(...)/azureAdToken(...)/selfSignedJwt(...)/mtls(...) is required");
             }
             if (privateKeyPem == null || privateKeyPem.isBlank()) {
                 throw new IllegalStateException("privateKeyPem is required -- unwraps what SVC returns from /dek/issue and /dek/unwrap");
@@ -282,9 +351,10 @@ public class HsmCryptoClient implements AutoCloseable {
                     baseUrl, apiV1Prefix, appId, authMode,
                     staticToken, azureTokenScope,
                     1, // dekBatchMaxItems -- unused: this client always issues exactly one item per call
-                    privateKeyPem, signingKeyPem, selfSignedAudience);
+                    privateKeyPem, signingKeyPem, selfSignedAudience,
+                    mtlsCertPem, mtlsKeyPem);
             SvcClient svcClient = new SvcClient(config);
-            return new HsmCryptoClient(svcClient, privateKey, appId);
+            return new HsmCryptoClient(svcClient, privateKey, appId, dekCacheMaxSize, dekCacheTtl);
         }
     }
 }
