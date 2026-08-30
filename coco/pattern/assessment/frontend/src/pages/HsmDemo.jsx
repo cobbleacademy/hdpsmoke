@@ -141,7 +141,7 @@ function ArchitectureDiagram() {
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (hsm-bulk-service/hsm-bulk-client) and dek_name reuse. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. hsm-bulk-service is a sibling service inside the subscription sharing the same Azure Key Vault and EDEK Store; hsm-bulk-client is an external batch job that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
 
         <rect width="1320" height="1330" fill="#0f1117" />
 
@@ -380,15 +380,17 @@ function ArchitectureDiagram() {
         <rect x="15" y="1032" width="230" height="16" rx="3" fill="#0f1117" />
         <text x="22" y="1044" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">TIER 3 BULK PoC · dek_name REUSE</text>
 
-        {/* SVC: own service inside the subscription, sibling of CORE SERVICE */}
+        {/* SVC: /dek/issue + /dek/unwrap are endpoints on CORE SERVICE itself (merged from the
+            formerly-separate hsm-bulk-service codebase); helm/hsm-bulk-service now deploys the
+            identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation */}
         <rect x="440" y="1055" width="250" height="175" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
-        <text x="565" y="1075" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm-bulk-service (SVC)</text>
-        <text x="565" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Spring Boot · separate deployable</text>
+        <text x="565" y="1075" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">CORE SERVICE (2nd release)</text>
+        <text x="565" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">same image · Helm release "hsm-bulk-service"</text>
         <rect x="455" y="1096" width="220" height="22" rx="4" fill="#22263a" stroke="#a78bfa" strokeWidth="1" />
         <text x="565" y="1111" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">POST /dek/issue · /dek/unwrap</text>
         <rect x="455" y="1122" width="220" height="34" rx="4" fill="#2d1b47" stroke="#e879f9" strokeWidth="1" />
-        <text x="565" y="1134" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">own Workload Identity → same</text>
-        <text x="565" y="1146" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">Azure Key Vault as CORE SERVICE</text>
+        <text x="565" y="1134" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">not a separate codebase —</text>
+        <text x="565" y="1146" textAnchor="middle" fill="#e879f9" fontSize="8" fontFamily="monospace">deployment-level isolation only</text>
         <rect x="455" y="1160" width="220" height="22" rx="4" fill="#22263a" />
         <text x="565" y="1175" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="monospace">writes SAME EDEK STORE above</text>
         <rect x="455" y="1186" width="220" height="38" rx="4" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
@@ -396,14 +398,14 @@ function ArchitectureDiagram() {
         <text x="565" y="1210" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">(app_id, name), else mint fresh</text>
         <text x="565" y="1221" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">age-rotated · default 30d</text>
 
-        {/* Routed arrow: SVC → EDEK STORE, via the empty corridor right of the subscription boundary */}
+        {/* Routed arrow: this release → EDEK STORE, via the empty corridor right of the subscription boundary */}
         <path d="M 690,1075 L 920,1075 L 920,590 L 640,590" fill="none" stroke="#38bdf8" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-cyan)" />
-        <text x="931" y="833" fill="#38bdf8" fontSize="7" fontFamily="monospace" transform="rotate(-90 931 833)">same edek_records table · zero coupling to /decrypt</text>
+        <text x="931" y="833" fill="#38bdf8" fontSize="7" fontFamily="monospace" transform="rotate(-90 931 833)">same edek_records table · same process as /decrypt</text>
 
         {/* CLNT: external caller, outside the subscription (same convention as MULTIPLE CLIENTS above) */}
         <rect x="940" y="1055" width="340" height="175" rx="8" fill="#1a1d27" stroke="#3b82f6" strokeWidth="1.5" />
         <text x="1110" y="1075" textAnchor="middle" fill="#3b82f6" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm-bulk-client (CLNT)</text>
-        <text x="1110" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">standalone batch job · BULK DB / BULK File</text>
+        <text x="1110" y="1088" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">batch job on hsm-crypto-client — shared by hsm-spark-adapter</text>
         <rect x="955" y="1096" width="310" height="30" rx="4" fill="#22263a" stroke="#3b82f6" strokeWidth="1" />
         <text x="1110" y="1109" textAnchor="middle" fill="#3b82f6" fontSize="8" fontFamily="monospace">RSA-OAEP-256 unwrap → AES-256-GCM locally</text>
         <text x="1110" y="1121" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">plaintext never leaves CLNT's host; real KEK never seen</text>
@@ -411,14 +413,21 @@ function ArchitectureDiagram() {
         <text x="1110" y="1143" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">dek-name on a column: ONE /dek/issue for</text>
         <text x="1110" y="1155" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">the whole job run, not once per row</text>
         <rect x="955" y="1164" width="310" height="30" rx="4" fill="#22263a" />
-        <text x="1110" y="1177" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TokenProvider: static (demo) or Azure AD</text>
-        <text x="1110" y="1189" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">Workload Identity (jobs longer than a token's TTL)</text>
+        <text x="1110" y="1177" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">TokenProvider: static, Azure AD, self-signed JWT, or mTLS</text>
+        <text x="1110" y="1189" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">Workload Identity, or a local keypair — renewal never leaves CLNT</text>
         <text x="1110" y="1214" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">ciphertext format unchanged —</text>
         <text x="1110" y="1225" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">CORE SERVICE's real /decrypt reads it as-is</text>
 
         {/* Arrow: CLNT → SVC, crossing the subscription boundary */}
         <line x1="940" y1="1115" x2="690" y2="1115" stroke="#3b82f6" strokeWidth="1.5" markerEnd="url(#arr-blue)" />
-        <text x="815" y="1109" textAnchor="middle" fill="#3b82f6" fontSize="7" fontFamily="monospace">Bearer (static or Workload Identity) + X-App-ID</text>
+        <text x="815" y="1109" textAnchor="middle" fill="#3b82f6" fontSize="7" fontFamily="monospace">Bearer (3 modes) or mTLS client cert + X-App-ID</text>
+
+        {/* File-format interop note — added later round: BULK File job specifically, DB columns already covered by the note above */}
+        <rect x="440" y="1240" width="840" height="75" rx="6" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
+        <text x="860" y="1256" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">BULK File job: each chunk's plaintext base64-encoded before AES-256-GCM — survives CORE SERVICE's own /decrypt UTF-8 response encoding losslessly</text>
+        <text x="860" y="1269" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format CORE SERVICE itself produces, now true for files too</text>
+        <text x="860" y="1282" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">Optional compress-before-encrypt: gzip + 1-byte marker inside the AEAD payload, before base64 — decrypt always reads it, no config to coordinate</text>
+        <text x="860" y="1295" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE process, both endpoint shapes + compression, every build</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
@@ -658,29 +667,33 @@ const FLOWS = [
     ],
   },
   {
-    title: '6. Tier 3: dek_name Reuse (hsm-bulk-client → hsm-bulk-service — separate deployables, not on HSM Service above)',
+    title: '6. Tier 3: dek_name Reuse (hsm-bulk-client → HSM Service\'s own /dek/issue · /dek/unwrap — not a separate codebase)',
     color: '#a78bfa',
     steps: [
-      'hsm-bulk-client (a standalone batch job, outside the subscription) calls hsm-bulk-service\'s POST /dek/issue once per job run — not once per row — with { key, data_classification, name: dek_name }.',
-      'hsm-bulk-service looks up (app_id, current_dek_name). If FOUND, it reuses the existing edek_blob (unwrapped via its own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If NOT FOUND, it mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — the same table the HSM Service itself writes to.',
-      'hsm-bulk-service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
+      'hsm-bulk-client (a standalone batch job on hsm-crypto-client, outside the subscription) calls HSM Service\'s own POST /dek/issue once per job run — not once per row — with { key, data_classification, name: dek_name }, authenticating via Bearer (static, Workload Identity, or self-signed JWT) or mTLS client cert.',
+      'The SVC lane here is the SAME HSM Service process as the rest of this diagram (formerly a separate hsm-bulk-service codebase, since merged) — kept as its own lane only because CLNT still makes a real network hop to reach it, same as any other caller.',
+      'HSM Service looks up (app_id, current_dek_name). If FOUND, it reuses the existing edek_blob (unwrapped via HSM Service\'s own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If NOT FOUND, it mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — the same table it writes to for /encrypt.',
+      'HSM Service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
       'hsm-bulk-client unwraps the DEK locally (its private key never leaves the client) and AES-256-GCM encrypts each row with a fresh IV per call.',
-      'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext format is identical to the HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
-      'The ciphertext is written directly into the client\'s own target table/file — never sent back to hsm-bulk-service or the HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path.',
-      'hsm-bulk-service runs its own copy of this scheduler, independent of the HSM Service\'s copy — so coverage of SVC-minted rows no longer depends on the HSM Service being deployed at all.',
+      'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext format is identical to HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
+      'The ciphertext is written directly into the client\'s own target table/file — never sent back to HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path. One scheduler instance covers rows from BOTH /encrypt and /dek/issue (same process, same edek_records table) — no separate SVC scheduler needed since the merge.',
+      'BULK File job specifically: each chunk\'s plaintext is base64-encoded before AES-256-GCM — survives HSM Service\'s own /decrypt UTF-8 response encoding losslessly. FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) produces the same token format HSM Service itself produces, now true for files too, not just DB columns. An optional compress-before-encrypt step gzips each chunk and prepends a 1-byte raw/gzip marker inside the base64 — decrypt always reads it, no config to coordinate. CoreBulkFileInteropTest exercises both directions plus compression against a real hsm-core-service process on every build.',
+      'hsm-spark-adapter shares this exact flow via hsm-crypto-client\'s SvcClient/DekManager — the same /dek/issue, /dek/unwrap, and RSA-OAEP-256→AES-256-GCM steps above, just driven from Spark UDFs (hsm_encrypt/hsm_decrypt) instead of a batch job.',
     ],
     actors: [
       { id: 'clnt', label: 'hsm-bulk-client' },
-      { id: 'svc',  label: 'hsm-bulk-service' },
+      { id: 'svc',  label: 'HSM Service (SVC endpoints)' },
     ],
     messages: [
-      { from: 'clnt', to: 'svc', label: 'POST /dek/issue { key, data_classification, name: dek_name }', stepNum: 25 },
+      { from: 'clnt', to: 'svc', label: 'POST /dek/issue { key, data_classification, name: dek_name } [Bearer: static, Workload Identity, or self-signed JWT]', stepNum: 25 },
       { from: 'svc', to: 'svc', self: true, label: 'lookup (app_id, current_dek_name)', stepNum: 26 },
-      { from: 'svc', to: 'svc', self: true, variant: 'allow', label: '[FOUND] reuse: unwrap existing edek_blob [own Workload Identity · Managed HSM] — same edek_id every call, no mint, no INSERT', stepNum: '26a' },
+      { from: 'svc', to: 'svc', self: true, variant: 'allow', label: '[FOUND] reuse: unwrap existing edek_blob [HSM Service\'s Workload Identity · Managed HSM] — same edek_id every call, no mint, no INSERT', stepNum: '26a' },
       { from: 'svc', to: 'svc', self: true, label: '[NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — same table HSM Service writes above', stepNum: '26b' },
       { from: 'svc', to: 'clnt', dashed: true, label: '{ edek_id, wrapped_dek_b64, reused: true|false } [RSA-OAEP-256, wrapped for CLNT\'s own public key]', stepNum: 27 },
       { from: 'clnt', to: 'clnt', self: true, label: 'RSA-OAEP-256 unwrap locally (private key never leaves CLNT) → AES-256-GCM encrypt (fresh IV every call)', stepNum: 28 },
       { from: 'clnt', to: 'clnt', self: true, label: 'one edek_id → many rows/values, each with its OWN token (fresh IV per call) — token format identical to HSM Service\'s own', stepNum: 29 },
+      { from: 'clnt', to: 'clnt', self: true, label: 'BULK File job: base64-encode each chunk before AES-256-GCM · FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) · optional gzip + 1-byte marker before base64', stepNum: 30 },
+      { from: 'clnt', to: 'clnt', self: true, label: 'hsm-spark-adapter shares this flow via hsm-crypto-client\'s SvcClient/DekManager — same /dek/issue, /dek/unwrap, RSA-OAEP-256→AES-256-GCM, driven from Spark UDFs instead of a batch job', stepNum: 31 },
     ],
   },
 ];
