@@ -45,6 +45,21 @@ public class AppRegistration {
     @Column(name = "signing_public_key_pem", columnDefinition = "TEXT")
     private String signingPublicKeyPem;
 
+    /**
+     * SHA-256 fingerprint (hex-encoded) of this app's mTLS client certificate,
+     * used by MtlsAppIdAuthenticationFilter to accept a mutual-TLS handshake as
+     * an alternative to a bearer token. Compared against the fingerprint of
+     * whatever certificate was actually presented at the TLS layer, not
+     * validated via chain-of-trust -- self-signed certs have no CA to chain to,
+     * so identity here is fingerprint-pinned, the same trust shape as SSH
+     * host-key pinning. Nullable, with no legacy fallback (unlike
+     * signingPublicKeyPem's fallback to publicKeyPem): an app that hasn't
+     * registered a cert simply cannot authenticate via mTLS, and falls through
+     * to whichever of the other three mechanisms it's configured for.
+     */
+    @Column(name = "mtls_cert_fingerprint", columnDefinition = "TEXT")
+    private String mtlsCertFingerprint;
+
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
@@ -100,6 +115,15 @@ public class AppRegistration {
 
     public void setSigningPublicKeyPem(String signingPublicKeyPem) {
         this.signingPublicKeyPem = signingPublicKeyPem;
+        this.updatedAt = OffsetDateTime.now();
+    }
+
+    public String getMtlsCertFingerprint() {
+        return mtlsCertFingerprint;
+    }
+
+    public void setMtlsCertFingerprint(String mtlsCertFingerprint) {
+        this.mtlsCertFingerprint = mtlsCertFingerprint;
         this.updatedAt = OffsetDateTime.now();
     }
 
