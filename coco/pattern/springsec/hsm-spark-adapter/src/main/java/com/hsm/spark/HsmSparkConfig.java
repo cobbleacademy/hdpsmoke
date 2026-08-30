@@ -54,8 +54,13 @@ final class HsmSparkConfig {
                 String audience = optional("spark.hsm.selfSignedAudience", null);
                 builder.selfSignedJwt(signingKeyPem, audience);
             }
+            case "MTLS" -> {
+                String mtlsCertPem = readFile(require("spark.hsm.mtlsCertPath"));
+                String mtlsKeyPem = readFile(require("spark.hsm.mtlsKeyPath"));
+                builder.mtls(mtlsCertPem, mtlsKeyPem);
+            }
             default -> throw new IllegalStateException(
-                    "spark.hsm.authMode must be one of STATIC, AZURE_AD, SELF_SIGNED_JWT -- got: " + authMode);
+                    "spark.hsm.authMode must be one of STATIC, AZURE_AD, SELF_SIGNED_JWT, MTLS -- got: " + authMode);
         }
 
         return builder.build();
