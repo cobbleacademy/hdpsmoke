@@ -1,6 +1,7 @@
 package com.hsm.client.file;
 
 import com.azure.core.credential.TokenCredential;
+import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
 import com.azure.identity.WorkloadIdentityCredentialBuilder;
@@ -21,7 +22,6 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
@@ -84,15 +84,20 @@ public class AdlsFileStore implements FileStore {
 
     @Override
     public InputStream openRead(String relativePath) {
+        // A real streaming read straight from the SDK, matching
+        // AzureBlobFileStore.openRead()'s own openInputStream() -- not the
+        // download-to-a-local-temp-file-then-read-that-back approach this used
+        // before. That extra temp-file hop was implicated in a real,
+        // reproducible corruption: FileBulkJob.decryptOneFile succeeded past
+        // AES-GCM's own tag check (so the ciphertext/IV/tag it read were
+        // genuinely authentic to something) but then failed to base64-decode
+        // the result -- yet decrypting the exact same ADLS blob after
+        // downloading it with `az storage fs file download` and pointing
+        // FileBulkJob at that local copy worked. Same bytes in ADLS, different
+        // outcome depending on how they were read back into this JVM -- so the
+        // bug was in this method's own read path, not the blob or the crypto.
         DataLakeFileClient fileClient = fileSystemClient.getFileClient(join(rootPath, relativePath));
-        try {
-            File tmp = File.createTempFile("adls-read-", ".tmp");
-            tmp.deleteOnExit();
-            fileClient.readToFile(tmp.getAbsolutePath(), true);
-            return Files.newInputStream(tmp.toPath());
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read ADLS path " + relativePath, e);
-        }
+        return fileClient.openInputStream().getInputStream();
     }
 
     @Override
@@ -198,6 +203,20 @@ public class AdlsFileStore implements FileStore {
                     .tenantId(tenantId)
                     .clientId(clientId)
                     .tokenFilePath(tokenFile)
+                    .build();
+        }
+        // Explicit App Registration secret, only when configured -- checked before the
+        // Managed Identity/IMDS fallback below since a caller who set a client secret
+        // clearly intends to use it, not fall through to node-identity resolution (which
+        // also fails outright off Azure-hosted compute, e.g. a local dev machine). Same
+        // ordering as AzureKeyVaultKekClient.buildCredential() (hsm-core-service).
+        String clientSecret = System.getenv("AZURE_CLIENT_SECRET");
+        if (clientSecret != null && !clientSecret.isBlank() && clientId != null && !clientId.isBlank()
+                && tenantId != null && !tenantId.isBlank()) {
+            return new ClientSecretCredentialBuilder()
+                    .tenantId(tenantId)
+                    .clientId(clientId)
+                    .clientSecret(clientSecret)
                     .build();
         }
         if (clientId != null && !clientId.isBlank()) {

@@ -1,6 +1,7 @@
 package com.hsm.client.file;
 
 import com.azure.core.credential.TokenCredential;
+import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
 import com.azure.identity.WorkloadIdentityCredentialBuilder;
@@ -175,6 +176,20 @@ public class AzureBlobFileStore implements FileStore {
                     .tenantId(tenantId)
                     .clientId(clientId)
                     .tokenFilePath(tokenFile)
+                    .build();
+        }
+        // Explicit App Registration secret, only when configured -- checked before the
+        // Managed Identity/IMDS fallback below since a caller who set a client secret
+        // clearly intends to use it, not fall through to node-identity resolution (which
+        // also fails outright off Azure-hosted compute, e.g. a local dev machine). Same
+        // ordering as AzureKeyVaultKekClient.buildCredential() (hsm-core-service).
+        String clientSecret = System.getenv("AZURE_CLIENT_SECRET");
+        if (clientSecret != null && !clientSecret.isBlank() && clientId != null && !clientId.isBlank()
+                && tenantId != null && !tenantId.isBlank()) {
+            return new ClientSecretCredentialBuilder()
+                    .tenantId(tenantId)
+                    .clientId(clientId)
+                    .clientSecret(clientSecret)
                     .build();
         }
         if (clientId != null && !clientId.isBlank()) {
