@@ -60,6 +60,15 @@ public record HsmProperties(
     ) {
     }
 
+    /**
+     * audience/issuer each accept a comma-separated list of exact values, not just
+     * one -- a single Azure AD app registration legitimately produces tokens with
+     * different aud/iss depending on which credential path acquired them (v1.0
+     * endpoint: aud=client-id GUID, iss=https://sts.windows.net/{tenant}/; v2.0
+     * endpoint: aud=App ID URI, iss=https://login.microsoftonline.com/{tenant}/v2.0).
+     * RsaJwtValidator accepts a token whose aud/iss matches ANY one of the listed
+     * values -- still an explicit allow-list, not a wildcard/pattern match.
+     */
     public record Jwt(
             String publicKeyPem,
             String jwksUrl,
