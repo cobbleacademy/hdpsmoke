@@ -5,9 +5,12 @@ import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.JwtValidator;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.web.CorrelationIdFilter;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.lang.Nullable;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -44,6 +47,18 @@ public class SecurityConfig {
     }
 
     @Bean
+    @ConditionalOnProperty(prefix = "hsm.security", name = "mtls-enabled", havingValue = "true")
+    public MtlsAppIdAuthenticationFilter mtlsAppIdAuthenticationFilter(
+            AppRegistryService appRegistry,
+            AuditLogger auditLogger,
+            HsmSecurityProperties securityProperties,
+            HsmProperties properties
+    ) {
+        return new MtlsAppIdAuthenticationFilter(
+                appRegistry, auditLogger, securityProperties, properties.service().apiV1Prefix());
+    }
+
+    @Bean
     public HsmAccessDeniedHandler hsmAccessDeniedHandler(
             HsmSecurityProperties securityProperties, HsmProperties properties, AuditLogger auditLogger) {
         return new HsmAccessDeniedHandler(securityProperties, properties, auditLogger);
@@ -54,6 +69,7 @@ public class SecurityConfig {
             HttpSecurity http,
             CorrelationIdFilter correlationIdFilter,
             JwtAppIdAuthenticationFilter authFilter,
+            @Autowired(required = false) @Nullable MtlsAppIdAuthenticationFilter mtlsAuthFilter,
             HsmAccessDeniedHandler accessDeniedHandler,
             HsmSecurityProperties securityProperties,
             HsmProperties properties
@@ -84,6 +100,14 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(correlationIdFilter, JwtAppIdAuthenticationFilter.class);
+
+        // Runs ahead of the JWT filter: if a client certificate authenticates
+        // successfully, JwtAppIdAuthenticationFilter's own early-exit guard (skip if
+        // SecurityContext already has an Authentication) means the request never
+        // needs a bearer token at all. Only present when hsm.security.mtls-enabled=true.
+        if (mtlsAuthFilter != null) {
+            http.addFilterBefore(mtlsAuthFilter, JwtAppIdAuthenticationFilter.class);
+        }
 
         return http.build();
     }

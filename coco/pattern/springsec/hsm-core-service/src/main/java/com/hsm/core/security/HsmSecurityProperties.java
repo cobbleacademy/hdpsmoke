@@ -12,7 +12,7 @@ import java.util.List;
  * sufficient). pattern is relative to hsm.service.api-v1-prefix.
  */
 @ConfigurationProperties(prefix = "hsm.security")
-public record HsmSecurityProperties(List<AccessRule> accessRules) {
+public record HsmSecurityProperties(List<AccessRule> accessRules, boolean mtlsEnabled) {
 
     public record AccessRule(String pattern, List<String> methods, List<String> authorities) {
     }

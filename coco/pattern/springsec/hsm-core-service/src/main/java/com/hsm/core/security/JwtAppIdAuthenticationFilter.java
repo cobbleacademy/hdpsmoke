@@ -79,6 +79,14 @@ public class JwtAppIdAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            // Already authenticated by an earlier filter (MtlsAppIdAuthenticationFilter,
+            // when a client certificate was presented and validated) -- no bearer
+            // token needed. See SecurityConfig for filter ordering.
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String callerIp = ClientIpResolver.resolve(request);
         String authorization = request.getHeader("Authorization");
         String xAppId = request.getHeader("X-App-ID");
