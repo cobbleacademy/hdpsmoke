@@ -256,41 +256,90 @@ whatever DEKs were cached at the time -- the same reasoning
 `mvn package` produces one self-contained, shaded jar (`maven-shade-plugin`,
 ~37MB -- most of that size is `netty-tcnative-boringssl-static`'s per-platform
 native binaries, pulled in transitively for every OS/architecture, not this
-module's own code) with `hsm-crypto-client` and its own dependencies
-(`bc-fips`, `nimbus-jose-jwt`, `jackson-databind`, `azure-identity`) bundled
-in; everything `spark-sql`-scoped stays out since that dependency is
-`provided`. Netty is relocated inside the shaded jar
-(`com.hsm.spark.shaded.io.netty`) to avoid colliding with Spark's own
-runtime Netty -- a real collision, not a hypothetical one: azure-identity
-pulls Netty 4.1.x while this module's Spark 4.2.0 pin needs 4.2.x, and
-mixing both unrelocated on one classpath broke `SparkContext`'s own RPC
-layer at startup with a `NoClassDefFoundError` (`KQueueIoHandler` not
-found) during this module's own live-verification run -- confirmed via a
-real local Spark session. Re-verified with the relocation in place: the
-shaded jar alone (no other dependency jars needed alongside it) registers
-and executes `hsm_encrypt`/`hsm_decrypt` correctly against a real Spark
-4.2.0 session. That one jar needs to reach every node's classpath, and
-`spark.sql.extensions` (if using the automatic path) needs to be set
-cluster-wide. Mechanics differ by platform:
+module's own code) with `hsm-crypto-client` and most of its own dependencies
+(`nimbus-jose-jwt`, `jackson-databind`, `azure-identity`) bundled in;
+everything `spark-sql`-scoped stays out since that dependency is `provided`.
+Netty is relocated inside the shaded jar (`com.hsm.spark.shaded.io.netty`)
+to avoid colliding with Spark's own runtime Netty -- a real collision, not a
+hypothetical one: azure-identity pulls Netty 4.1.x while this module's Spark
+4.2.0 pin needs 4.2.x, and mixing both unrelocated on one classpath broke
+`SparkContext`'s own RPC layer at startup with a `NoClassDefFoundError`
+(`KQueueIoHandler` not found) during this module's own live-verification
+run -- confirmed via a real local Spark session.
 
-- **Standalone / vanilla YARN:** `spark.jars=/path/to/hsm-spark-adapter.jar`
+**`bc-fips` is the one dependency deliberately excluded from the shaded
+jar**, even though `hsm-crypto-client` needs it at runtime -- BC-FIPS
+validates its own FIPS module integrity at class-init time
+(`BouncyCastleFipsProvider`'s constructor, via `FipsBootstrap.register()`)
+by checksumming its own packaged classes against a value computed at build
+time, and merging it into any uber-jar breaks that checksum outright
+(`org.bouncycastle.crypto.fips.FipsOperationError: Module checksum failed`)
+regardless of whether its packages are relocated -- a documented, intentional
+BC-FIPS constraint (FIPS-validated jars must not be repackaged), confirmed
+via a real local run before this exclusion was added, and re-verified
+working correctly once `bc-fips-2.1.1.jar` was added back as its own,
+untouched jar alongside the shaded one. **`bc-fips-2.1.1.jar` must always
+ship alongside `hsm-spark-adapter-1.0.0.jar`** -- the shaded jar alone is
+not sufficient, unlike every other bundled dependency. That pair needs to
+reach every node's classpath, and `spark.sql.extensions` (if using the
+automatic path) needs to be set cluster-wide. Mechanics differ by platform:
+
+- **Standalone / vanilla YARN:** `spark.jars=/path/to/hsm-spark-adapter-1.0.0.jar,/path/to/bc-fips-2.1.1.jar`
   and `spark.sql.extensions=com.hsm.spark.HsmUdfExtension` in
   `spark-defaults.conf` on every node, or per-submission via
-  `spark-submit --jars ... --conf spark.sql.extensions=...` if you'd rather
-  opt in per job (skips `HsmUdfExtension` entirely -- just call
-  `HsmUdfRegistration.registerAll(spark)` in the job instead).
+  `spark-submit --jars hsm-spark-adapter-1.0.0.jar,bc-fips-2.1.1.jar --conf spark.sql.extensions=...`
+  if you'd rather opt in per job (skips `HsmUdfExtension` entirely -- just
+  call `HsmUdfRegistration.registerAll(spark)` in the job instead).
 - **Spark on Kubernetes (raw `spark-submit --master k8s://...` or the
-  Kubernetes Spark Operator):** bake the JAR into the driver/executor
-  container image, or reference it via `spark.jars`/the Operator's
+  Kubernetes Spark Operator):** bake both jars into the driver/executor
+  container image, or reference both via `spark.jars`/the Operator's
   `SparkApplication` CRD `spec.deps.jars`; set `spark.sql.extensions` in the
   same CRD's `sparkConf`. Deliver `spark.hsm.privateKeyPath` (and
   `signingKeyPath`) via a Kubernetes Secret volume mounted at the same path
   on every executor pod.
 - **Databricks / EMR / other managed platforms:** use the platform's own
-  cluster-scoped library/init-script mechanism to install the JAR, and its
+  cluster-scoped library/init-script mechanism to install both jars, and its
   cluster-config UI (or bootstrap action, for EMR) to set
   `spark.sql.extensions`. Use the platform's own secret-scope/secret-manager
   integration for the key files, not a plain `--conf`.
+
+### Testing locally without a cluster
+
+A `master("local[*]")` `SparkSession` works fine for local/IDE verification
+-- but only from a project **outside this Maven reactor**. This project's
+root `pom.xml` imports `netty-bom` and forces Netty to a specific patched
+version project-wide (for CVEs `azure-sdk-bom` would otherwise pull in);
+that override also applies to `hsm-spark-adapter`'s own `provided`-scope
+`spark-sql` dependency when resolved *through this reactor* (e.g. `mvn
+exec:java`, or an IDE run configuration pointed at this module directly),
+downgrading Spark's own required Netty version and breaking `SparkContext`
+at startup with the same `KQueueIoHandler` `NoClassDefFoundError` mentioned
+above -- confirmed via direct reproduction. A genuinely independent project
+(its own `pom.xml`, no `<parent>` pointing back here, plain
+`spark-sql_2.13:4.2.0` dependency resolved fresh) doesn't inherit that
+override, so Spark resolves its own correct Netty version normally. Set up:
+
+```xml
+<dependency>
+    <groupId>org.apache.spark</groupId>
+    <artifactId>spark-sql_2.13</artifactId>
+    <version>4.2.0</version>
+</dependency>
+<dependency>
+    <groupId>com.hsm</groupId>
+    <artifactId>hsm-spark-adapter</artifactId>
+    <version>1.0.0</version>
+    <scope>system</scope>
+    <systemPath>${project.basedir}/hsm-spark-adapter-1.0.0.jar</systemPath>
+</dependency>
+```
+
+Add `bc-fips-2.1.1.jar` to that project's runtime classpath too (same
+requirement as any other deployment, see above). Confirmed working
+end-to-end this way: real `SparkSession`, `spark.sql.extensions` set to
+`com.hsm.spark.HsmUdfExtension`, `hsm_encrypt`/`hsm_decrypt` executing
+through genuine whole-stage codegen against a real hsm-core-service
+instance, encrypt-then-decrypt round-tripping the original plaintext.
 
 ## Capacity planning
 
