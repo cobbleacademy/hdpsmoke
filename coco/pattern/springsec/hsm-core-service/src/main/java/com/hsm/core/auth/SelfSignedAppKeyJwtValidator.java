@@ -19,6 +19,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Verifies a self-issued bearer JWT (RFC 7523-style client authentication) --
@@ -55,11 +56,16 @@ public class SelfSignedAppKeyJwtValidator implements JwtValidator {
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
 
     private final AppRegistryService appRegistry;
-    private final String audience;
+    private final Set<String> acceptedAudiences;
 
     public SelfSignedAppKeyJwtValidator(AppRegistryService appRegistry, HsmProperties.Jwt jwtConfig) {
         this.appRegistry = appRegistry;
-        this.audience = jwtConfig.audience();
+        // hsm.jwt.audience is shared with RsaJwtValidator and accepts the same
+        // comma-separated list (e.g. an operator adds an Azure AD v1.0/v2.0 audience
+        // pair for AZURE_AD callers) -- parse it the same way here too, or a
+        // self-signed caller's single literal aud claim (SelfSignedJwtTokenProvider's
+        // "hsm-core-service" default) would never match the whole compound string.
+        this.acceptedAudiences = RsaJwtValidator.splitCommaSeparated(jwtConfig.audience());
     }
 
     @Override
@@ -127,7 +133,7 @@ public class SelfSignedAppKeyJwtValidator implements JwtValidator {
         }
 
         List<String> audiences = claims.getAudience();
-        if (audiences == null || !audiences.contains(audience)) {
+        if (audiences == null || audiences.stream().noneMatch(acceptedAudiences::contains)) {
             throw new TokenValidationException("Invalid audience");
         }
 
