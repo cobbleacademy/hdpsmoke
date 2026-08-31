@@ -375,4 +375,28 @@ scripts/run.sh config-examples/db-encrypt-azuread.yml
 
 If it works, that confirms the diagnosis; whether to make this permanent (import into the real system cacerts, or keep using a temp one indefinitely for this job) is then a call for whoever manages that machine — I'd lean toward reporting the missing/proxy CA to your infra team rather than carrying a scoped workaround forever, but that's your and their call, not mine.
 ----------------------------------------------------------------------------------------------------------------------------------
+SELF_SIGNED_JWT next.
+
+Recap of the steps (from earlier in this session) — fully local, no external dependency:
+
+# 1. Generate a signing keypair for payments-svc
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/signing-key.pem
+openssl rsa -in /tmp/signing-key.pem -pubout -out /tmp/signing-pub.pem
+
+# 2. Register the public half
+curl -s -X POST "$BASE/admin/apps/keys" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d "$(python3 -c "import json; print(json.dumps({'app_id':'payments-svc','signing_public_key_pem': open('/tmp/signing-pub.pem').read()}))")"
+
+# 3. Fill in job config, then run
+cp config-examples/db-encrypt-example.yml /tmp/db-encrypt-ssjwt.yml
+#   client.svc.auth-mode: SELF_SIGNED_JWT
+#   client.svc.signing-private-key-pem: | (paste /tmp/signing-key.pem contents)
+#   (remove/comment the token: line)
+scripts/run.sh /tmp/db-encrypt-ssjwt.yml
+
+One thing worth knowing before you run it: since your target's hsm.jwt.audience is now a comma-separated list (from the AZURE_AD setup), this exercises the fix I made proactively earlier — SelfSignedAppKeyJwtValidator had the exact same single-value-vs-list bug the AZURE_AD path did, which would have broken this exact scenario. It's already fixed and test-covered, so this should just work, but if it doesn't, that's the first place I'll look.
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
