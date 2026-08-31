@@ -405,6 +405,7 @@ Recap of the steps (fully local, but requires core-service running over HTTPS wi
 # 1. Generate a self-signed client certificate for payments-svc
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/client-key.pem
 openssl req -new -x509 -key /tmp/client-key.pem -out /tmp/client-cert.pem -days 365 -subj "/CN=payments-svc"
+openssl x509 -in /tmp/client-cert.pem -outform DER | shasum -a 256
 
 # 2. Register its fingerprint
 curl -s -X POST "$BASE/admin/apps/mtls-cert" \
