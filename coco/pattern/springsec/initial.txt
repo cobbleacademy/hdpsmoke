@@ -451,5 +451,13 @@ spark.hsm.signingKeyPath /path/to/signing-key.pem
 # spark.hsm.mtlsCertPath /path/to/client-cert.pem
 # spark.hsm.mtlsKeyPath /path/to/client-key.pem
 ----------------------------------------------------------------------------------------------------------------------------------
+echo | openssl s_client -connect <target-host>:<port> -servername <target-host> -showcerts 2>/dev/null \
+  > /tmp/istio-chain.pem
+
+# Import the root (and intermediate, if separate) into a scoped trust store —
+# same temp-cacerts approach as before, doesn't touch the shared JDK
+cp "$JAVA_HOME/lib/security/cacerts" /tmp/hsm-verify-cacerts
+"$JAVA_HOME/bin/keytool" -importcert -alias istio-root-ca \
+  -file /tmp/istio-chain.pem -keystore /tmp/hsm-verify-cacerts -storepass changeit -noprompt
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
