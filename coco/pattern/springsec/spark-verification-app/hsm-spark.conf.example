@@ -1,0 +1,31 @@
+# Same format spark-submit's own --properties-file / conf/spark-defaults.conf uses:
+# "key value" or "key=value" per line, # comments and blank lines ignored.
+# Copy this file, fill in real values, then point HSM_CONF_FILE at it
+# (or use it as-is with a real spark-submit deployment later -- unmodified).
+
+spark.sql.extensions com.hsm.spark.HsmUdfExtension
+spark.hsm.baseUrl http://localhost:3005
+spark.hsm.appId payments-svc
+spark.hsm.authMode SELF_SIGNED_JWT
+spark.hsm.privateKeyPath /path/to/dek-transport-key.pem
+
+# Optional -- defaults to /api/sensec/hsm/v1 (HsmSparkConfig's own default).
+# Only uncomment/set this if the target hsm-core-service's own
+# hsm.service.api-v1-prefix was itself overridden away from that default.
+# spark.hsm.apiV1Prefix /api/sensec/hsm/v1
+
+# Only the block matching spark.hsm.authMode above is actually required --
+# delete the other three blocks, or leave them commented, they're unused either way.
+
+# STATIC
+# spark.hsm.staticToken <bearer token>
+
+# AZURE_AD
+# spark.hsm.azureTokenScope api://hsm-core-service/.default
+
+# SELF_SIGNED_JWT
+spark.hsm.signingKeyPath /path/to/signing-key.pem
+
+# MTLS
+# spark.hsm.mtlsCertPath /path/to/client-cert.pem
+# spark.hsm.mtlsKeyPath /path/to/client-key.pem

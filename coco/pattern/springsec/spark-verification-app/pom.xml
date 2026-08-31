@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Deliberately NO parent element: an independent app with its own clean dependency
+         resolution, not inheriting hsm_bouncy/java/pom.xml's netty-bom override (which
+         forces Netty to a specific patched version project-wide for CVE reasons in that
+         reactor, but is exactly what breaks Spark 4.2.0's own RPC layer if inherited,
+         since it needs Netty 4.2.x's KQueueIoHandler. Here, spark-sql pulls its own, correct,
+         unmodified transitive Netty version. See java/docs/SPARK_ADAPTER.md's "Testing
+         locally without a cluster" section for the full reasoning, and README.md in this
+         directory for setup/run instructions. -->
+    <groupId>com.hsm</groupId>
+    <artifactId>spark-verification-app</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Point these at wherever you copied the two required jars; see README.md.
+             Overridable: mvn ... -Dhsm.spark.adapter.jar=/other/path.jar -->
+        <hsm.spark.adapter.jar>${project.basedir}/hsm-spark-adapter-1.0.0.jar</hsm.spark.adapter.jar>
+        <hsm.bc.fips.jar>${project.basedir}/bc-fips-2.1.1.jar</hsm.bc.fips.jar>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.13</artifactId>
+            <version>4.2.0</version>
+        </dependency>
+        <!-- The hsm-spark-adapter shaded jar (build it in java/hsm-spark-adapter, then
+             copy it here, or point hsm.spark.adapter.jar at its target/ path directly).
+             Referenced as a local file, not resolved through any Maven repository, since
+             it's not published anywhere; it's this project's own build output. -->
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-spark-adapter</artifactId>
+            <version>1.0.0</version>
+            <scope>system</scope>
+            <systemPath>${hsm.spark.adapter.jar}</systemPath>
+        </dependency>
+        <!-- bc-fips is deliberately EXCLUDED from the shaded jar above (BC-FIPS's own
+             module-integrity self-check breaks if it's repackaged into any uber-jar,
+             see SPARK_ADAPTER.md); must be added here as its own, untouched jar. Same
+             version hsm-crypto-client/pom.xml pins; find it in your local Maven repo
+             after building hsm-spark-adapter once (~/.m2/repository/org/bouncycastle/bc-fips/2.1.1/),
+             or copy it here directly. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bc-fips</artifactId>
+            <version>2.1.1</version>
+            <scope>system</scope>
+            <systemPath>${hsm.bc.fips.jar}</systemPath>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <mainClass>com.hsm.spark.LocalSparkSessionManualVerification</mainClass>
+                    <classpathScope>compile</classpathScope>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
