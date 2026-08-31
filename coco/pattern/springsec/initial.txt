@@ -398,5 +398,29 @@ scripts/run.sh /tmp/db-encrypt-ssjwt.yml
 
 One thing worth knowing before you run it: since your target's hsm.jwt.audience is now a comma-separated list (from the AZURE_AD setup), this exercises the fix I made proactively earlier — SelfSignedAppKeyJwtValidator had the exact same single-value-vs-list bug the AZURE_AD path did, which would have broken this exact scenario. It's already fixed and test-covered, so this should just work, but if it doesn't, that's the first place I'll look.
 ----------------------------------------------------------------------------------------------------------------------------------
+MTLS next — the last of the three bulk-client auth modes.
+
+Recap of the steps (fully local, but requires core-service running over HTTPS with MTLS_ENABLED=true — check that's set up on the target before starting):
+
+# 1. Generate a self-signed client certificate for payments-svc
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/client-key.pem
+openssl req -new -x509 -key /tmp/client-key.pem -out /tmp/client-cert.pem -days 365 -subj "/CN=payments-svc"
+
+# 2. Register its fingerprint
+curl -s -X POST "$BASE/admin/apps/mtls-cert" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d "$(python3 -c "import json; print(json.dumps({'app_id':'payments-svc','cert_pem': open('/tmp/client-cert.pem').read()}))")"
+
+# 3. Fill in job config, then run
+cp config-examples/db-encrypt-example.yml /tmp/db-encrypt-mtls.yml
+#   client.svc.base-url: https://<target-host>:<https-port>   # MUST be https://
+#   client.svc.auth-mode: MTLS
+#   client.svc.mtls-cert-pem: | (paste /tmp/client-cert.pem)
+#   client.svc.mtls-key-pem:  | (paste /tmp/client-key.pem)
+#   (remove/comment the token: line — no Authorization header sent in this mode)
+scripts/run.sh /tmp/db-encrypt-mtls.yml
+
+If core-service's cert is self-signed and your JVM doesn't already trust it, you'll likely need the same kind of trust-store fix as the AZURE_AD PKIX issue — either SVC_INSECURE_TLS=true as a throwaway env var (testing-only escape hatch), or import core-service's cert into a temp cacerts the same way you did for login.microsoftonline.com, via JDK_JAVA_OPTIONS. Let me know what happens.
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
