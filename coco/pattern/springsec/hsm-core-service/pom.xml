@@ -15,6 +15,14 @@
     <name>HSM Encryption Service</name>
     <description>Centralised AES-256-GCM envelope encryption backed by Azure Key Vault Managed HSM</description>
 
+    <properties>
+        <!-- Interpreter used to run scripts/generate_demo_index.py, python3 works here.
+             Override per-environment with -Dhsm.python.executable=python (or an absolute
+             interpreter path) on build hosts where only that name is on PATH, rather than
+             editing this file. -->
+        <hsm.python.executable>python3</hsm.python.executable>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -309,7 +317,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>python3</executable>
+                            <executable>${hsm.python.executable}</executable>
                             <arguments>
                                 <argument>${project.basedir}/scripts/generate_demo_index.py</argument>
                                 <argument>${project.build.outputDirectory}/static/index.html</argument>
