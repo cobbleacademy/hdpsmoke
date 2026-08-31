@@ -354,4 +354,25 @@ SELECT hsm_decrypt(enc) AS dec FROM (SELECT hsm_encrypt('test-value', 'my_table.
 A clean round trip confirms the whole chain — jar on classpath, extension/registration active, keys mounted, identity registered in hsm-core-service — is wired correctly.
 
 ----------------------------------------------------------------------------------------------------------------------------------
+Scoped to just this run, doesn't touch the shared JDK. Start from a copy of the real cacerts (not an empty store), so you keep all the standard public root CAs and just add the missing one on top:
 
+TEMP_CACERTS=/tmp/hsm-verify-cacerts
+cp "$JAVA_HOME/lib/security/cacerts" "$TEMP_CACERTS"
+
+# Re-fetch (or reuse) the cert chain that's actually being presented
+echo | openssl s_client -connect login.microsoftonline.com:443 -servername login.microsoftonline.com 2>/dev/null \
+  | openssl x509 > /tmp/login-microsoftonline-com.crt
+
+# Default JDK cacerts password is "changeit" unless someone changed it on this machine
+"$JAVA_HOME/bin/keytool" -importcert -alias login-microsoftonline-ca \
+  -file /tmp/login-microsoftonline-com.crt \
+  -keystore "$TEMP_CACERTS" -storepass changeit -noprompt
+
+Now point the JVM at it. Since -D system properties must come before -jar on the command line, and scripts/run.sh only appends extra args after -jar (they'd be read as Spring Boot program args, not JVM flags — no effect on TLS), don't edit the script. Use JDK_JAVA_OPTIONS instead — the java launcher picks this env var up automatically and prepends it, so it works transparently through run.sh unchanged:
+
+export JDK_JAVA_OPTIONS="-Djavax.net.ssl.trustStore=$TEMP_CACERTS -Djavax.net.ssl.trustStorePassword=changeit"
+scripts/run.sh config-examples/db-encrypt-azuread.yml
+
+If it works, that confirms the diagnosis; whether to make this permanent (import into the real system cacerts, or keep using a temp one indefinitely for this job) is then a call for whoever manages that machine — I'd lean toward reporting the missing/proxy CA to your infra team rather than carrying a scoped workaround forever, but that's your and their call, not mine.
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
