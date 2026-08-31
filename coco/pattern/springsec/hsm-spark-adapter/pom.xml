@@ -56,10 +56,29 @@
     <build>
         <plugins>
             <!-- Produces a single self-contained jar for spark.jars / a driver-executor
-                 container image: hsm-crypto-client and its own dependencies (bc-fips,
-                 nimbus-jose-jwt, jackson-databind, azure-identity) all get bundled in,
-                 everything spark-sql-scoped stays out since that dependency is
-                 provided-scope, which the shade plugin excludes by default. Netty is
+                 container image: hsm-crypto-client and its own dependencies (nimbus-jose-jwt,
+                 jackson-databind, azure-identity) all get bundled in, everything
+                 spark-sql-scoped stays out since that dependency is provided-scope,
+                 which the shade plugin excludes by default.
+
+                 bc-fips is the one dependency deliberately excluded from this jar (see
+                 the artifactSet/excludes below) even though it's compile-scope: BC-FIPS
+                 validates its own FIPS module integrity at class-init time
+                 (BouncyCastleFipsProvider's constructor, via FipsBootstrap.register())
+                 by checksumming its own packaged classes against a value computed at
+                 build time, confirmed via a real local run (spark-standalone-app,
+                 an independent project outside this reactor) that merging bc-fips into
+                 this uber-jar breaks that checksum outright
+                 (org.bouncycastle.crypto.fips.FipsOperationError: Module checksum
+                 failed), regardless of whether bc-fips's own packages are relocated;
+                 this is a documented, intentional BC-FIPS constraint (FIPS-validated
+                 jars must not be repackaged), not a bug in this shade config to work
+                 around. bc-fips-2.1.1.jar must be added to the classpath as its own,
+                 untouched jar alongside this shaded one, e.g. spark-submit's own
+                 comma-separated jars flag: hsm-spark-adapter-1.0.0.jar,bc-fips-2.1.1.jar.
+                 See SPARK_ADAPTER.md's deployment section.
+
+                 Netty is
                  relocated because azure-identity pulls a different Netty version
                  (4.1.x) than Spark's own runtime (4.2.x for this pin), confirmed a
                  real collision, not a hypothetical one, while assembling a flat
@@ -88,6 +107,11 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <excludes>
+                                    <exclude>org.bouncycastle:bc-fips</exclude>
+                                </excludes>
+                            </artifactSet>
                             <filters>
                                 <filter>
                                     <artifact>*:*</artifact>
