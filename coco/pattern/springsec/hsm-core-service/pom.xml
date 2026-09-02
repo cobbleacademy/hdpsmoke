@@ -15,14 +15,6 @@
     <name>HSM Encryption Service</name>
     <description>Centralised AES-256-GCM envelope encryption backed by Azure Key Vault Managed HSM</description>
 
-    <properties>
-        <!-- Interpreter used to run scripts/generate_demo_index.py, python3 works here.
-             Override per-environment with -Dhsm.python.executable=python (or an absolute
-             interpreter path) on build hosts where only that name is on PATH, rather than
-             editing this file. -->
-        <hsm.python.executable>python3</hsm.python.executable>
-    </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -290,21 +282,19 @@
                 </configuration>
             </plugin>
             <!-- Injects docs/architecture-diagram.svg and docs/sequence-diagram.svg into
-                 index.html at build time, see generate_demo_index.py's own module
-                 docstring for the full reasoning (single source of truth; a separate
-                 Python-based project reads this file's raw source, so the SVG markup
-                 has to stay textually inline as-is, not be swapped for an element
-                 reference).
-                 Bound to process-resources, the SAME phase as the normal resource copy
-                 (default-resources) that places the checked-in template, still containing
-                 @@ARCHITECTURE_DIAGRAM_SVG@@ etc. markers, at this same path, explicitly
-                 declared plugin executions run after Maven's own implicit default-lifecycle
-                 bindings for that phase, so this always runs second and overwrites the
-                 template with the generated file. Excluding static/index.html from the
-                 resources plugin's own copy instead, so this could run first at
-                 generate-resources, was tried and did not take effect, so this
-                 runs-after-and-overwrites approach is used instead; it doesn't depend on
-                 that exclude parameter working at all. -->
+                 index.html at build time, see DemoIndexGenerator's own class javadoc for
+                 the full reasoning (single source of truth; a separate Python-based
+                 project reads this file's raw source, so the SVG markup has to stay
+                 textually inline as-is, not be swapped for an element reference).
+                 A pure Java implementation, not an external script: this module's Docker
+                 build stage has no interpreter beyond the JDK itself, and the source SVGs
+                 live in java/docs/ so they stay inside that build's own context.
+                 Bound to prepare-package, deliberately after both process-resources (the
+                 default resource copy, which places the checked-in template, still
+                 containing @@ARCHITECTURE_DIAGRAM_SVG@@ etc. markers, at this same path
+                 for this execution to overwrite) and compile (so DemoIndexGenerator's own
+                 bytecode already exists to run at all) have completed, so there is no
+                 phase-ordering ambiguity to depend on. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
@@ -312,14 +302,15 @@
                 <executions>
                     <execution>
                         <id>generate-demo-index</id>
-                        <phase>process-resources</phase>
+                        <phase>prepare-package</phase>
                         <goals>
-                            <goal>exec</goal>
+                            <goal>java</goal>
                         </goals>
                         <configuration>
-                            <executable>${hsm.python.executable}</executable>
+                            <mainClass>com.hsm.core.build.DemoIndexGenerator</mainClass>
                             <arguments>
-                                <argument>${project.basedir}/scripts/generate_demo_index.py</argument>
+                                <argument>${project.basedir}/../docs</argument>
+                                <argument>${project.basedir}/src/main/resources/static/index.html</argument>
                                 <argument>${project.build.outputDirectory}/static/index.html</argument>
                             </arguments>
                         </configuration>
