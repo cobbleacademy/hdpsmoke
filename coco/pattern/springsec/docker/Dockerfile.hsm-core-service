@@ -22,6 +22,11 @@ COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
+# docs/architecture-diagram.svg and docs/sequence-diagram.svg are the single
+# source of truth DemoIndexGenerator (hsm-core-service's own build) injects into
+# the live demo's index.html at package time -- they live here, inside java/,
+# specifically so this build context can reach them at all.
+COPY docs docs
 RUN mvn -q -pl hsm-core-service -am package -DskipTests
 
 # Debian-based distroless, not Ubuntu -- Temurin itself only publishes
