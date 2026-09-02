@@ -2,12 +2,13 @@
   <title>HSM Core Service - Sequence Diagram</title>
   <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
   <rect width="1530" height="1540" fill="#0f1117"/>
-          <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service/scripts/generate_demo_index.py
+          <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service's own
+               DemoIndexGenerator (com.hsm.core.build.DemoIndexGenerator), which
                extracts everything from here to LIVE_DEMO_HEADER_END as the live demo's
                fixed participant header (viewBox 0 0 1530 80), and everything inside the
                <g transform="translate(0,80)"> below (the file's sole top-level group) as
                the scrollable body (viewBox 0 0 1530 1460). Do not remove these markers or
-               restructure that group without updating the script's extraction logic. -->
+               restructure that group without updating that class's extraction logic. -->
           <rect width="1530" height="80" fill="#0f1117"/>
           <!-- subscription boundary divider — Auditor SPN is to the right -->
           <line x1="1220" y1="0" x2="1220" y2="80" stroke="#f87171" stroke-width="0.8" stroke-dasharray="5,3"/>
