@@ -192,6 +192,79 @@ editing this file and re-running `mvn compile exec:java`, or point a real
 `spark-shell`/`pyspark` session at the two jars above with the same
 `spark.hsm.*` confs via `--jars`/`--conf` instead.
 
+## Second verification class: `HsmSqlScriptRunner` (decrypted views over real tables)
+
+`LocalSparkSessionManualVerification` proves `hsm_encrypt`/`hsm_decrypt` work
+as bare SQL functions. `SqlScriptRunnerVerification` proves the next step:
+running a real `;;;`-delimited SQL script (`CREATE TABLE ... USING
+org.apache.spark.sql.jdbc`, then `CREATE OR REPLACE VIEW ...
+hsm_decrypt(...)`) against a real JDBC source, then querying the resulting
+view. See `java/docs/SPARK_ADAPTER.md`'s "Building decrypted views over real
+tables" section for the full design reasoning.
+
+This project's `pom.xml` runs one class at a time via
+`hsm.exec.mainClass` (defaults to `LocalSparkSessionManualVerification`);
+override it to run the other one:
+
+```bash
+cp views.sql.example views.sql   # fill in your real JDBC source/view definition
+
+export HSM_BASE_URL="..." HSM_APP_ID="payments-svc" HSM_AUTH_MODE="SELF_SIGNED_JWT" \
+       HSM_PRIVATE_KEY_PATH="/path/to/key.pem" HSM_SIGNING_KEY_PATH="/path/to/signing-key.pem" \
+       HSM_SQL_SCRIPT="./views.sql"
+
+mvn compile exec:java -Dhsm.exec.mainClass=com.hsm.spark.SqlScriptRunnerVerification
+```
+
+This uses whatever JDBC driver your `CREATE TABLE ... USING` statement
+needs -- an H2 driver dependency is already included in this project's
+`pom.xml` for convenience (H2 is what the built-in example/test used), add
+your real database's driver (Postgres, SQL Server, Oracle, ...) as its own
+dependency here if you're pointing at something else.
+
+From IntelliJ: same Run/Debug Configuration steps as above, but add
+`hsm.exec.mainClass=com.hsm.spark.SqlScriptRunnerVerification` as one more
+environment variable (or `-Dhsm.exec.mainClass=...` under "VM options" if
+you'd rather set it there than via env var), alongside `HSM_SQL_SCRIPT` and
+the usual connection variables.
+
+## Third verification class: `HsmThriftServerBootstrap` (Spark Thrift Server)
+
+Proves the same `hsm_decrypt`-backed view works when served through a real
+Spark Thrift Server -- started via Spark's own public
+`HiveThriftServer2.startWithSparkSession` embedding API, then queried by a
+genuine external JDBC client (`org.apache.hive.jdbc.HiveDriver`) over the
+real Hive2/Thrift wire protocol, not an in-process call. See
+`java/docs/SPARK_ADAPTER.md`'s "Running on an existing Spark Thrift Server
+cluster" section for the full design and a real-cluster deployment example.
+
+```bash
+cp views.sql.example views.sql   # fill in your real JDBC source/view definition
+
+export HSM_BASE_URL="..." HSM_APP_ID="payments-svc" HSM_AUTH_MODE="SELF_SIGNED_JWT" \
+       HSM_PRIVATE_KEY_PATH="/path/to/key.pem" HSM_SIGNING_KEY_PATH="/path/to/signing-key.pem" \
+       HSM_SQL_SCRIPT="./views.sql"
+
+mvn compile exec:java -Dhsm.exec.mainClass=com.hsm.spark.ThriftServerVerification
+```
+
+This starts a real Thrift Server on `localhost:10321` (arbitrary port chosen
+to avoid colliding with a real Thrift Server's usual `10000` if you happen
+to have one running locally too), runs the SQL script, connects as a real
+JDBC client, queries `customer_plain`, and prints the decrypted result.
+
+Needs two extra dependencies already included in this project's `pom.xml`
+for exactly this: `spark-hive-thriftserver_2.13` (the server side) and
+`hive-jdbc` (the real JDBC client used to prove it actually works, not just
+that the process starts). One `pom.xml` detail worth knowing if you extend
+this further: `exec-maven-plugin`'s `classpathScope` here is set to `test`,
+not `compile` or `runtime` -- this class specifically needs both the
+`system`-scoped local jars (`hsm-spark-adapter`, `bc-fips`; Maven excludes
+`system` scope from a plain `runtime` classpath) *and* Hive's own
+runtime-only transitive dependencies (its shims, dynamically class-loaded,
+never referenced at compile time by anything) at once, and `test` is the
+only scope that pools all of compile + runtime + system + test together.
+
 ## Common errors
 
 | Symptom | Cause |
@@ -201,3 +274,7 @@ editing this file and re-running `mvn compile exec:java`, or point a real
 | `WRONG_NUM_ARGS.WITHOUT_SUGGESTION ... hsm_encrypt requires 3 parameters` | `hsm_encrypt` takes `(plaintext, dek_name, data_classification)`, not just plaintext -- see above. |
 | `Invalid audience` (401 from hsm-core-service) | `HSM_AUTH_MODE`-specific -- e.g. for `SELF_SIGNED_JWT`, confirm `hsm.jwt.audience` on the target core-service still includes the literal `hsm-core-service` default (or whatever `spark.hsm.selfSignedAudience` resolves to) if it's been widened to a multi-value list for `AZURE_AD`. |
 | 404 on every call | `spark.hsm.apiV1Prefix` (`HSM_API_V1_PREFIX`) doesn't match the target hsm-core-service's actual `hsm.service.api-v1-prefix` -- the two are configured independently on each side, never auto-synced. |
+| `mvn compile exec:java` runs the wrong class | Old jar/cached property -- pass `-Dhsm.exec.mainClass=...` explicitly (see above); it defaults to `LocalSparkSessionManualVerification` if omitted. |
+| `ClassNotFoundException: org.postgresql.Driver` (or similar) | Your JDBC driver isn't on this project's classpath -- add it as a `<dependency>` in `pom.xml`, same as the included H2 one. |
+| `ClassNotFoundException: com.hsm.spark.HsmUdfExtension` (Thrift Server test only) | `exec-maven-plugin`'s `classpathScope` got changed away from `test` -- it must stay `test` (see "Third verification class" above) to include both the `system`-scoped local jars and Hive's runtime-only shims at once; `compile` or `runtime` alone each drop one or the other. |
+| `ClassNotFoundException: org.apache.hadoop.hive.shims.Hadoop23Shims` (Thrift Server test only) | Same root cause as the row above, the other direction -- `classpathScope` dropped Hive's runtime-only shims. |

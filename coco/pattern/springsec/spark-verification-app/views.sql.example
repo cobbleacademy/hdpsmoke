@@ -1,0 +1,26 @@
+-- Example script for HsmSqlScriptRunner / SqlScriptRunnerVerification.
+-- Statements are split on ;;; (not a plain ;, which can legitimately appear
+-- inside a JDBC URL or a quoted literal). Copy this, fill in real values.
+
+-- org.apache.spark.sql.jdbc is Spark's own generic JDBC datasource -- not
+-- vendor-specific in any way. Only the OPTIONS block changes per vendor:
+--
+--   Postgres:   driver 'org.postgresql.Driver',                 url 'jdbc:postgresql://host:5432/appdb'
+--   Azure SQL:  driver 'com.microsoft.sqlserver.jdbc.SQLServerDriver', url 'jdbc:sqlserver://host:1433;databaseName=appdb;encrypt=true'
+--   Oracle:     driver 'oracle.jdbc.OracleDriver',               url 'jdbc:oracle:thin:@host:1521/ORCLPDB1'
+--   MySQL:      driver 'com.mysql.cj.jdbc.Driver',                url 'jdbc:mysql://host:3306/appdb'
+
+CREATE TABLE customer_raw (id INT, ssn STRING, zip STRING, address STRING, phone STRING)
+USING org.apache.spark.sql.jdbc
+OPTIONS (
+  driver 'org.postgresql.Driver',
+  url 'jdbc:postgresql://host:5432/appdb',
+  dbtable 'customer_raw',
+  user 'app_user',
+  password 'change-me'
+)
+;;;
+
+CREATE OR REPLACE VIEW customer_plain AS
+SELECT id, hsm_decrypt(ssn) AS ssn, zip, address, phone FROM customer_raw
+;;;

@@ -25,6 +25,9 @@
              Overridable: mvn ... -Dhsm.spark.adapter.jar=/other/path.jar -->
         <hsm.spark.adapter.jar>${project.basedir}/hsm-spark-adapter-1.0.0.jar</hsm.spark.adapter.jar>
         <hsm.bc.fips.jar>${project.basedir}/bc-fips-2.1.1.jar</hsm.bc.fips.jar>
+        <!-- Which verification class `mvn compile exec:java` runs. Overridable:
+             mvn ... -Dhsm.exec.mainClass=com.hsm.spark.SqlScriptRunnerVerification -->
+        <hsm.exec.mainClass>com.hsm.spark.LocalSparkSessionManualVerification</hsm.exec.mainClass>
     </properties>
 
     <dependencies>
@@ -32,6 +35,45 @@
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_2.13</artifactId>
             <version>4.2.0</version>
+        </dependency>
+        <!-- Only needed for HsmSqlScriptRunner verification against a real JDBC source
+             (CREATE TABLE ... USING org.apache.spark.sql.jdbc). A real deployment brings
+             whatever driver its own source/target database needs; this is just the one
+             convenient for local testing (H2). -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.3.232</version>
+        </dependency>
+        <!-- Only needed for HsmThriftServerBootstrap verification; resolved fresh
+             here (not through the java/ reactor), same reasoning as spark-sql above. -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-hive-thriftserver_2.13</artifactId>
+            <version>4.2.0</version>
+        </dependency>
+        <!-- JDBC client to actually connect to the Thrift Server started by
+             HsmThriftServerBootstrap and prove it serves real queries, not just
+             that the process starts without error. -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-jdbc</artifactId>
+            <version>2.3.10</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <!-- jdk.tools:jdk.tools is a pre-JDK9 system-scope reference to
+                     tools.jar, pulled in transitively by an old Hadoop dependency;
+                     tools.jar doesn't exist at all on JDK 9+ (the JPMS module
+                     system replaced it), so this must be excluded to build on
+                     anything newer than JDK 8. -->
+                <exclusion>
+                    <groupId>jdk.tools</groupId>
+                    <artifactId>jdk.tools</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- The hsm-spark-adapter shaded jar (build it in java/hsm-spark-adapter, then
              copy it here, or point hsm.spark.adapter.jar at its target/ path directly).
@@ -71,8 +113,14 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
-                    <mainClass>com.hsm.spark.LocalSparkSessionManualVerification</mainClass>
-                    <classpathScope>compile</classpathScope>
+                    <mainClass>${hsm.exec.mainClass}</mainClass>
+                    <!-- test scope, not compile or runtime: this needs BOTH the
+                         system-scoped local jars (hsm-spark-adapter, bc-fips; Maven
+                         excludes system scope from a plain runtime-scope classpath)
+                         AND runtime-only transitive deps (Hive's shims, dynamically
+                         class-loaded, not referenced at compile time by anything).
+                         test is the one scope that pools compile+runtime+system+test. -->
+                    <classpathScope>test</classpathScope>
                 </configuration>
             </plugin>
         </plugins>
