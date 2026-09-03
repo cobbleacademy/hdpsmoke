@@ -173,6 +173,155 @@ entirely, degrading straight back to a fresh `/dek/issue` call per row --
 see "Capacity planning" below for why that matters at Spark's typical row
 counts.
 
+## Building decrypted views over real tables: `HsmSqlScriptRunner`
+
+`hsm_encrypt`/`hsm_decrypt` are the primitives; most consumers don't want to
+hand-write `hsm_decrypt(...)` calls per query -- they want a plain,
+already-decrypted view they can just `SELECT * FROM`. `HsmSqlScriptRunner`
+closes that gap with the smallest possible tool: it runs a sequence of plain
+Spark SQL statements from a file, nothing more. It has no knowledge of
+tables, views, or decryption specifically -- the decrypt-view use case comes
+entirely from ordinary SQL calling `hsm_decrypt`, once the functions are
+registered (`HsmUdfExtension` or `HsmUdfRegistration.registerAll`).
+
+```java
+HsmSqlScriptRunner.run(spark, Path.of("/path/to/views.sql"));
+```
+
+The script itself is just SQL -- typically a `CREATE TABLE ... USING
+org.apache.spark.sql.jdbc` defining a source table, then a `CREATE OR
+REPLACE VIEW` exposing a decrypted view over it:
+
+```sql
+CREATE TABLE customer_raw (id INT, ssn STRING, zip STRING, address STRING, phone STRING)
+USING org.apache.spark.sql.jdbc
+OPTIONS (
+  driver 'org.postgresql.Driver',
+  url 'jdbc:postgresql://host:5432/appdb',
+  dbtable 'customer_raw',
+  user 'app_user',
+  password 'change-me'
+)
+;;;
+
+CREATE OR REPLACE VIEW customer_plain AS
+SELECT id, hsm_decrypt(ssn) AS ssn, zip, address, phone FROM customer_raw
+;;;
+```
+
+Statements are split on **`;;;`**, not a plain `;` -- a single semicolon can
+legitimately appear inside a statement itself (a JDBC URL's query string, a
+quoted literal), so it can't double as the separator. `;;;` isn't valid SQL
+on its own, so it can never collide with real statement content.
+
+No JDBC driver is bundled with this module (same reasoning as
+`hsm-bulk-client`'s own DB jobs) -- add whichever driver the real source
+needs to the job's own classpath alongside the adapter jar, e.g.
+`--jars hsm-spark-adapter-1.0.0.jar,postgresql-....jar`.
+
+`org.apache.spark.sql.jdbc` is Spark's own generic JDBC datasource, not
+vendor-specific in any way -- `HsmSqlScriptRunner` has no per-vendor logic
+either, so any JDBC-reachable database works, only the `OPTIONS` block
+changes (same driver/URL shapes `hsm-bulk-client`'s own config-examples
+already use):
+
+```sql
+-- Postgres
+OPTIONS (driver 'org.postgresql.Driver', url 'jdbc:postgresql://host:5432/appdb', dbtable 'customer_raw', user 'app_user', password 'change-me')
+
+-- Azure SQL Database / SQL Server Managed Instance (wire-compatible, same driver)
+OPTIONS (driver 'com.microsoft.sqlserver.jdbc.SQLServerDriver', url 'jdbc:sqlserver://host:1433;databaseName=appdb;encrypt=true', dbtable 'customer_raw', user 'app_user', password 'change-me')
+
+-- Oracle
+OPTIONS (driver 'oracle.jdbc.OracleDriver', url 'jdbc:oracle:thin:@host:1521/ORCLPDB1', dbtable 'customer_raw', user 'app_user', password 'change-me')
+
+-- MySQL
+OPTIONS (driver 'com.mysql.cj.jdbc.Driver', url 'jdbc:mysql://host:3306/appdb', dbtable 'customer_raw', user 'app_user', password 'change-me')
+```
+
+Live-verified end to end (H2 locally, standing in for any of the above --
+the datasource mechanics are identical regardless of vendor): a real
+JDBC source table seeded with a value actually produced by `POST /encrypt`,
+read via `CREATE TABLE ... USING org.apache.spark.sql.jdbc`, exposed through
+a `CREATE OR REPLACE VIEW ... hsm_decrypt(ssn)`, queried back and confirmed
+to return the original plaintext -- see `spark-verification-app/README.md`
+(repo root) for the runnable version of this exact example.
+
+## Running on an existing Spark Thrift Server cluster: `HsmThriftServerBootstrap`
+
+Thrift Server (`start-thriftserver.sh`) is arguably the *natural* home for
+`HsmUdfExtension`'s cluster-wide, automatic-registration design -- more so
+than a one-off `spark-submit` job -- since it maintains exactly one
+long-running shared `SparkSession` that every JDBC/ODBC/BI client connects
+to. Two ways to wire this up, in increasing order of how automated the setup
+is.
+
+### Option 1: plain config + a manual `beeline` step
+
+Works, but is two disconnected steps: config drives function registration,
+a separate manual `beeline -f views.sql` run (once, after the server is up)
+drives view creation, and nothing ties the two together or guarantees the
+views exist before the first client connects.
+
+```bash
+$SPARK_HOME/sbin/start-thriftserver.sh \
+  --jars hsm-spark-adapter-1.0.0.jar,bc-fips-2.1.1.jar,<your-jdbc-driver>.jar \
+  --conf spark.sql.extensions=com.hsm.spark.HsmUdfExtension \
+  --conf spark.hsm.baseUrl=https://hsm-core-service:3005 \
+  --conf spark.hsm.appId=payments-svc \
+  --conf spark.hsm.authMode=SELF_SIGNED_JWT \
+  --conf spark.hsm.privateKeyPath=/secrets/dek-transport-key.pem \
+  --conf spark.hsm.signingKeyPath=/secrets/signing-key.pem \
+  --hiveconf hive.server2.thrift.port=10000
+
+# separately, once, after the server is up:
+beeline -u jdbc:hive2://<thrift-host>:10000 -f views.sql   # plain ; statements, beeline's own native splitting
+```
+
+### Option 2: `HsmThriftServerBootstrap` -- one self-contained process (recommended)
+
+Built entirely on Spark's own public embedding API for the Thrift Server --
+not a fork, not reflection into internals:
+[`HiveThriftServer2.startWithSparkSession(SparkSession, boolean)`](https://github.com/apache/spark)
+starts serving the Thrift/JDBC endpoint on top of an already-built
+`SparkSession`. `HsmThriftServerBootstrap` uses exactly that hook: build the
+session (registering the UDFs the normal way), optionally run a startup SQL
+script via `HsmSqlScriptRunner` (creating source tables and decrypt views),
+*then* start the server -- so by the time any client can connect, the views
+already exist. One deployable artifact, one command, no separate manual step.
+
+```bash
+spark-submit \
+  --class com.hsm.spark.HsmThriftServerBootstrap \
+  --master yarn \
+  --jars bc-fips-2.1.1.jar,<your-jdbc-driver>.jar \
+  --conf spark.sql.extensions=com.hsm.spark.HsmUdfExtension \
+  --conf spark.hsm.baseUrl=https://hsm-core-service:3005 \
+  --conf spark.hsm.appId=payments-svc \
+  --conf spark.hsm.authMode=SELF_SIGNED_JWT \
+  --conf spark.hsm.privateKeyPath=/secrets/dek-transport-key.pem \
+  --conf spark.hsm.signingKeyPath=/secrets/signing-key.pem \
+  --conf spark.hsm.startupSqlScript=/secrets/views.sql \
+  --conf hive.server2.thrift.port=10000 \
+  hsm-spark-adapter-1.0.0.jar
+```
+
+`spark.hsm.startupSqlScript` is optional -- omit it to start with no
+pre-created views (e.g. if clients will issue their own DDL later, same as
+Option 1). `spark-hive-thriftserver` itself is `provided` scope in this
+module's `pom.xml`, same reasoning as `spark-sql` -- any cluster capable of
+running Thrift Server at all already ships it; this class doesn't bundle
+its own copy.
+
+Live-verified end to end, the strongest form of proof used anywhere in this
+document: a real `HiveThriftServer2` started via `startWithSparkSession`,
+`hsm_decrypt` registered, `customer_plain` created by `HsmSqlScriptRunner`,
+then queried by a genuine external `org.apache.hive.jdbc.HiveDriver` client
+speaking the real Hive2/Thrift wire protocol -- not an in-process call, an
+actual separate JDBC connection over the network -- and the decrypted value
+came back correct. See `spark-verification-app/README.md`'s
+`ThriftServerVerification` class for the runnable version.
+
 ## Client lifecycle
 
 One `HsmCryptoClient` per **executor JVM**, built lazily on that executor's
