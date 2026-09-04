@@ -147,7 +147,7 @@ class NamedDekIntegrationTest {
         assertNull(reloadedOld.getCurrentDekName());
         assertEquals("test.rotation.column", reloadedOld.getDekName()); // history preserved
 
-        Optional<EdekRecord> fresh = edekRecordRepository.findByAppIdAndCurrentDekName("payments-svc", "test.rotation.column");
+        Optional<EdekRecord> fresh = edekRecordRepository.findByCurrentDekName("test.rotation.column");
         assertTrue(fresh.isPresent());
         assertNotEquals(oldEdekId, fresh.get().getEdekId());
         assertEquals("pii", fresh.get().getDataClassification());

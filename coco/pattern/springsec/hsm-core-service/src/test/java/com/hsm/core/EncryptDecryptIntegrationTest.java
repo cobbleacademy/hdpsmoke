@@ -66,6 +66,12 @@ class EncryptDecryptIntegrationTest {
         return (String) resp.getBody().get("ciphertext");
     }
 
+    private ResponseEntity<Map> encryptNamed(String token, String appId, String plaintext, String dekName) {
+        HttpEntity<Map<String, Object>> req = new HttpEntity<>(
+                Map.of("plaintext", plaintext, "dek_name", dekName), headers(token, appId));
+        return rest.postForEntity("/api/sensec/hsm/v1/encrypt", req, Map.class);
+    }
+
     @Test
     void encryptThenDecryptSameAppRoundTrips() {
         String ciphertextToken = encryptAs("demo-token-payments-svc", "payments-svc", "top secret");
@@ -203,7 +209,7 @@ class EncryptDecryptIntegrationTest {
         HttpHeaders adminHeaders = headers("demo-token-ops-admin", "ops-admin");
 
         HttpEntity<Map<String, Object>> addReq = new HttpEntity<>(
-                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "reporting-app"), adminHeaders);
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "reporting-app", "scope", "decrypt"), adminHeaders);
         ResponseEntity<Map> addResp = rest.postForEntity("/api/sensec/hsm/v1/admin/grants", addReq, Map.class);
         assertEquals(HttpStatus.CREATED, addResp.getStatusCode());
         assertNotNull(addResp.getBody().get("created_at"));
@@ -216,8 +222,96 @@ class EncryptDecryptIntegrationTest {
                 "ops-admin".equals(g.get("grantee_app_id")) && g.get("created_at") != null));
 
         HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
-                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "reporting-app"), adminHeaders);
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "reporting-app", "scope", "decrypt"), adminHeaders);
         ResponseEntity<Void> removeResp = rest.exchange("/api/sensec/hsm/v1/admin/grants", HttpMethod.DELETE, removeReq, Void.class);
+        assertEquals(HttpStatus.NO_CONTENT, removeResp.getStatusCode());
+    }
+
+    @Test
+    void grantWithUnknownScopeIsRejected() {
+        HttpEntity<Map<String, Object>> req = new HttpEntity<>(
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "reporting-app", "scope", "bogus-scope"),
+                headers("demo-token-ops-admin", "ops-admin"));
+        ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/grants", req, Map.class);
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
+    }
+
+    @Test
+    void secondAppReusingAnotherAppsDekNameWithoutGrantIsForbidden() {
+        // payments-svc mints "cross.app.dek.a" first and becomes its owner.
+        ResponseEntity<Map> first = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "owned by payments-svc", "cross.app.dek.a");
+        assertEquals(HttpStatus.CREATED, first.getStatusCode());
+
+        // ops-admin also has "encrypt" scope but no grant on payments-svc's DEKs --
+        // reusing the same dek_name must be rejected, not silently mint its own DEK.
+        ResponseEntity<Map> second = encryptNamed(
+                "demo-token-ops-admin", "ops-admin", "should not reuse", "cross.app.dek.a");
+        assertEquals(HttpStatus.FORBIDDEN, second.getStatusCode());
+    }
+
+    @Test
+    void coarseEncryptGrantAllowsReusingAnotherAppsDekName() {
+        ResponseEntity<Map> first = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "owned by payments-svc", "cross.app.dek.b");
+        assertEquals(HttpStatus.CREATED, first.getStatusCode());
+
+        HttpEntity<Map<String, Object>> grantReq = new HttpEntity<>(
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "payments-svc", "scope", "encrypt"),
+                headers("demo-token-ops-admin", "ops-admin"));
+        ResponseEntity<Map> grantResp = rest.postForEntity("/api/sensec/hsm/v1/admin/grants", grantReq, Map.class);
+        assertEquals(HttpStatus.CREATED, grantResp.getStatusCode());
+
+        ResponseEntity<Map> second = encryptNamed(
+                "demo-token-ops-admin", "ops-admin", "now allowed to reuse", "cross.app.dek.b");
+        assertEquals(HttpStatus.CREATED, second.getStatusCode());
+        assertEquals(first.getBody().get("edek_id"), second.getBody().get("edek_id"));
+
+        HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "payments-svc", "scope", "encrypt"),
+                headers("demo-token-ops-admin", "ops-admin"));
+        rest.exchange("/api/sensec/hsm/v1/admin/grants", HttpMethod.DELETE, removeReq, Void.class);
+    }
+
+    @Test
+    void fineGrainedDekGrantAllowsOnlyThatSpecificDekName() {
+        ResponseEntity<Map> ownerRecord = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "fine grained target", "cross.app.dek.c");
+        assertEquals(HttpStatus.CREATED, ownerRecord.getStatusCode());
+        ResponseEntity<Map> otherOwnerRecord = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "not covered by the grant", "cross.app.dek.d");
+        assertEquals(HttpStatus.CREATED, otherOwnerRecord.getStatusCode());
+
+        HttpHeaders adminHeaders = headers("demo-token-ops-admin", "ops-admin");
+        HttpEntity<Map<String, Object>> dekGrantReq = new HttpEntity<>(
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "payments-svc",
+                        "dek_name", "cross.app.dek.c", "scope", "encrypt"),
+                adminHeaders);
+        ResponseEntity<Map> dekGrantResp = rest.postForEntity("/api/sensec/hsm/v1/admin/dek-grants", dekGrantReq, Map.class);
+        assertEquals(HttpStatus.CREATED, dekGrantResp.getStatusCode());
+
+        ResponseEntity<Map> listResp = rest.exchange("/api/sensec/hsm/v1/admin/dek-grants", HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class);
+        assertEquals(HttpStatus.OK, listResp.getStatusCode());
+        List<Map> dekGrants = (List<Map>) listResp.getBody().get("grants");
+        assertTrue(dekGrants.stream().anyMatch(g -> "cross.app.dek.c".equals(g.get("dek_name"))));
+
+        // Covered by the fine-grained grant.
+        ResponseEntity<Map> allowed = encryptNamed(
+                "demo-token-ops-admin", "ops-admin", "reuse via dek grant", "cross.app.dek.c");
+        assertEquals(HttpStatus.CREATED, allowed.getStatusCode());
+        assertEquals(ownerRecord.getBody().get("edek_id"), allowed.getBody().get("edek_id"));
+
+        // Not covered -- the grant is scoped to one dek_name only.
+        ResponseEntity<Map> denied = encryptNamed(
+                "demo-token-ops-admin", "ops-admin", "still not covered", "cross.app.dek.d");
+        assertEquals(HttpStatus.FORBIDDEN, denied.getStatusCode());
+
+        HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
+                Map.of("grantee_app_id", "ops-admin", "owner_app_id", "payments-svc",
+                        "dek_name", "cross.app.dek.c", "scope", "encrypt"),
+                adminHeaders);
+        ResponseEntity<Void> removeResp = rest.exchange("/api/sensec/hsm/v1/admin/dek-grants", HttpMethod.DELETE, removeReq, Void.class);
         assertEquals(HttpStatus.NO_CONTENT, removeResp.getStatusCode());
     }
 }
