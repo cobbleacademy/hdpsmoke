@@ -18,8 +18,12 @@ public interface EdekRecordRepository extends JpaRepository<EdekRecord, UUID> {
     /** Used by GET /demo/edek-records. */
     List<EdekRecord> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    /** Named-DEK reuse lookup -- at most one row per (appId, dekName) can match, enforced by idx_edek_current_name. */
-    Optional<EdekRecord> findByAppIdAndCurrentDekName(String appId, String dekName);
+    /** Named-DEK reuse lookup -- at most one row per dekName can match, globally (not per-app since
+     * V14: a dek_name is now owned by at most one app system-wide, enforced by idx_edek_current_name).
+     * The caller decides same-app reuse vs. a grant-gated cross-app reuse vs. rejection by comparing
+     * the returned record's appId against the caller's own -- see EncryptionService.resolveDek /
+     * DekIssueService.issueOne. */
+    Optional<EdekRecord> findByCurrentDekName(String dekName);
 
     /** Used by the named-DEK rotation scheduler to find rows past their age threshold. */
     List<EdekRecord> findByRotationStatusAndCurrentDekNameIsNotNullAndCreatedAtBefore(
