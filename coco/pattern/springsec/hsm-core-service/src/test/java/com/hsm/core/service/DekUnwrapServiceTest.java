@@ -7,10 +7,10 @@ import com.hsm.core.dto.DekUnwrapItem;
 import com.hsm.core.dto.DekUnwrapRequest;
 import com.hsm.core.dto.DekUnwrapResponse;
 import com.hsm.core.dto.DekUnwrapResultItem;
-import com.hsm.core.model.AppDecryptGrant;
+import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
-import com.hsm.core.repository.AppDecryptGrantRepository;
+import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import com.hsm.core.repository.EdekRecordRepository;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class DekUnwrapServiceTest {
     private AppRegistrationRepository appRegistrationRepository;
 
     @Autowired
-    private AppDecryptGrantRepository grantRepository;
+    private AppGrantRepository grantRepository;
 
     @Autowired
     private EdekRecordRepository edekRecordRepository;
@@ -132,7 +132,7 @@ class DekUnwrapServiceTest {
         String granteeAppId = "unwrap-grantee-3";
         registerApp(ownerAppId, ownerKeys.getPublic());
         registerApp(granteeAppId, granteeKeys.getPublic());
-        grantRepository.save(new AppDecryptGrant(granteeAppId, ownerAppId));
+        grantRepository.save(new AppGrant(granteeAppId, ownerAppId, "decrypt"));
 
         byte[] rawDek = DekManager.generateDek();
         UUID edekId = seedEdekRecordOwnedBy(ownerAppId, rawDek);

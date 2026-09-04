@@ -168,10 +168,10 @@ class DekIssueServiceTest {
         String appId = "bulk-test-app-classification";
         registerAppWithKeyPair(appId, keyPair.getPublic());
 
-        DekIssueRequest first = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.ssn")));
+        DekIssueRequest first = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.classification-test-ssn")));
         dekIssueService.issue(first, appId, "test-sub", "127.0.0.1");
 
-        DekIssueRequest conflicting = new DekIssueRequest(List.of(new DekIssueItem("row-2", "pci", "customers.ssn")));
+        DekIssueRequest conflicting = new DekIssueRequest(List.of(new DekIssueItem("row-2", "pci", "customers.classification-test-ssn")));
         DekIssueResultItem result = dekIssueService.issue(conflicting, appId, "test-sub", "127.0.0.1").items().get(0);
         assertEquals("error", result.status());
         assertTrue(result.detail().contains("already bound to data_classification"));
