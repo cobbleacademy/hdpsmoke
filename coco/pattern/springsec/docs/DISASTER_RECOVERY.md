@@ -12,7 +12,7 @@ aren't mine to set.
 |---|---|---|---|
 | **0 — must not be lost** | KEK (Azure Managed HSM) | Losing it makes every EDEK in existence permanently unrecoverable | Azure Managed HSM native backup/restore |
 | **0** | EDEK store (`hsm_crypto.edek_records`, Postgres) | The wrapped DEK bytes live here — lose this and the KEK alone can't recover the data, there's nothing left to unwrap | Postgres point-in-time restore + cross-region replica |
-| **0** | Access store (`hsm_access`: `app_registrations`, `app_decrypt_grants`) | Doesn't lose data, but losing it *is* the total-lockout scenario in `RUNBOOK.md` | Same DB, same treatment as EDEK store |
+| **0** | Access store (`hsm_access`: `app_registrations`, `app_grants`, `app_dek_grants`) | Doesn't lose data, but losing it *is* the total-lockout scenario in `RUNBOOK.md` | Same DB, same treatment as EDEK store |
 | **1 — recoverable, restore promptly** | CEK secrets (`cek-alpha`/`cek-beta`/`cek-current-key`, Key Vault Secrets) | Losing these breaks the Redis cache layer only — direct HSM unwrap still works | Key Vault soft-delete + purge protection |
 | **1** | Config / deployment (Helm values, K8s secrets, `application.yml`) | Should already be in version control / a secrets manager | Standard GitOps hygiene, not a new mechanism |
 | **2 — fully disposable** | Redis DEK cache | TTL'd cache; `RedisDekCache`/`NullDekCache` already tolerate it being empty or entirely absent | **None needed** — do not spend effort backing this up |
@@ -63,8 +63,8 @@ above, ideally more often given this is the higher-consequence target):
 - [ ] Confirm `edek_records` row counts and a sample decrypt round-trip
       succeed against the restored data (using a non-production KEK/EDEK
       pair — never exercise this against production keys)
-- [ ] Confirm `app_registrations`/`app_decrypt_grants` restored correctly
-      and match expected state
+- [ ] Confirm `app_registrations`/`app_grants`/`app_dek_grants` restored
+      correctly and match expected state
 - [ ] Time the restore — this is your actual RTO for this component, not
       whatever number is in a document until it's been measured
 

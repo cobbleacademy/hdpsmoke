@@ -71,8 +71,9 @@ more changes since the merge above, all still on `hsm-core-service`/the
   for RSA key-wrapping -- a real gotcha hit and fixed during this build).
 - **Tests**: `DekIssueServiceTest`, `DekUnwrapServiceTest` -- persisted `EdekRecord`
   shape, transport-wrap round-trip, and the same owner/grant enforcement
-  `DecryptionService.decrypt` uses (owner app / explicit `AppDecryptGrant` /
-  `governance` authority).
+  `DecryptionService.decrypt` uses (owner app / a coarse `AppGrant` or
+  fine-grained `AppDekGrant` / `governance` authority -- see
+  `AUTHORIZATION.md` #1d).
 - **Benchmark**: `com.hsm.bulk.bench.BulkVsBatchBenchmark` (runnable `main()`, not
   a JUnit test) -- plays CLNT locally: calls `/dek/issue`, RSA-unwraps the
   transport-wrapped DEK, runs `DekManager.encrypt` locally, and times that against

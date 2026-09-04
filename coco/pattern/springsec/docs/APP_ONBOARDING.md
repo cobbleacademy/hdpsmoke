@@ -46,11 +46,18 @@ Schema reference (`V1__initial_schema.sql` + `V5__add_timestamps_to_access_table
 | `created_at` | Nullable, no default — this SQL-based onboarding path must set it explicitly (`CURRENT_TIMESTAMP`), unlike rows created through `AppRegistration`'s Java constructor (e.g. `DemoSeedInitializer`), which sets it automatically |
 | `updated_at` | Same at insert time; bumped automatically afterward whenever `active` or `allowed_scopes` changes via the running service (`AppRegistration.setActive`/`setAllowedScopes`) |
 
-If it needs an initial cross-app grant, add it in the same migration:
+If it needs an initial cross-app grant, add it in the same migration --
+`scope` is `'encrypt'` or `'decrypt'`, no default (see `AUTHORIZATION.md`
+#1d):
 
 ```sql
-INSERT INTO ${access_schema}.app_decrypt_grants (grantee_app_id, owner_app_id, created_at)
-VALUES ('new-app-id', 'some-owner-app', CURRENT_TIMESTAMP);
+-- Coarse: new-app-id may act (per scope) on ANY of some-owner-app's DEKs.
+INSERT INTO ${access_schema}.app_grants (grantee_app_id, owner_app_id, scope, created_at)
+VALUES ('new-app-id', 'some-owner-app', 'decrypt', CURRENT_TIMESTAMP);
+
+-- Fine-grained (optional): scope the grant to one dek_name only.
+INSERT INTO ${access_schema}.app_dek_grants (grantee_app_id, owner_app_id, dek_name, scope, created_at)
+VALUES ('new-app-id', 'some-owner-app', 'customers.ssn', 'decrypt', CURRENT_TIMESTAMP);
 ```
 
 ## Step 2 — If using Entra ID App Roles (see `AUTHORIZATION.md`)

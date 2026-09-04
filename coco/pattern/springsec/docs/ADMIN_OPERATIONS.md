@@ -16,9 +16,12 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/apps/status` | `manage_apps` | Activate/deactivate an **existing** app_id |
 | `POST /admin/apps/keys` | `provision_app_keys` | Provision/rotate an app's encryption and/or signing public key (see below) |
 | `POST /admin/apps/mtls-cert` | `provision_app_keys` | Provision/rotate an app's mTLS client certificate (see below) |
-| `POST /admin/grants` | `grant` | Add a cross-app decrypt grant (`grantee_app_id` may now decrypt `owner_app_id`'s data) |
-| `DELETE /admin/grants` | `grant` | Remove a grant |
-| `GET /admin/grants` | `grant` | List all grants |
+| `POST /admin/grants` | `grant` | Add a coarse cross-app grant (`grantee_app_id` may now `scope` — `encrypt` or `decrypt` — against *any* of `owner_app_id`'s DEKs; see `AUTHORIZATION.md` §1d) |
+| `DELETE /admin/grants` | `grant` | Remove a coarse grant |
+| `GET /admin/grants` | `grant` | List all coarse grants |
+| `POST /admin/dek-grants` | `grant` | Add a fine-grained grant, scoped to one `dek_name` of `owner_app_id`'s |
+| `DELETE /admin/dek-grants` | `grant` | Remove a fine-grained grant |
+| `GET /admin/dek-grants` | `grant` | List all fine-grained grants |
 | `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
 | `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
@@ -102,13 +105,17 @@ confirmed against `V1__initial_schema.sql` before this was added):
   (no `GET /admin/apps` list endpoint exists — see the gap noted below),
   but queryable directly, which is what `RUNBOOK.md`'s break-glass
   diagnosis actually needs ("was this row recently changed?").
-- **`app_decrypt_grants.created_at`** — set in `AppDecryptGrant`'s
-  constructor, and now exposed via `GET /admin/grants` and the response to
-  `POST /admin/grants` (`GrantResponse.createdAt`). This is the field a
-  periodic access review ("show every grant older than 90 days") queries
-  directly, instead of searching Splunk's `grant_added` events against
-  their own retention window. No `updated_at` on this table — grants are
-  add/remove only, never mutated in place.
+- **`app_grants.created_at` / `app_dek_grants.created_at`** — set in
+  `AppGrant`'s / `AppDekGrant`'s constructor, and exposed via
+  `GET /admin/grants` / `GET /admin/dek-grants` and the response to
+  `POST /admin/grants` / `POST /admin/dek-grants` (`GrantResponse.createdAt`
+  / `DekGrantResponse.createdAt`). This is the field a periodic access
+  review ("show every grant older than 90 days") queries directly, instead
+  of searching Splunk's `grant_added`/`dek_grant_added` events against their
+  own retention window. No `updated_at` on either table — grants are
+  add/remove only, never mutated in place. (These two tables replaced the
+  earlier decrypt-only, coarse-only `app_decrypt_grants` — see
+  `AUTHORIZATION.md` §1d.)
 
 Both columns are nullable with no backfill (same pattern as
 `V2__add_fingerprint_to_edek_records.sql`): rows from before this migration
@@ -132,7 +139,7 @@ onboarding at higher volume than manual migrations can support.
 
 ## Prefer the admin API over direct SQL for security-relevant changes
 
-Direct SQL against `app_registrations`/`app_decrypt_grants` is sometimes
+Direct SQL against `app_registrations`/`app_grants`/`app_dek_grants` is sometimes
 unavoidable — see `RUNBOOK.md`'s total-lockout section, the one case where
 the API itself is what's broken, so the DB is the only path left. Outside
 that case, don't reach for it as a shortcut for something an admin endpoint
@@ -198,12 +205,21 @@ curl -X POST "$BASE/admin/apps/status" \
   -H "Content-Type: application/json" \
   -d '{"app_id": "compromised-app", "active": false}'
 
-# Add a cross-app decrypt grant
+# Add a coarse cross-app grant -- scope is required, no default (see AUTHORIZATION.md #1d)
 curl -X POST "$BASE/admin/grants" \
   -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
   -H "Content-Type: application/json" \
-  -d '{"grantee_app_id": "reporting-app", "owner_app_id": "payments-svc"}'
+  -d '{"grantee_app_id": "reporting-app", "owner_app_id": "payments-svc", "scope": "decrypt"}'
 
-# List all grants
+# List all coarse grants
 curl "$BASE/admin/grants" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
+
+# Add a fine-grained grant, scoped to one dek_name only
+curl -X POST "$BASE/admin/dek-grants" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"grantee_app_id": "reporting-app", "owner_app_id": "payments-svc", "dek_name": "customers.ssn", "scope": "decrypt"}'
+
+# List all fine-grained grants
+curl "$BASE/admin/dek-grants" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
 ```

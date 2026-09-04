@@ -314,6 +314,103 @@ for this threat, and not counted as one below.
    performance-vs-exposure tradeoff `DekManager`/`HsmCryptoClient` were
    built to make in the first place — not a patch, a different design.
 
+## 1d. Cross-app grants: `dek_name` ownership, coarse and fine-grained
+
+Raised in review/testing: a `dek_name` (the caller-supplied handle that lets
+`/encrypt`, `/encrypt/batch`, and `/dek/issue` reuse the same DEK across many
+calls instead of minting a fresh one every time — see `EncryptionService`'s
+DEK-reuse cache) used to be scoped `(app_id, dek_name)` at the DB level
+(`idx_edek_current_name` in V7). Two different apps could each mint a DEK
+under the identical name string with zero relationship between them, and
+whichever app called `/decrypt`/`/dek/unwrap` afterward was the only thing
+gated by a grant — reusing someone else's `dek_name` on the *encrypt* side
+was silently accepted. `V14__add_scoped_grants_and_global_dek_name_ownership.sql`
+closes this:
+
+**`dek_name` is now globally unique, first-encrypt-wins.** The unique index
+(`idx_edek_current_name`) is now on `current_dek_name` alone, not
+`(app_id, current_dek_name)`. Whichever app's `EdekRecord` first holds a
+given name becomes that name's owner system-wide, permanently (barring an
+explicit grant to someone else). A second app attempting to reuse that name
+via `/encrypt`, `/encrypt/batch`, or `/dek/issue` without a grant now gets a
+hard `403 Forbidden` — never a silently-independent DEK.
+
+**Migrating a real (non-demo) deployment: V14 reconciles pre-existing data,
+it doesn't just assume a clean slate.** Two things the old, looser model
+could have left behind, both handled by V14 itself before it enforces
+anything new:
+
+1. *Colliding `current_dek_name`s across apps.* Under the old
+   `(app_id, current_dek_name)`-scoped uniqueness, two different apps could
+   already legitimately hold the identical `current_dek_name`. The new
+   global unique index can't be created over that, so V14 resolves it first
+   — same first-encrypt-wins rule the rest of this fix uses: for each
+   duplicated name, the row with the earliest `created_at` (a row with no
+   timestamp at all is ordered last, deliberately, never treated as
+   "oldest"; `edek_id` breaks any remaining tie) keeps `current_dek_name`;
+   every other row sharing that name gets it set to `NULL`. This only
+   touches `current_dek_name` — `dek_name` (permanent audit history),
+   `edek_id`, and every ciphertext token already issued are untouched, and
+   decrypt/unwrap are keyed by `edek_id`, never `current_dek_name`, so
+   nothing already encrypted becomes undecryptable. The real, intended
+   effect lands on the *losing* app(s): their next `/encrypt`,
+   `/encrypt/batch`, or `/dek/issue` call under that name mints a genuinely
+   fresh DEK instead of silently continuing to share the old one — exactly
+   the accidental, ungranted sharing this migration exists to stop. If a
+   losing app actually needs continued access to the winner's data under
+   that name, grant it explicitly afterward via `/admin/grants` or
+   `/admin/dek-grants`, the same as any other cross-app case.
+2. *Existing `app_decrypt_grants` rows.* Carried forward, not dropped —
+   V14 inserts one `app_grants` row per existing grant with `scope =
+   'decrypt'` (every pre-V14 row implicitly meant decrypt) before dropping
+   the old table, so no previously-granted app loses access as a side
+   effect of this migration.
+
+Verified directly against a synthetic pre-V14 dataset with real collisions
+(two independently-created rows sharing a name, one with a null
+`created_at`, plus a genuine cross-app grant) before shipping — not just
+assumed correct from reading the SQL.
+
+**Grants are symmetric across encrypt and decrypt, each with a coarse and a
+fine-grained tier**, replacing the old decrypt-only, coarse-only
+`app_decrypt_grants` table:
+
+- `app_grants (grantee_app_id, owner_app_id, scope)` — coarse: grantee may
+  act (per `scope`) on *any* of the owner's `dek_name`s / EDEKs.
+- `app_dek_grants (grantee_app_id, owner_app_id, dek_name, scope)` —
+  fine-grained: grantee may act (per `scope`) on that one specific
+  `dek_name` only.
+
+`scope` is `"encrypt"` or `"decrypt"` today. It is deliberately **not**
+DB-constrained (no `CHECK`, no separate table per scope) — the same
+unconstrained-string convention `app_registrations.allowed_scopes` already
+uses — so a future scope needs no migration, only an addition to
+`AdminController.KNOWN_GRANT_SCOPES` (the application-layer check that
+rejects unknown scopes with `422`) the same day real enforcement code for it
+ships.
+
+**Check order**, implemented once as
+`AppRegistryService.isGranted(granteeAppId, ownerAppId, scope, dekName)` and
+called identically from `EncryptionService`/`DekIssueService` (scope
+`"encrypt"`) and `DecryptionService`/`DekUnwrapService` (scope `"decrypt"`):
+
+1. Same app → always allowed (an app always owns its own DEKs).
+2. Coarse grant exists for `(granteeAppId, ownerAppId, scope)` → allowed.
+3. Fine-grained grant exists for `(granteeAppId, ownerAppId, dekName, scope)`
+   → allowed. Uses `EdekRecord.getDekName()` (permanent, never nulled), not
+   `getCurrentDekName()` (nulled on rotation) — a grant keeps covering a
+   name's historical/rotated data even after it rotates away from current.
+4. Otherwise → denied (`403`).
+
+The pre-existing `governance` scope bypass (`callerScopes.contains
+("governance")` skips the grant check entirely, for audit tooling) is
+unchanged in both `DecryptionService` and `DekUnwrapService`.
+
+**Admin API:** `POST`/`DELETE`/`GET /admin/grants` (coarse, now scope-aware —
+see [`ADMIN_OPERATIONS.md`](ADMIN_OPERATIONS.md)) and the new
+`POST`/`DELETE`/`GET /admin/dek-grants` (fine-grained), both gated behind the
+existing `grant` authority.
+
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 
 For a service-to-service (client-credentials) scenario like this one, the
@@ -357,7 +454,7 @@ just a different source for the authority list.
 | Who can change permissions | Anyone with access to this service's `/admin/*` endpoints | Anyone with Entra ID admin rights on the app registration |
 | Change takes effect | Immediately (cache invalidated on write) | On next token issuance — client-credentials tokens are typically cached ~1h by the caller's MSAL library, so a revoked role can still be honored until the caller's cached token expires |
 | Audit trail | This service's own `audit_log` (`grant_added`, `app_status_changed`, ...) | Entra ID's own sign-in / audit logs — a second place to look |
-| Cross-app decrypt grants (`app_decrypt_grants`) | Unaffected either way — this is a separate, finer-grained mechanism (which specific *other* app may read *this* app's data) that has no Entra ID equivalent and would stay DB-driven regardless |
+| Cross-app grants (`app_grants`, `app_dek_grants`) | Unaffected either way — this is a separate, finer-grained mechanism (which specific *other* app may encrypt/decrypt *this* app's data, coarse or per-`dek_name`, see §1d) that has no Entra ID equivalent and would stay DB-driven regardless |
 
 Moving to App Roles centralizes governance in Entra ID and removes a table
 that must be kept in sync with reality, at the cost of losing the immediate

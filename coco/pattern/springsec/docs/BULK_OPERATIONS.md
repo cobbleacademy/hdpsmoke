@@ -428,8 +428,8 @@ throughput. **Any Tier 3 work keeps one DEK per record, full stop.**
 > `/encrypt/batch`, `/dek/issue`). The decision to allow this exception was
 > made explicitly, with the isolation/blast-radius tradeoff stated directly
 > before proceeding, and with mitigations this original rejection didn't
-> have available (age-based rotation, classification binding, a documented
-> phase-2 gap in `app_decrypt_grants` scoping — see below). The constraint
+> have available (age-based rotation, classification binding, a since-closed
+> gap in cross-app grant scoping — see below). The constraint
 > as originally written still governs the default; it no longer governs
 > every possible path.
 
@@ -634,16 +634,26 @@ required for a first version.
   escalation risk specific to decrypt (encrypt's PBAC check has no
   pre-existing owner to check, so it doesn't have this problem). Parked,
   not implemented.
-- **(New, later round)** `app_decrypt_grants` cross-app authorization is
+- ~~**(New, later round)** `app_decrypt_grants` cross-app authorization is
   app-to-app only (`(grantee_app_id, owner_app_id)`, no column/name scoping)
   — this predates `dek_name` and was already this coarse for ordinary
   DEK-per-record data. But `dek_name` now gives the system a real taxonomy
   (`"customers.ssn"` vs. `"customers.account_number"`) that grant scoping
-  could use but doesn't — an auditor can reasonably ask why access control
-  doesn't distinguish what DEK issuance already does. Natural fix: extend
-  `AppDecryptGrant`'s key with an optional, nullable `dek_name` (`NULL` =
-  today's blanket grant, unchanged; a value scopes to just that name) —
-  **still open, not required to ship `dek_name` reuse itself**.
+  could use but doesn't~~ — **resolved, built (later round, V14)**: this
+  gap turned out to be a real bug, not just an audit-optics concern —
+  testing found that `dek_name` reuse on the *encrypt* side had no ownership
+  concept at all (`(app_id, dek_name)`-scoped uniqueness meant two different
+  apps could each silently mint their own DEK under the identical name, zero
+  relationship, zero grant check). Fixed by making `dek_name` globally
+  unique (first `/encrypt`/`/dek/issue` for a name wins ownership) and
+  replacing `app_decrypt_grants` with a symmetric pair covering **both**
+  encrypt and decrypt: `app_grants` (coarse, unchanged shape) and the new
+  `app_dek_grants` (fine-grained, keyed by `(grantee_app_id, owner_app_id,
+  dek_name, scope)` — the nullable-column design sketched below, minus the
+  nullability: a missing fine-grained row just means "check coarse only,"
+  same effect as `NULL` would have meant). See `AUTHORIZATION.md` §1d for
+  the full design and `ADMIN_OPERATIONS.md` for the `/admin/dek-grants`
+  endpoints.
 
 ## What this doesn't change
 
