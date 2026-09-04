@@ -2,5 +2,5 @@ package com.hsm.core.dto;
 
 import java.time.OffsetDateTime;
 
-public record GrantResponse(String granteeAppId, String ownerAppId, OffsetDateTime createdAt) {
+public record GrantResponse(String granteeAppId, String ownerAppId, String scope, OffsetDateTime createdAt) {
 }
