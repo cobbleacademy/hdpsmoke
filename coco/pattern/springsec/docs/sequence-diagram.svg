@@ -146,8 +146,8 @@
           <text x="175" y="156" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">{ plaintext, encoding, data_classification, end_user_id }</text>
           <path d="M 291 163 L 319 163 L 319 181 L 295 181" fill="none" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
           <text x="323" y="175" fill="#a78bfa" font-size="8" font-family="monospace">4. validate JWT · app_id · scope=encrypt</text>
-          <text x="323" y="189" fill="#10b981" font-size="8" font-family="monospace">4a. [dek_name set + current row found] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)</text>
-          <text x="323" y="203" fill="#555b7a" font-size="8" font-family="monospace">4b. [else] MINT: continue below — gen fresh DEK, wrap via KEK, INSERT edek_record</text>
+          <text x="323" y="189" fill="#10b981" font-size="8" font-family="monospace">4a. [found: same app, or granted (scope=encrypt)] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)</text>
+          <text x="323" y="203" fill="#555b7a" font-size="8" font-family="monospace">4b. [found, different app, NOT granted] 403  ·  [not found] MINT: gen fresh DEK, wrap via KEK, INSERT edek_record</text>
           <line x1="291" y1="222" x2="406" y2="222" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
           <text x="350" y="217" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">5. wrap DEK  [Service SPN · RSA-OAEP-256 · Managed HSM]</text>
           <line x1="410" y1="238" x2="295" y2="238" stroke="#e879f9" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-pink)"/>
@@ -176,7 +176,7 @@
           <text x="480" y="398" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">14. { edek_blob, kek_version, owner_app_id, data_class }</text>
           <!-- 15. HSM → ACCESS STORE: grant check -->
           <line x1="291" y1="417" x2="796" y2="417" stroke="#fb923c" stroke-width="1.5" marker-end="url(#sq-orange)"/>
-          <text x="543" y="412" text-anchor="middle" fill="#fb923c" font-size="8" font-family="monospace">15. grant check: caller → owner?  [hsm_access.app_decrypt_grants]</text>
+          <text x="543" y="412" text-anchor="middle" fill="#fb923c" font-size="8" font-family="monospace">15. grant check: same app → coarse app_grants → fine-grained app_dek_grants  [scope=decrypt]</text>
           <line x1="800" y1="435" x2="295" y2="435" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="5,3" marker-end="url(#sq-orange)"/>
           <text x="543" y="430" text-anchor="middle" fill="#fb923c" font-size="8" font-family="monospace">granted / denied</text>
 
@@ -255,11 +255,12 @@
           <line x1="225" y1="1058" x2="501" y2="1058" stroke="#3b82f6" stroke-width="1.5" marker-end="url(#sq-blue)"/>
           <text x="363" y="1053" text-anchor="middle" fill="#3b82f6" font-size="8" font-family="monospace">25. POST /dek/issue  { key, data_classification, name: dek_name }  [Bearer: static, Workload Identity, or self-signed JWT]</text>
 
-          <text x="363" y="1073" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">26. SVC: lookup (app_id, current_dek_name)</text>
-          <line x1="505" y1="1084" x2="509" y2="1084" stroke="#10b981" stroke-width="1.2"/>
-          <text x="363" y="1096" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">26a. [FOUND] reuse: unwrap existing edek_blob  [HSM Service's Workload Identity · Managed HSM]</text>
-          <text x="363" y="1109" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">— skip mint, skip INSERT — same edek_id every call for this name</text>
-          <text x="363" y="1124" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">26b. [NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — same table HSM Service writes above</text>
+          <text x="363" y="1073" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">26. SVC: lookup by current_dek_name  (GLOBAL — V14, was per-app)</text>
+          <line x1="505" y1="1085" x2="509" y2="1085" stroke="#10b981" stroke-width="1.2"/>
+          <text x="363" y="1085" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">26a. [FOUND, same app or granted] reuse: unwrap edek_blob  [Workload Identity · Managed HSM]</text>
+          <text x="363" y="1097" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">— skip mint, skip INSERT — same edek_id every call for this name</text>
+          <text x="363" y="1109" text-anchor="middle" fill="#ef4444" font-size="8" font-family="monospace">26b. [FOUND, different app, NOT granted] 403 — request an encrypt grant via /admin/grants or /dek-grants</text>
+          <text x="363" y="1121" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">26c. [NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — this app becomes its owner</text>
 
           <line x1="505" y1="1138" x2="229" y2="1138" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#sq-purple)"/>
           <text x="363" y="1133" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">27. { edek_id, wrapped_dek_b64, reused: true|false }  [RSA-OAEP-256, wrapped for CLNT's own public key]</text>
