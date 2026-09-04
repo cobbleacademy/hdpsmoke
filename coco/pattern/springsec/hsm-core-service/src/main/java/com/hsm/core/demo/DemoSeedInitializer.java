@@ -1,9 +1,9 @@
 package com.hsm.core.demo;
 
 import com.hsm.core.auth.MockJwtValidator;
-import com.hsm.core.model.AppDecryptGrant;
+import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
-import com.hsm.core.repository.AppDecryptGrantRepository;
+import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -14,8 +14,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Seeds the demo apps' scopes and the reporting-app -&gt; payments-svc grant at
- * startup, idempotently. Ported from the demo_mode branch of
+ * Seeds the demo apps' scopes and the reporting-app -&gt; payments-svc decrypt
+ * grant at startup, idempotently. Ported from the demo_mode branch of
  * app/dependencies.py's init_dependencies.
  */
 @Component
@@ -23,9 +23,9 @@ import java.util.Map;
 public class DemoSeedInitializer {
 
     private final AppRegistrationRepository registrationRepository;
-    private final AppDecryptGrantRepository grantRepository;
+    private final AppGrantRepository grantRepository;
 
-    public DemoSeedInitializer(AppRegistrationRepository registrationRepository, AppDecryptGrantRepository grantRepository) {
+    public DemoSeedInitializer(AppRegistrationRepository registrationRepository, AppGrantRepository grantRepository) {
         this.registrationRepository = registrationRepository;
         this.grantRepository = grantRepository;
     }
@@ -40,9 +40,9 @@ public class DemoSeedInitializer {
             }
         }
         for (Map.Entry<String, String> grant : MockJwtValidator.DEMO_GRANTS) {
-            AppDecryptGrant.Key key = new AppDecryptGrant.Key(grant.getKey(), grant.getValue());
+            AppGrant.Key key = new AppGrant.Key(grant.getKey(), grant.getValue(), "decrypt");
             if (!grantRepository.existsById(key)) {
-                grantRepository.save(new AppDecryptGrant(grant.getKey(), grant.getValue()));
+                grantRepository.save(new AppGrant(grant.getKey(), grant.getValue(), "decrypt"));
             }
         }
     }
