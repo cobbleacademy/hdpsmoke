@@ -1,8 +1,10 @@
 package com.hsm.core.auth;
 
-import com.hsm.core.model.AppDecryptGrant;
+import com.hsm.core.model.AppDekGrant;
+import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
-import com.hsm.core.repository.AppDecryptGrantRepository;
+import com.hsm.core.repository.AppDekGrantRepository;
+import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,17 +23,21 @@ import java.util.concurrent.ConcurrentHashMap;
 public class AppRegistryService {
 
     private final AppRegistrationRepository registrationRepository;
-    private final AppDecryptGrantRepository grantRepository;
+    private final AppGrantRepository grantRepository;
+    private final AppDekGrantRepository dekGrantRepository;
 
     private final Map<String, List<String>> scopeCache = new ConcurrentHashMap<>();
     private final Map<String, String> publicKeyCache = new ConcurrentHashMap<>();
     private final Map<String, String> signingKeyCache = new ConcurrentHashMap<>();
     private final Map<String, String> mtlsFingerprintCache = new ConcurrentHashMap<>();
     private final Map<String, Boolean> grantCache = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> dekGrantCache = new ConcurrentHashMap<>();
 
-    public AppRegistryService(AppRegistrationRepository registrationRepository, AppDecryptGrantRepository grantRepository) {
+    public AppRegistryService(AppRegistrationRepository registrationRepository, AppGrantRepository grantRepository,
+                               AppDekGrantRepository dekGrantRepository) {
         this.registrationRepository = registrationRepository;
         this.grantRepository = grantRepository;
+        this.dekGrantRepository = dekGrantRepository;
     }
 
     public List<String> getScopes(String appId) throws AppRegistryException {
@@ -175,41 +181,93 @@ public class AppRegistryService {
         invalidate(appId);
     }
 
-    /** True if granteeAppId may decrypt data owned by ownerAppId. */
-    public boolean isGranted(String granteeAppId, String ownerAppId) {
+    /**
+     * True if granteeAppId may act (for the given scope -- "encrypt" or "decrypt") on a
+     * resource owned by ownerAppId. Same-app is always true. Otherwise checked in order,
+     * cheapest/broadest first: a coarse AppGrant (covers every resource ownerAppId owns
+     * for this scope) short-circuits before ever checking the fine-grained table. If no
+     * coarse grant applies, falls through to an AppDekGrant scoped to this specific
+     * dekName -- skipped entirely when dekName is null/blank (e.g. an unnamed legacy
+     * EDEK has nothing a fine-grained, name-scoped grant could ever match).
+     */
+    public boolean isGranted(String granteeAppId, String ownerAppId, String scope, String dekName) {
         if (granteeAppId.equals(ownerAppId)) {
             return true;
         }
-        String cacheKey = cacheKey(granteeAppId, ownerAppId);
+        if (isCoarseGranted(granteeAppId, ownerAppId, scope)) {
+            return true;
+        }
+        if (dekName == null || dekName.isBlank()) {
+            return false;
+        }
+        return isDekGranted(granteeAppId, ownerAppId, dekName, scope);
+    }
+
+    private boolean isCoarseGranted(String granteeAppId, String ownerAppId, String scope) {
+        String cacheKey = grantCacheKey(granteeAppId, ownerAppId, scope);
         Boolean cached = grantCache.get(cacheKey);
         if (cached != null) {
             return cached;
         }
-        boolean granted = grantRepository.existsById(new AppDecryptGrant.Key(granteeAppId, ownerAppId));
+        boolean granted = grantRepository.existsById(new AppGrant.Key(granteeAppId, ownerAppId, scope));
         grantCache.put(cacheKey, granted);
         return granted;
     }
 
+    private boolean isDekGranted(String granteeAppId, String ownerAppId, String dekName, String scope) {
+        String cacheKey = dekGrantCacheKey(granteeAppId, ownerAppId, dekName, scope);
+        Boolean cached = dekGrantCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        boolean granted = dekGrantRepository.existsById(new AppDekGrant.Key(granteeAppId, ownerAppId, dekName, scope));
+        dekGrantCache.put(cacheKey, granted);
+        return granted;
+    }
+
     @Transactional
-    public AppDecryptGrant addGrant(String granteeAppId, String ownerAppId) {
-        AppDecryptGrant.Key key = new AppDecryptGrant.Key(granteeAppId, ownerAppId);
-        AppDecryptGrant existing = grantRepository.findById(key).orElse(null);
-        AppDecryptGrant saved = existing != null ? existing : grantRepository.save(new AppDecryptGrant(granteeAppId, ownerAppId));
-        grantCache.put(cacheKey(granteeAppId, ownerAppId), true);
+    public AppGrant addGrant(String granteeAppId, String ownerAppId, String scope) {
+        AppGrant.Key key = new AppGrant.Key(granteeAppId, ownerAppId, scope);
+        AppGrant existing = grantRepository.findById(key).orElse(null);
+        AppGrant saved = existing != null ? existing : grantRepository.save(new AppGrant(granteeAppId, ownerAppId, scope));
+        grantCache.put(grantCacheKey(granteeAppId, ownerAppId, scope), true);
         return saved;
     }
 
     @Transactional
-    public void removeGrant(String granteeAppId, String ownerAppId) {
-        grantRepository.deleteById(new AppDecryptGrant.Key(granteeAppId, ownerAppId));
-        grantCache.remove(cacheKey(granteeAppId, ownerAppId));
+    public void removeGrant(String granteeAppId, String ownerAppId, String scope) {
+        grantRepository.deleteById(new AppGrant.Key(granteeAppId, ownerAppId, scope));
+        grantCache.remove(grantCacheKey(granteeAppId, ownerAppId, scope));
     }
 
-    public List<AppDecryptGrant> listGrants() {
+    public List<AppGrant> listGrants() {
         return grantRepository.findAll();
     }
 
-    private static String cacheKey(String granteeAppId, String ownerAppId) {
-        return granteeAppId + " " + ownerAppId;
+    @Transactional
+    public AppDekGrant addDekGrant(String granteeAppId, String ownerAppId, String dekName, String scope) {
+        AppDekGrant.Key key = new AppDekGrant.Key(granteeAppId, ownerAppId, dekName, scope);
+        AppDekGrant existing = dekGrantRepository.findById(key).orElse(null);
+        AppDekGrant saved = existing != null ? existing : dekGrantRepository.save(new AppDekGrant(granteeAppId, ownerAppId, dekName, scope));
+        dekGrantCache.put(dekGrantCacheKey(granteeAppId, ownerAppId, dekName, scope), true);
+        return saved;
+    }
+
+    @Transactional
+    public void removeDekGrant(String granteeAppId, String ownerAppId, String dekName, String scope) {
+        dekGrantRepository.deleteById(new AppDekGrant.Key(granteeAppId, ownerAppId, dekName, scope));
+        dekGrantCache.remove(dekGrantCacheKey(granteeAppId, ownerAppId, dekName, scope));
+    }
+
+    public List<AppDekGrant> listDekGrants() {
+        return dekGrantRepository.findAll();
+    }
+
+    private static String grantCacheKey(String granteeAppId, String ownerAppId, String scope) {
+        return granteeAppId + " " + ownerAppId + " " + scope;
+    }
+
+    private static String dekGrantCacheKey(String granteeAppId, String ownerAppId, String dekName, String scope) {
+        return granteeAppId + " " + ownerAppId + " " + dekName + " " + scope;
     }
 }
