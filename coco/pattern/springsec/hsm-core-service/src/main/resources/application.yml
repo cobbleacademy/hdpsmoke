@@ -221,6 +221,9 @@ hsm:
       - pattern: /admin/grants
         methods: [POST, DELETE, GET]
         authorities: [grant]
+      - pattern: /admin/dek-grants
+        methods: [POST, DELETE, GET]
+        authorities: [grant]
       - pattern: /admin/apps/status
         methods: [POST]
         authorities: [manage_apps]
