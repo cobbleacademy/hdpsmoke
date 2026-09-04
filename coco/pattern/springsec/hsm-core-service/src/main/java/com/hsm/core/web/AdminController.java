@@ -11,6 +11,9 @@ import com.hsm.core.dto.AppKeysRequest;
 import com.hsm.core.dto.AppKeysResponse;
 import com.hsm.core.dto.AppStatusRequest;
 import com.hsm.core.dto.AppStatusResponse;
+import com.hsm.core.dto.DekGrantListResponse;
+import com.hsm.core.dto.DekGrantRequest;
+import com.hsm.core.dto.DekGrantResponse;
 import com.hsm.core.dto.GrantListResponse;
 import com.hsm.core.dto.GrantRequest;
 import com.hsm.core.dto.GrantResponse;
@@ -21,7 +24,8 @@ import com.hsm.core.dto.RekeyRequest;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RevertRekeyRequest;
 import com.hsm.core.dto.RotateKekResponse;
-import com.hsm.core.model.AppDecryptGrant;
+import com.hsm.core.model.AppDekGrant;
+import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.service.RotationService;
 import jakarta.validation.Valid;
@@ -43,6 +47,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Ported from app/routers/admin.py. Scope enforcement (rotate/grant/manage_apps
@@ -129,29 +134,77 @@ public class AdminController {
         return new HealthResponse(overall, vaultOk, dbOk);
     }
 
+    /** Scopes a grant may meaningfully apply to today -- checked here at the API boundary,
+     * not enforced by a DB constraint (see V14's own comment on why the scope column
+     * itself is deliberately unconstrained free-text): rejecting an unknown value here
+     * stops a typo'd or not-yet-supported scope from silently persisting a grant that no
+     * enforcement code path will ever actually check, while still needing zero schema
+     * migration the day a real third scope is added -- update this set alongside the
+     * actual enforcement code for it, same day. */
+    private static final Set<String> KNOWN_GRANT_SCOPES = Set.of("encrypt", "decrypt");
+
+    private static void requireKnownScope(String scope) {
+        if (!KNOWN_GRANT_SCOPES.contains(scope)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "scope must be one of " + KNOWN_GRANT_SCOPES + " -- got '" + scope + "'");
+        }
+    }
+
     @PostMapping("${hsm.service.api-v1-prefix}/admin/grants")
     public ResponseEntity<GrantResponse> addGrant(@Valid @RequestBody GrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
-        AppDecryptGrant grant = appRegistry.addGrant(body.granteeAppId(), body.ownerAppId());
+        requireKnownScope(body.scope());
+        AppGrant grant = appRegistry.addGrant(body.granteeAppId(), body.ownerAppId(), body.scope());
         auditLogger.log("grant_added", "app_id", caller.appId(), "sub", caller.sub(),
-                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(), "status", "success");
+                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(), "scope", body.scope(), "status", "success");
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new GrantResponse(grant.getGranteeAppId(), grant.getOwnerAppId(), grant.getCreatedAt()));
+                .body(new GrantResponse(grant.getGranteeAppId(), grant.getOwnerAppId(), grant.getScope(), grant.getCreatedAt()));
     }
 
     @DeleteMapping("${hsm.service.api-v1-prefix}/admin/grants")
     public ResponseEntity<Void> removeGrant(@Valid @RequestBody GrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
-        appRegistry.removeGrant(body.granteeAppId(), body.ownerAppId());
+        appRegistry.removeGrant(body.granteeAppId(), body.ownerAppId(), body.scope());
         auditLogger.log("grant_removed", "app_id", caller.appId(), "sub", caller.sub(),
-                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(), "status", "success");
+                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(), "scope", body.scope(), "status", "success");
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("${hsm.service.api-v1-prefix}/admin/grants")
     public GrantListResponse listGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
         List<GrantResponse> grants = appRegistry.listGrants().stream()
-                .map(g -> new GrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getCreatedAt()))
+                .map(g -> new GrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getScope(), g.getCreatedAt()))
                 .toList();
         return new GrantListResponse(grants);
+    }
+
+    /** Fine-grained counterpart to the coarse endpoints above -- same 'grant' scope, since
+     * managing cross-app authorization relationships is one admin capability regardless of
+     * whether a given grant happens to be coarse or fine-grained. */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    public ResponseEntity<DekGrantResponse> addDekGrant(@Valid @RequestBody DekGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        requireKnownScope(body.scope());
+        AppDekGrant grant = appRegistry.addDekGrant(body.granteeAppId(), body.ownerAppId(), body.dekName(), body.scope());
+        auditLogger.log("dek_grant_added", "app_id", caller.appId(), "sub", caller.sub(),
+                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(),
+                "dek_name", body.dekName(), "scope", body.scope(), "status", "success");
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new DekGrantResponse(grant.getGranteeAppId(), grant.getOwnerAppId(), grant.getDekName(), grant.getScope(), grant.getCreatedAt()));
+    }
+
+    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    public ResponseEntity<Void> removeDekGrant(@Valid @RequestBody DekGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        appRegistry.removeDekGrant(body.granteeAppId(), body.ownerAppId(), body.dekName(), body.scope());
+        auditLogger.log("dek_grant_removed", "app_id", caller.appId(), "sub", caller.sub(),
+                "grantee_app_id", body.granteeAppId(), "owner_app_id", body.ownerAppId(),
+                "dek_name", body.dekName(), "scope", body.scope(), "status", "success");
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    public DekGrantListResponse listDekGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
+        List<DekGrantResponse> grants = appRegistry.listDekGrants().stream()
+                .map(g -> new DekGrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getDekName(), g.getScope(), g.getCreatedAt()))
+                .toList();
+        return new DekGrantListResponse(grants);
     }
 
     /**
