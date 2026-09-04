@@ -30,8 +30,8 @@ import java.util.Set;
 /**
  * POST /dek/unwrap -- java/docs/BULK_OPERATIONS.md Tier 3, Phase 2. Per item:
  * resolve the EdekRecord, apply the SAME owner/grant check
- * DecryptionService.decrypt enforces (owner app, an explicit AppDecryptGrant, or
- * the governance authority), unwrap via the real KEK exactly as /decrypt does,
+ * DecryptionService.decrypt enforces (owner app, a coarse AppGrant or
+ * fine-grained AppDekGrant, or the governance authority), unwrap via the real KEK exactly as /decrypt does,
  * then transport-wrap the raw DEK again -- with the REQUESTING app's own public
  * key, not the original owner's -- so only the caller (holding the matching
  * private key) can open it.
@@ -110,7 +110,9 @@ public class DekUnwrapService {
         EdekRecord record = maybeRecord.get();
         String ownerAppId = record.getAppId();
 
-        if (!callerScopes.contains("governance") && !appRegistry.isGranted(appId, ownerAppId)) {
+        // Coarse or, since V14, fine-grained (record.getDekName(), not getCurrentDekName()
+        // -- a grant still applies to historical/rotated data under that name).
+        if (!callerScopes.contains("governance") && !appRegistry.isGranted(appId, ownerAppId, "decrypt", record.getDekName())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Access denied");
         }
 

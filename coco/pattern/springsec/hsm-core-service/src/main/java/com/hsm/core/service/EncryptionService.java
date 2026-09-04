@@ -1,6 +1,7 @@
 package com.hsm.core.service;
 
 import com.hsm.core.audit.AuditLogger;
+import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.PbacClient;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.DekCache;
@@ -50,10 +51,11 @@ public class EncryptionService {
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
     private final ExecutorService batchExecutor;
+    private final AppRegistryService appRegistry;
 
     public EncryptionService(KekClient kekClient, KekRegistryService kekRegistryService, EdekRecordRepository edekRecordRepository,
                               DekCache dekCache, PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
-                              ExecutorService batchExecutor) {
+                              ExecutorService batchExecutor, AppRegistryService appRegistry) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
@@ -62,6 +64,7 @@ public class EncryptionService {
         this.auditLogger = auditLogger;
         this.properties = properties;
         this.batchExecutor = batchExecutor;
+        this.appRegistry = appRegistry;
     }
 
     /** Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or from DekCache) or a newly minted one (reused=false, not yet persisted). */
@@ -154,9 +157,20 @@ public class EncryptionService {
     private ResolvedDek resolveDek(String appId, String dekName, String dataClassification) {
         boolean named = dekName != null && !dekName.isBlank();
         if (named) {
-            Optional<EdekRecord> existing = edekRecordRepository.findByAppIdAndCurrentDekName(appId, dekName);
+            Optional<EdekRecord> existing = edekRecordRepository.findByCurrentDekName(dekName);
             if (existing.isPresent()) {
                 EdekRecord record = existing.get();
+                // dek_name is globally owned (V14) -- the app that first minted it, not the
+                // caller's own scope. A different app may reuse it only with an explicit
+                // encrypt grant (coarse: any of the owner's names, or fine-grained: this one
+                // specifically); without either, this is a naming collision with someone
+                // else's resource, not a free name, and must be rejected outright rather than
+                // silently minting a second, unrelated DEK under the same name.
+                if (!record.getAppId().equals(appId) && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", dekName)) {
+                    throw new ApiException(HttpStatus.FORBIDDEN,
+                            "dek_name '" + dekName + "' is owned by app '" + record.getAppId()
+                                    + "' -- request an encrypt grant before reusing it");
+                }
                 checkClassificationMatch(dekName, record.getDataClassification(), dataClassification);
                 if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
                         && dataClassification != null && !dataClassification.isBlank()) {

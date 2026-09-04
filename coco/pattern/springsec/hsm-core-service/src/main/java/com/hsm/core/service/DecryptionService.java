@@ -117,9 +117,12 @@ public class DecryptionService {
         String ownerAppId = record.getAppId();
 
         // Governance SPN bypasses the per-record grant check -- it may decrypt any
-        // record for audit purposes. All other callers must have an explicit grant.
+        // record for audit purposes. All other callers must have an explicit grant --
+        // coarse (any of the owner's records) or, since V14, fine-grained (specifically
+        // this record's dek_name, record.getDekName() rather than getCurrentDekName() so
+        // a grant still applies to historical/rotated data under that name).
         if (!callerScopes.contains("governance")) {
-            if (!appRegistry.isGranted(appId, ownerAppId)) {
+            if (!appRegistry.isGranted(appId, ownerAppId, "decrypt", record.getDekName())) {
                 auditFail(appId, callerSub, edekIdStr, callerIp, "no_grant_for_owner", request.endUserId(), ownerAppId);
                 throw new ApiException(HttpStatus.FORBIDDEN, "Access denied");
             }

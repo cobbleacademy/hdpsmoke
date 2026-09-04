@@ -118,9 +118,17 @@ public class DekIssueService {
         boolean named = name != null && !name.isBlank();
 
         if (named) {
-            Optional<EdekRecord> existing = edekRecordRepository.findByAppIdAndCurrentDekName(appId, name);
+            Optional<EdekRecord> existing = edekRecordRepository.findByCurrentDekName(name);
             if (existing.isPresent()) {
                 EdekRecord record = existing.get();
+                // dek_name is globally owned (V14) -- see EncryptionService.resolveDek's
+                // identical check for the full reasoning; this is the same gap on the
+                // /dek/issue path (hsm-spark-adapter, hsm-bulk-client).
+                if (!record.getAppId().equals(appId) && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", name)) {
+                    throw new ApiException(HttpStatus.FORBIDDEN,
+                            "dek_name '" + name + "' is owned by app '" + record.getAppId()
+                                    + "' -- request an encrypt grant before reusing it");
+                }
                 checkClassificationMatch(name, record.getDataClassification(), item.dataClassification());
                 if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
                         && item.dataClassification() != null && !item.dataClassification().isBlank()) {
