@@ -141,7 +141,7 @@ function ArchitectureDiagram() {
     <div style={s.diagramWrap}>
       <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations and app_decrypt_grants tables) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations, the coarse app_grants table, and the fine-grained per-dek_name app_dek_grants table) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
 
         <rect width="1320" height="1330" fill="#0f1117" />
 
@@ -215,8 +215,8 @@ function ArchitectureDiagram() {
         <text x="540" y="328" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">→ unwrap MISS → AES decrypt</text>
         <text x="540" y="339" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">Redis: {'{'}slot{'}'}:{'{'}kv_ver{'}'}:{'{'}edek_id{'}'}</text>
         <rect x="455" y="353" width="170" height="38" rx="5" fill="#22263a" stroke="#fb923c" strokeWidth="1" />
-        <text x="540" y="371" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · /grants</text>
-        <text x="540" y="384" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · manage grants</text>
+        <text x="540" y="371" textAnchor="middle" fill="#fb923c" fontSize="10" fontFamily="monospace">/admin/rotate-kek · grants</text>
+        <text x="540" y="384" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Re-wrap EDEKs · +dek-grants</text>
         <rect x="455" y="401" width="170" height="30" rx="5" fill="#22263a" stroke="#64748b" strokeWidth="1" />
         <text x="540" y="420" textAnchor="middle" fill="#94a3b8" fontSize="10" fontFamily="monospace">GET /health · /apps/status</text>
         <rect x="455" y="440" width="170" height="14" rx="3" fill="#0a1f1e" stroke="#14b8a6" strokeWidth="1" />
@@ -245,7 +245,7 @@ function ArchitectureDiagram() {
         <text x="785" y="270" textAnchor="middle" fill="#14b8a6" fontSize="10" letterSpacing="1" fontFamily="monospace">REDIS DEK CACHE</text>
         <text x="785" y="283" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Azure Cache for Redis · TLS</text>
         <rect x="705" y="290" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="305" textAnchor="middle" fill="#cdd2f0" fontSize="8" fontFamily="monospace">key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}</text>
+        <text x="785" y="305" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">key: {'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}</text>
         <rect x="705" y="318" width="160" height="22" rx="4" fill="#22263a" />
         <text x="785" y="333" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">value: CEK-encrypted DEK</text>
         <rect x="705" y="346" width="160" height="18" rx="3" fill="#1e3a2f" stroke="#14b8a6" strokeWidth="1" />
@@ -300,23 +300,27 @@ function ArchitectureDiagram() {
             straight up the gap between ACCESS STORE (right edge x=880) and
             the Auditor panel (left edge x=960), clearing ACCESS STORE's
             taller bottom edge (y=702). */}
-        <path d="M 640,700 L 640,718 L 888,718 L 888,212 L 880,212" fill="none" stroke="#eab308" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-yellow)" />
-        <text x="764" y="730" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
+        <path d="M 640,700 L 640,750 L 888,750 L 888,212 L 880,212" fill="none" stroke="#eab308" strokeWidth="1.2" strokeDasharray="4,3" markerEnd="url(#arr-yellow)" />
+        <text x="764" y="746" textAnchor="middle" fill="#eab308" fontSize="7" fontFamily="monospace">write slot FIRST · then current_key</text>
 
         {/* ── ACCESS STORE (hsm_access schema) — replaces the earlier
             "Grants + Rotation" box; master now documents the actual
-            underlying tables. ── */}
-        <rect x="690" y="582" width="190" height="120" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
+            underlying tables, split into coarse (app_grants) and
+            fine-grained per-dek_name (app_dek_grants) scopes. ── */}
+        <rect x="690" y="582" width="190" height="154" rx="8" fill="#1a1d27" stroke="#fb923c" strokeWidth="1.5" />
         <text x="785" y="600" textAnchor="middle" fill="#fb923c" fontSize="10" letterSpacing="1" fontFamily="monospace">ACCESS STORE</text>
         <text x="785" y="613" textAnchor="middle" fill="#fb923c" fontSize="7" fontFamily="monospace">schema: hsm_access · Managed Access team</text>
         <rect x="705" y="619" width="160" height="22" rx="4" fill="#22263a" />
         <text x="785" y="632" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_registrations</text>
         <text x="785" y="643" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">app_id · allowed_scopes · active · ts</text>
-        <rect x="705" y="649" width="160" height="22" rx="4" fill="#22263a" />
-        <text x="785" y="662" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_decrypt_grants</text>
-        <text x="785" y="673" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">grantee → owner pairs · default-deny · ts</text>
-        <rect x="705" y="677" width="160" height="14" rx="3" fill="#22263a" />
-        <text x="785" y="688" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">HSM SPN: grant check (decrypt path)</text>
+        <rect x="705" y="651" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="664" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_grants</text>
+        <text x="785" y="675" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">coarse · grantee→owner·scope · ts</text>
+        <rect x="705" y="683" width="160" height="22" rx="4" fill="#22263a" />
+        <text x="785" y="696" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">app_dek_grants</text>
+        <text x="785" y="707" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">fine-grained · +dek_name · scope</text>
+        <rect x="705" y="715" width="160" height="14" rx="3" fill="#22263a" />
+        <text x="785" y="726" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">HSM SPN: grant check (both scopes)</text>
 
         {/* ── ENCRYPT / DECRYPT PAYLOAD FLOW ── */}
         <rect x="20" y="650" width="400" height="352" rx="8" fill="#1a1d27" stroke="#2d3148" strokeWidth="1.5" />
@@ -327,7 +331,7 @@ function ArchitectureDiagram() {
         <text x="50" y="726" fill="#10b981" fontSize="9" fontFamily="monospace">Generate:  DEK = random_bytes(32)  (or reuse via dek_name)</text>
         <text x="50" y="740" fill="#555b7a" fontSize="9" fontFamily="monospace">Cipher  =  AES-256-GCM(DEK, IV, plaintext, AAD=owner_app_id)</text>
         <text x="50" y="752" fill="#555b7a" fontSize="9" fontFamily="monospace">EDEK    =  KEK.wrap(DEK)  →  stored in EDEK Store</text>
-        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext {'}'}  ← only field client stores</text>
+        <text x="36" y="772" fill="#cdd2f0" fontSize="9" fontFamily="monospace">Response: {'{'} ciphertext {'}'}  ← only field client needs to store</text>
         <text x="36" y="792" fill="#f87171" fontSize="10" fontFamily="monospace">Decrypt:</text>
         <rect x="36" y="800" width="365" height="54" rx="4" fill="#22263a" />
         <text x="50" y="814" fill="#555b7a" fontSize="9" fontFamily="monospace">Request:   {'{'} ciphertext, end_user_id {'}'}</text>
@@ -394,8 +398,8 @@ function ArchitectureDiagram() {
         <rect x="455" y="1160" width="220" height="22" rx="4" fill="#22263a" />
         <text x="565" y="1175" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="monospace">writes SAME EDEK STORE above</text>
         <rect x="455" y="1186" width="220" height="38" rx="4" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
-        <text x="565" y="1198" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">dek_name: reuse current DEK for</text>
-        <text x="565" y="1210" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">(app_id, name), else mint fresh</text>
+        <text x="565" y="1198" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">dek_name: global ownership (1st</text>
+        <text x="565" y="1210" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">encrypt wins) + grant check (V14)</text>
         <text x="565" y="1221" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">age-rotated · default 30d</text>
 
         {/* Routed arrow: this release → EDEK STORE, via the empty corridor right of the subscription boundary */}
@@ -530,7 +534,7 @@ const FLOWS = [
     steps: [
       'Client sends a policy check to PlainID — its own JWT plus the logged-in end-user\'s identity.',
       'If DENY: the call is blocked — it never reaches the HSM service.',
-      'If ALLOW: the client proceeds to call the HSM service directly, presenting its own JWT. PlainID\'s decision stays entirely client-side — the HSM service only ever sees the Bearer JWT, never PlainID\'s verdict.',
+      'If ALLOW: PlainID enriches the JWT with an AD group claim, and the caller proceeds to the HSM service. PlainID\'s decision stays entirely client-side — the HSM service only ever sees the Bearer JWT (Entra ID, a caller-signed self-issued JWT, or a client cert via mTLS — see AUTHORIZATION.md), never PlainID\'s verdict.',
     ],
     actors: [
       { id: 'client', label: 'Client' },
@@ -539,7 +543,7 @@ const FLOWS = [
     messages: [
       { from: 'client', to: 'plainid', label: 'policy check (JWT + logged-in user identity)', stepNum: 1 },
       { from: 'plainid', to: 'client', dashed: true, variant: 'deny', label: '[DENY] — call blocked, never reaches HSM service', stepNum: '2a' },
-      { from: 'plainid', to: 'client', variant: 'allow', label: '[ALLOW] — client proceeds to call HSM service with its own JWT', stepNum: '2b' },
+      { from: 'plainid', to: 'client', variant: 'allow', label: '[ALLOW] — JWT enriched with AD group claim — caller proceeds to HSM service', stepNum: '2b' },
     ],
   },
   {
@@ -548,8 +552,8 @@ const FLOWS = [
     steps: [
       'Client calls POST /encrypt directly, presenting { plaintext, encoding, data_classification, end_user_id } — plus an optional dek_name (see panel 2 of the Live Demo tab).',
       'HSM Service validates the JWT, the app_id, and the encrypt scope.',
-      'If dek_name was set and a current row already exists for (app_id, dek_name): REUSE — unwrap the existing edek_blob (DekCache hit, else a KEK unwrap) and skip straight to the response; no new wrap, no new INSERT.',
-      'Otherwise: MINT — continue below exactly as a plain /encrypt call would.',
+      'If dek_name was set and a current row already exists for it: when the caller is the same app that owns it, or holds a grant (scope=encrypt), REUSE — unwrap the existing edek_blob (DekCache hit, else a KEK unwrap) and skip straight to the response; no new wrap, no new INSERT.',
+      'If a row exists for a different app and the caller has no grant, the call is rejected with 403. If no row exists yet for that name, MINT — continue below exactly as a plain /encrypt call would (the first caller to encrypt under a name becomes its owner).',
       'HSM Service calls Azure Managed HSM to wrap the DEK, using its Service SPN (RSA-OAEP-256).',
       'Azure Managed HSM returns the EDEK (wrapped DEK).',
       'HSM Service generates the DEK + IV and AES-256-GCM encrypts the plaintext.',
@@ -567,8 +571,8 @@ const FLOWS = [
     messages: [
       { from: 'client', to: 'service', label: 'POST /encrypt { plaintext, encoding, data_classification, end_user_id }', stepNum: 3 },
       { from: 'service', to: 'service', self: true, label: 'validate JWT · app_id · scope=encrypt', stepNum: 4 },
-      { from: 'service', to: 'service', self: true, variant: 'allow', label: '[dek_name set + current row found] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)', stepNum: '4a' },
-      { from: 'service', to: 'service', self: true, label: '[else] MINT: continue below — gen fresh DEK, wrap via KEK, INSERT edek_record', stepNum: '4b' },
+      { from: 'service', to: 'service', self: true, variant: 'allow', label: '[found: same app, or granted (scope=encrypt)] REUSE: unwrap existing edek_blob (DekCache hit, else KEK unwrap)', stepNum: '4a' },
+      { from: 'service', to: 'service', self: true, label: '[found, different app, NOT granted] 403 · [not found] MINT: gen fresh DEK, wrap via KEK, INSERT edek_record', stepNum: '4b' },
       { from: 'service', to: 'hsm', label: 'wrap DEK [Service SPN · RSA-OAEP-256]', stepNum: 5 },
       { from: 'hsm', to: 'service', dashed: true, label: 'EDEK (wrapped DEK)', stepNum: 6 },
       { from: 'service', to: 'service', self: true, label: 'gen DEK + IV · AES-256-GCM encrypt plaintext', stepNum: 7 },
@@ -585,7 +589,7 @@ const FLOWS = [
       'Client calls POST /decrypt directly, presenting { ciphertext, end_user_id } — the single opaque token from /encrypt, passed back as-is and never decoded client-side.',
       'HSM Service looks up the edek_record by edek_id (extracted server-side from the token) in the EDEK Store.',
       'EDEK Store returns { edek_blob, kek_version, owner_app_id, data_class }.',
-      'HSM Service asks the Access Store (schema hsm_access, table app_decrypt_grants): does the caller match the owner, or hold a grant?',
+      'HSM Service asks the Access Store (schema hsm_access): if the caller is the same app as the owner, permit outright; otherwise check the coarse app_grants table, then fall back to the fine-grained per-dek_name app_dek_grants table (scope=decrypt).',
       'Access Store returns granted or denied.',
       'HSM Service checks Redis for the current slot\'s cached DEK first, falling back to the previous slot: GET {slot}:{kv_ver}:{edek_id}.',
       'HIT: the cached DEK bytes are used directly — the unwrap and re-cache steps below are skipped entirely, jumping straight to the final decrypt step. MISS: continue to the Managed HSM unwrap below.',
@@ -608,7 +612,7 @@ const FLOWS = [
       { from: 'client', to: 'service', label: 'POST /decrypt { ciphertext, end_user_id }', stepNum: 12 },
       { from: 'service', to: 'edek', label: 'SELECT edek_record WHERE id = edek_id', stepNum: 13 },
       { from: 'edek', to: 'service', dashed: true, label: '{ edek_blob, kek_version, owner_app_id, data_class }', stepNum: 14 },
-      { from: 'service', to: 'accessstore', label: 'grant check: caller → owner? [hsm_access.app_decrypt_grants]', stepNum: 15 },
+      { from: 'service', to: 'accessstore', label: 'grant check: same app → coarse app_grants → fine-grained app_dek_grants [scope=decrypt]', stepNum: 15 },
       { from: 'accessstore', to: 'service', dashed: true, label: 'granted / denied', stepNum: 15 },
       { from: 'service', to: 'redis', label: 'GET {slot}:{kv_ver}:{edek_id} (current slot first, prev slot fallback)', stepNum: '15a' },
       { from: 'redis', to: 'service', dashed: true, label: 'HIT → cached DEK bytes (skip 16 & 17) / MISS → nil → unwrap below', stepNum: '15a' },
@@ -672,11 +676,11 @@ const FLOWS = [
     steps: [
       'hsm-bulk-client (a standalone batch job on hsm-crypto-client, outside the subscription) calls HSM Service\'s own POST /dek/issue once per job run — not once per row — with { key, data_classification, name: dek_name }, authenticating via Bearer (static, Workload Identity, or self-signed JWT) or mTLS client cert.',
       'The SVC lane here is the SAME HSM Service process as the rest of this diagram (formerly a separate hsm-bulk-service codebase, since merged) — kept as its own lane only because CLNT still makes a real network hop to reach it, same as any other caller.',
-      'HSM Service looks up (app_id, current_dek_name). If FOUND, it reuses the existing edek_blob (unwrapped via HSM Service\'s own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If NOT FOUND, it mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — the same table it writes to for /encrypt.',
+      'HSM Service looks up by current_dek_name alone — ownership is now GLOBAL (V14; previously scoped per-app). If FOUND and the caller is the same app that owns it, or holds a grant, it reuses the existing edek_blob (unwrapped via HSM Service\'s own Workload Identity against Managed HSM) — the same edek_id is returned on every call for this name, with no new mint and no new INSERT. If FOUND under a different app with no grant, the call is rejected with 403 — the caller needs an encrypt grant via /admin/grants or /dek-grants. If NOT FOUND, HSM Service mints a fresh DEK, KEK-wraps it, and INSERTs into edek_records (tagged with dek_name) — this app becomes its owner.',
       'HSM Service returns { edek_id, wrapped_dek_b64, reused: true|false }, wrapped for the client\'s own public key (RSA-OAEP-256) — never a raw DEK over the wire.',
       'hsm-bulk-client unwraps the DEK locally (its private key never leaves the client) and AES-256-GCM encrypts each row with a fresh IV per call.',
       'One edek_id is reused across many rows/values in the job, each still getting its own token (fresh IV every call) — the resulting ciphertext format is identical to HSM Service\'s own, so its real /decrypt endpoint reads it back with zero awareness this alternate path exists.',
-      'The ciphertext is written directly into the client\'s own target table/file — never sent back to HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to the NOT FOUND / mint-fresh path. One scheduler instance covers rows from BOTH /encrypt and /dek/issue (same process, same edek_records table) — no separate SVC scheduler needed since the merge.',
+      'The ciphertext is written directly into the client\'s own target table/file — never sent back to HSM Service. A NamedDekRotationScheduler (age-based, default 30d) periodically retires "found" rows above; the next lookup after that falls back to 26b. One scheduler instance covers rows from BOTH /encrypt and /dek/issue (same process, same edek_records table) — no separate SVC scheduler needed since the merge.',
       'BULK File job specifically: each chunk\'s plaintext is base64-encoded before AES-256-GCM — survives HSM Service\'s own /decrypt UTF-8 response encoding losslessly. FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) produces the same token format HSM Service itself produces, now true for files too, not just DB columns. An optional compress-before-encrypt step gzips each chunk and prepends a 1-byte raw/gzip marker inside the base64 — decrypt always reads it, no config to coordinate. CoreBulkFileInteropTest exercises both directions plus compression against a real hsm-core-service process on every build.',
       'hsm-spark-adapter shares this exact flow via hsm-crypto-client\'s SvcClient/DekManager — the same /dek/issue, /dek/unwrap, and RSA-OAEP-256→AES-256-GCM steps above, just driven from Spark UDFs (hsm_encrypt/hsm_decrypt) instead of a batch job.',
     ],
@@ -686,9 +690,10 @@ const FLOWS = [
     ],
     messages: [
       { from: 'clnt', to: 'svc', label: 'POST /dek/issue { key, data_classification, name: dek_name } [Bearer: static, Workload Identity, or self-signed JWT]', stepNum: 25 },
-      { from: 'svc', to: 'svc', self: true, label: 'lookup (app_id, current_dek_name)', stepNum: 26 },
-      { from: 'svc', to: 'svc', self: true, variant: 'allow', label: '[FOUND] reuse: unwrap existing edek_blob [HSM Service\'s Workload Identity · Managed HSM] — same edek_id every call, no mint, no INSERT', stepNum: '26a' },
-      { from: 'svc', to: 'svc', self: true, label: '[NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — same table HSM Service writes above', stepNum: '26b' },
+      { from: 'svc', to: 'svc', self: true, label: 'lookup by current_dek_name (GLOBAL — V14, was per-app)', stepNum: 26 },
+      { from: 'svc', to: 'svc', self: true, variant: 'allow', label: '[FOUND, same app or granted] reuse: unwrap edek_blob [Workload Identity · Managed HSM] — skip mint, skip INSERT — same edek_id every call', stepNum: '26a' },
+      { from: 'svc', to: 'svc', self: true, variant: 'deny', label: '[FOUND, different app, NOT granted] 403 — request an encrypt grant via /admin/grants or /dek-grants', stepNum: '26b' },
+      { from: 'svc', to: 'svc', self: true, label: '[NOT FOUND] mint fresh DEK · KEK-wrap · INSERT edek_records (tagged dek_name) — this app becomes its owner', stepNum: '26c' },
       { from: 'svc', to: 'clnt', dashed: true, label: '{ edek_id, wrapped_dek_b64, reused: true|false } [RSA-OAEP-256, wrapped for CLNT\'s own public key]', stepNum: 27 },
       { from: 'clnt', to: 'clnt', self: true, label: 'RSA-OAEP-256 unwrap locally (private key never leaves CLNT) → AES-256-GCM encrypt (fresh IV every call)', stepNum: 28 },
       { from: 'clnt', to: 'clnt', self: true, label: 'one edek_id → many rows/values, each with its OWN token (fresh IV per call) — token format identical to HSM Service\'s own', stepNum: 29 },
@@ -879,7 +884,7 @@ const OVERVIEW_MAIN_ROWS = [
   { from: 'client', to: 'plainid', label: '1. Policy check (JWT + logged-in user identity)', color: '#eab308' },
   { from: 'plainid', to: 'client', label: '2. Permit / Deny decision', color: '#eab308' },
   { from: 'client', to: 'service', label: '3. Encrypt or Decrypt — client\'s own JWT (direct); Encrypt supports an optional dek_name to REUSE instead of mint', color: '#a78bfa' },
-  { from: 'service', to: 'accessstore', label: '4. [decrypt only] grant check — hsm_access.app_decrypt_grants', color: '#fb923c' },
+  { from: 'service', to: 'accessstore', label: '4. [decrypt only] grant check — app_grants, then app_dek_grants', color: '#fb923c' },
   { from: 'service', to: 'hsm', label: '5. wrap/unwrap (cache miss, or REUSE unwrap) — Service SPN', color: '#a78bfa' },
   { from: 'service', to: 'redis', label: '6. cache GET/SET — {slot}:{kv_ver}:{edek_id}', color: '#14b8a6' },
   { from: 'service', to: 'edek', label: '7. persist / lookup edek_record', color: '#38bdf8' },
