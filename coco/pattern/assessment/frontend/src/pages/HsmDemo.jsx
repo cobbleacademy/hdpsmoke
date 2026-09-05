@@ -272,14 +272,14 @@ function ArchitectureDiagram() {
 
         {/* ── EDEK STORE ── */}
         <rect x="440" y="510" width="200" height="120" rx="8" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
-        <text x="540" y="532" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
-        <text x="540" y="546" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">schema: hsm_crypto · PostgreSQL</text>
-        <rect x="455" y="554" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="569" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
-        <rect x="455" y="582" width="170" height="22" rx="4" fill="#22263a" />
-        <text x="540" y="597" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
-        <rect x="455" y="610" width="170" height="14" rx="3" fill="#22263a" />
-        <text x="540" y="621" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
+        <text x="540" y="530" textAnchor="middle" fill="#38bdf8" fontSize="10" letterSpacing="1" fontFamily="monospace">EDEK STORE</text>
+        <text x="540" y="543" textAnchor="middle" fill="#38bdf8" fontSize="7" fontFamily="monospace">schema: hsm_crypto · PostgreSQL</text>
+        <rect x="455" y="550" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="540" y="565" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">edek_id · blob · owner app_id</text>
+        <rect x="455" y="578" width="170" height="22" rx="4" fill="#22263a" />
+        <text x="540" y="593" textAnchor="middle" fill="#cdd2f0" fontSize="9" fontFamily="monospace">algorithm · encoding · class.</text>
+        <rect x="455" y="606" width="170" height="14" rx="3" fill="#22263a" />
+        <text x="540" y="617" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">encrypted at rest · TDE</text>
         <line x1="540" y1="470" x2="540" y2="510" stroke="#38bdf8" strokeWidth="1.5" markerEnd="url(#arr-cyan)" />
 
         {/* ── CEK ROTATION SERVICE — separate K8s deployable, own Rotation
@@ -621,7 +621,7 @@ const FLOWS = [
       { from: 'service', to: 'redis', label: '[MISS] SET {slot}:{kv_ver}:{edek_id} CEK-encrypted EX 60s', stepNum: '16a' },
       { from: 'service', to: 'service', self: true, label: 'AES-256-GCM decrypt · zero DEK immediately', stepNum: 18 },
       { from: 'service', to: 'service', self: true, label: 'audit_log → Splunk/SIEM (app_id, end_user_id, edek_id, status)', stepNum: 19 },
-      { from: 'service', to: 'client', dashed: true, label: '{ plaintext } — DEK zeroed in memory', stepNum: 20 },
+      { from: 'service', to: 'client', dashed: true, label: '{ plaintext } — only field client needs', stepNum: 20 },
     ],
   },
   {
