@@ -85,7 +85,7 @@ public class DbBulkJob {
     // named/unnamed distinction the encrypt path already makes. Plain, unbounded map
     // is fine (not LRU) -- its size is bounded by the config's own distinct dek-name
     // count, typically a handful, the same assumption issueNamedColumnDeks() makes.
-    private final Map<UUID, byte[]> namedColumnDekCache = new ConcurrentHashMap<>();
+    private final Map<UUID, OwnedDek> namedColumnDekCache = new ConcurrentHashMap<>();
 
     public DbBulkJob(ClientProperties.Db config, SvcConfig svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -193,7 +193,7 @@ public class DbBulkJob {
                     (rangeStart, rangeEnd, jobId) -> decryptRange(sourceTable, targetTable, rangeStart, rangeEnd, jobId, rowsDone));
             logCompletion("decrypt", rowsDone.get(), startMs);
         } finally {
-            namedColumnDekCache.values().forEach(DekManager::zeroDek);
+            namedColumnDekCache.values().forEach(owned -> DekManager.zeroDek(owned.dek()));
         }
     }
 
@@ -339,7 +339,18 @@ public class DbBulkJob {
         });
     }
 
-    private record NamedDek(UUID edekId, byte[] dek) {
+    /**
+     * ownerAppId is the record's permanent owner -- NOT necessarily
+     * svcConfig.appId() once a grant-authorized cross-app dek_name reuse is
+     * in play. Must be used as the AES-GCM AAD, never svcConfig.appId()
+     * directly -- see SvcClient.IssueResult's javadoc for the full reasoning
+     * and the confirmed bug this field exists to avoid.
+     */
+    private record NamedDek(UUID edekId, String ownerAppId, byte[] dek) {
+    }
+
+    /** Decrypt-side cache/lookup entry -- same ownerAppId reasoning as NamedDek. */
+    private record OwnedDek(String ownerAppId, byte[] dek) {
     }
 
     private static boolean isNamed(ClientProperties.Db.ColumnMapping mapping) {
@@ -366,8 +377,8 @@ public class DbBulkJob {
                 throw new IllegalStateException("dek/issue failed for dek-name=" + r.key() + ": " + r.detail());
             }
             byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(r.wrappedDekB64()), privateKey);
-            result.put(r.key(), new NamedDek(r.edekId(), dek));
-            log.info("db_bulk_named_dek_resolved dek_name={} reused={}", r.key(), r.reused());
+            result.put(r.key(), new NamedDek(r.edekId(), r.ownerAppId(), dek));
+            log.info("db_bulk_named_dek_resolved dek_name={} reused={} owner_app_id={}", r.key(), r.reused(), r.ownerAppId());
         }
         return result;
     }
@@ -424,7 +435,7 @@ public class DbBulkJob {
                         if (isNamed(mapping)) {
                             NamedDek namedDek = namedDeks.get(mapping.dekName());
                             DekManager.EncryptResult encrypted = DekManager.encrypt(
-                                    plaintext.getBytes(StandardCharsets.UTF_8), namedDek.dek(), svcConfig.appId());
+                                    plaintext.getBytes(StandardCharsets.UTF_8), namedDek.dek(), namedDek.ownerAppId());
                             targetRow[i++] = DekManager.packToken(namedDek.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
                         } else {
                             SvcClient.IssueResult result = byKey.get(itemKey(keyValue, mapping.source()));
@@ -435,7 +446,7 @@ public class DbBulkJob {
                             byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
                             try {
                                 DekManager.EncryptResult encrypted = DekManager.encrypt(
-                                        plaintext.getBytes(StandardCharsets.UTF_8), dek, svcConfig.appId());
+                                        plaintext.getBytes(StandardCharsets.UTF_8), dek, result.ownerAppId());
                                 targetRow[i++] = DekManager.packToken(result.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
                             } finally {
                                 DekManager.zeroDek(dek);
@@ -518,10 +529,10 @@ public class DbBulkJob {
                         .distinct()
                         .toList();
 
-                Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+                Map<UUID, OwnedDek> dekByEdekId = new LinkedHashMap<>();
                 for (UUID id : distinctEdekIds) {
                     if (namedColumnEdekIds.contains(id)) {
-                        byte[] cached = namedColumnDekCache.get(id);
+                        OwnedDek cached = namedColumnDekCache.get(id);
                         if (cached != null) {
                             dekByEdekId.put(id, cached);
                         }
@@ -542,9 +553,10 @@ public class DbBulkJob {
                         if ("success".equals(e.getValue().status())) {
                             byte[] dek = TransportWrapper.unwrap(
                                     Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey);
-                            dekByEdekId.put(e.getKey(), dek);
+                            OwnedDek owned = new OwnedDek(e.getValue().ownerAppId(), dek);
+                            dekByEdekId.put(e.getKey(), owned);
                             if (namedColumnEdekIds.contains(e.getKey())) {
-                                namedColumnDekCache.put(e.getKey(), dek);
+                                namedColumnDekCache.put(e.getKey(), owned);
                             }
                         }
                     }
@@ -565,14 +577,14 @@ public class DbBulkJob {
                                 targetRow[i++] = null;
                                 continue;
                             }
-                            byte[] dek = dekByEdekId.get(unpacked.edekId());
-                            if (dek == null) {
+                            OwnedDek owned = dekByEdekId.get(unpacked.edekId());
+                            if (owned == null) {
                                 SvcClient.UnwrapResult result = resultByEdekId.get(unpacked.edekId());
                                 throw new IllegalStateException("dek/unwrap failed for key=" + keyValue + " column=" + mapping.source()
                                         + ": " + (result == null ? "no result returned" : result.detail()));
                             }
                             try {
-                                byte[] plaintext = DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, svcConfig.appId());
+                                byte[] plaintext = DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), owned.dek(), owned.ownerAppId());
                                 String decrypted = new String(plaintext, StandardCharsets.UTF_8);
                                 targetRow[i++] = convertForTarget(decrypted, mapping.targetType());
                             } catch (AEADBadTagException e) {
@@ -598,9 +610,9 @@ public class DbBulkJob {
                     // Only zero DEKs NOT retained in namedColumnDekCache -- those are the
                     // same byte[] instances the cache holds for future sub-batches/pages,
                     // zeroing them here would corrupt the cache for later reuse.
-                    for (Map.Entry<UUID, byte[]> e : dekByEdekId.entrySet()) {
+                    for (Map.Entry<UUID, OwnedDek> e : dekByEdekId.entrySet()) {
                         if (!namedColumnEdekIds.contains(e.getKey())) {
-                            DekManager.zeroDek(e.getValue());
+                            DekManager.zeroDek(e.getValue().dek());
                         }
                     }
                 }
