@@ -14,6 +14,7 @@ import com.hsm.core.dto.AppStatusResponse;
 import com.hsm.core.dto.DekGrantListResponse;
 import com.hsm.core.dto.DekGrantRequest;
 import com.hsm.core.dto.DekGrantResponse;
+import com.hsm.core.dto.EdekMetadataResponse;
 import com.hsm.core.dto.GrantListResponse;
 import com.hsm.core.dto.GrantRequest;
 import com.hsm.core.dto.GrantResponse;
@@ -27,6 +28,8 @@ import com.hsm.core.dto.RotateKekResponse;
 import com.hsm.core.model.AppDekGrant;
 import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
+import com.hsm.core.model.EdekRecord;
+import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.service.RotationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -35,6 +38,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,6 +52,7 @@ import java.security.cert.X509Certificate;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Ported from app/routers/admin.py. Scope enforcement (rotate/grant/manage_apps
@@ -64,15 +69,18 @@ public class AdminController {
     private final RotationService rotationService;
     private final AuditLogger auditLogger;
     private final JdbcTemplate jdbcTemplate;
+    private final EdekRecordRepository edekRecordRepository;
     private final String healthCheckKekName;
 
     public AdminController(AppRegistryService appRegistry, KekClient kekClient, RotationService rotationService,
-                            AuditLogger auditLogger, JdbcTemplate jdbcTemplate, HsmProperties hsmProperties) {
+                            AuditLogger auditLogger, JdbcTemplate jdbcTemplate, EdekRecordRepository edekRecordRepository,
+                            HsmProperties hsmProperties) {
         this.appRegistry = appRegistry;
         this.kekClient = kekClient;
         this.rotationService = rotationService;
         this.auditLogger = auditLogger;
         this.jdbcTemplate = jdbcTemplate;
+        this.edekRecordRepository = edekRecordRepository;
         // The legacy single-KEK config value, repurposed purely as a reachability
         // ping target here -- health has never been about one specific business
         // KEK, just "is the vault/HSM endpoint up," so any resolvable key proves that.
@@ -205,6 +213,31 @@ public class AdminController {
                 .map(g -> new DekGrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getDekName(), g.getScope(), g.getCreatedAt()))
                 .toList();
         return new DekGrantListResponse(grants);
+    }
+
+    /**
+     * Read-only ownership/metadata lookup for support, gated behind the same 'grant'
+     * scope as the endpoints above -- whoever can already see and manage grants is
+     * exactly who needs this to decide what to grant. Answers "who owns this EDEK,
+     * and under what dek_name" (support's actual question on a cross-app decrypt
+     * denial) without a DB query or a failed /decrypt attempt. Deliberately returns
+     * no key material (edekBlob) or fingerprint -- this can only ever answer "who
+     * owns it," never "what does it decrypt to," which is what makes it safe to grant
+     * this scope to support tooling that must never see plaintext-adjacent material.
+     */
+    @GetMapping("${hsm.service.api-v1-prefix}/admin/edek/{edekId}")
+    public EdekMetadataResponse getEdekMetadata(@PathVariable UUID edekId, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        EdekRecord record = edekRecordRepository.findById(edekId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EDEK not found"));
+
+        auditLogger.log("edek_metadata_viewed", "app_id", caller.appId(), "sub", caller.sub(),
+                "edek_id", edekId.toString(), "owner_app_id", record.getAppId(), "status", "success");
+
+        return new EdekMetadataResponse(
+                record.getEdekId(), record.getAppId(), record.getDataClassification(),
+                record.getAlgorithm(), record.getEncoding(), record.getKekName(), record.getKekVersion(),
+                record.getRotationStatus(), record.getDekName(), record.getCurrentDekName(),
+                record.getCreatedAt(), record.getRotatedAt());
     }
 
     /**
