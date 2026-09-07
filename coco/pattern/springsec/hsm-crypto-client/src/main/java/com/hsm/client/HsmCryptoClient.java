@@ -71,17 +71,18 @@ public class HsmCryptoClient implements AutoCloseable {
     private final String appId;
 
     private final DekCache<String, CachedDek> encryptCacheByName;
-    private final DekCache<UUID, byte[]> decryptCacheByEdekId;
+    private final DekCache<UUID, CachedUnwrappedDek> decryptCacheByEdekId;
     private final ScheduledExecutorService sweeper;
 
     private volatile boolean closed = false;
 
-    private HsmCryptoClient(SvcClient svcClient, PrivateKey privateKey, String appId, int dekCacheMaxSize, Duration dekCacheTtl) {
+    /** Package-visible (not private) so HsmCryptoClientTest can inject a fake SvcClient -- no other reason to widen this. */
+    HsmCryptoClient(SvcClient svcClient, PrivateKey privateKey, String appId, int dekCacheMaxSize, Duration dekCacheTtl) {
         this.svcClient = svcClient;
         this.privateKey = privateKey;
         this.appId = appId;
         this.encryptCacheByName = new DekCache<>(dekCacheMaxSize, dekCacheTtl, CachedDek::dek);
-        this.decryptCacheByEdekId = new DekCache<>(dekCacheMaxSize, dekCacheTtl, java.util.function.Function.identity());
+        this.decryptCacheByEdekId = new DekCache<>(dekCacheMaxSize, dekCacheTtl, CachedUnwrappedDek::dek);
         this.sweeper = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "hsm-crypto-client-dek-cache-sweeper");
             t.setDaemon(true);
@@ -103,7 +104,18 @@ public class HsmCryptoClient implements AutoCloseable {
         return new Builder();
     }
 
-    private record CachedDek(UUID edekId, byte[] dek) {
+    /**
+     * ownerAppId is the record's permanent owner -- NOT necessarily this
+     * client's own configured appId once a grant-authorized cross-app
+     * dek_name reuse is in play. Must be used as the AES-GCM AAD, never
+     * this.appId -- see SvcClient.IssueResult's javadoc for the full
+     * reasoning and the confirmed bug this field exists to avoid.
+     */
+    private record CachedDek(UUID edekId, String ownerAppId, byte[] dek) {
+    }
+
+    /** Decrypt-side cache entry -- ownerAppId is required as the AES-GCM AAD, same reasoning as CachedDek. */
+    private record CachedUnwrappedDek(String ownerAppId, byte[] dek) {
     }
 
     public static class HsmCryptoClientException extends RuntimeException {
@@ -135,7 +147,7 @@ public class HsmCryptoClient implements AutoCloseable {
                 ? encryptCacheByName.getOrLoad(dekName, name -> issueOne(name, dataClassification))
                 : issueOne(null, dataClassification);
 
-        DekManager.EncryptResult encrypted = DekManager.encrypt(plaintext, cached.dek(), appId);
+        DekManager.EncryptResult encrypted = DekManager.encrypt(plaintext, cached.dek(), cached.ownerAppId());
         return DekManager.packToken(cached.edekId(), encrypted.iv(), encrypted.tag(), encrypted.ciphertext());
     }
 
@@ -162,7 +174,7 @@ public class HsmCryptoClient implements AutoCloseable {
             throw new HsmCryptoClientException("dek/issue failed: " + result.detail());
         }
         byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
-        return new CachedDek(result.edekId(), dek);
+        return new CachedDek(result.edekId(), result.ownerAppId(), dek);
     }
 
     // ---- decrypt ----
@@ -176,9 +188,9 @@ public class HsmCryptoClient implements AutoCloseable {
     public byte[] decrypt(String ciphertextToken) {
         checkOpen();
         DekManager.UnpackedToken unpacked = DekManager.unpackToken(ciphertextToken);
-        byte[] dek = decryptCacheByEdekId.getOrLoad(unpacked.edekId(), this::unwrapOne);
+        CachedUnwrappedDek cached = decryptCacheByEdekId.getOrLoad(unpacked.edekId(), this::unwrapOne);
         try {
-            return DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), dek, appId);
+            return DekManager.decrypt(unpacked.ciphertext(), unpacked.tag(), unpacked.iv(), cached.dek(), cached.ownerAppId());
         } catch (AEADBadTagException e) {
             throw new HsmCryptoClientException("ciphertext authentication failed: tampered or corrupt", e);
         }
@@ -189,13 +201,14 @@ public class HsmCryptoClient implements AutoCloseable {
         return new String(decrypt(ciphertextToken), StandardCharsets.UTF_8);
     }
 
-    private byte[] unwrapOne(UUID edekId) {
+    private CachedUnwrappedDek unwrapOne(UUID edekId) {
         List<SvcClient.UnwrapResult> results = svcClient.unwrap(List.of(new SvcClient.UnwrapItem("decrypt", edekId)));
         SvcClient.UnwrapResult result = results.get(0);
         if (!"success".equals(result.status())) {
             throw new HsmCryptoClientException("dek/unwrap failed: " + result.detail());
         }
-        return TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
+        byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
+        return new CachedUnwrappedDek(result.ownerAppId(), dek);
     }
 
     // ---- lifecycle ----
