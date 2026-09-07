@@ -266,6 +266,22 @@ class EncryptDecryptIntegrationTest {
                 "demo-token-ops-admin", "ops-admin", "now allowed to reuse", "cross.app.dek.b");
         assertEquals(HttpStatus.CREATED, second.getStatusCode());
         assertEquals(first.getBody().get("edek_id"), second.getBody().get("edek_id"));
+        // Ownership never transfers to the grant-authorized reuser -- regression
+        // coverage for a real bug: the response used to report the CALLER
+        // (ops-admin) as owner_app_id here, and worse, the AES-GCM AAD used at
+        // encrypt time silently followed the same wrong value, producing a
+        // ciphertext token nothing could ever decrypt again. See
+        // EncryptionService.ResolvedDek's javadoc.
+        assertEquals("payments-svc", second.getBody().get("owner_app_id"));
+
+        // The actual bug: a grant-authorized cross-app reuse must still produce
+        // a token the true owner can decrypt -- not just one that returns 201.
+        ResponseEntity<Map> decrypted = rest.exchange("/api/sensec/hsm/v1/decrypt", HttpMethod.POST,
+                new HttpEntity<>(Map.of("ciphertext", second.getBody().get("ciphertext")),
+                        headers("demo-token-payments-svc", "payments-svc")),
+                Map.class);
+        assertEquals(HttpStatus.OK, decrypted.getStatusCode());
+        assertEquals("now allowed to reuse", decrypted.getBody().get("plaintext"));
 
         HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
                 Map.of("grantee_app_id", "ops-admin", "owner_app_id", "payments-svc", "scope", "encrypt"),
@@ -301,6 +317,14 @@ class EncryptDecryptIntegrationTest {
                 "demo-token-ops-admin", "ops-admin", "reuse via dek grant", "cross.app.dek.c");
         assertEquals(HttpStatus.CREATED, allowed.getStatusCode());
         assertEquals(ownerRecord.getBody().get("edek_id"), allowed.getBody().get("edek_id"));
+        assertEquals("payments-svc", allowed.getBody().get("owner_app_id"));
+
+        ResponseEntity<Map> decrypted = rest.exchange("/api/sensec/hsm/v1/decrypt", HttpMethod.POST,
+                new HttpEntity<>(Map.of("ciphertext", allowed.getBody().get("ciphertext")),
+                        headers("demo-token-payments-svc", "payments-svc")),
+                Map.class);
+        assertEquals(HttpStatus.OK, decrypted.getStatusCode());
+        assertEquals("reuse via dek grant", decrypted.getBody().get("plaintext"));
 
         // Not covered -- the grant is scoped to one dek_name only.
         ResponseEntity<Map> denied = encryptNamed(
@@ -313,5 +337,46 @@ class EncryptDecryptIntegrationTest {
                 adminHeaders);
         ResponseEntity<Void> removeResp = rest.exchange("/api/sensec/hsm/v1/admin/dek-grants", HttpMethod.DELETE, removeReq, Void.class);
         assertEquals(HttpStatus.NO_CONTENT, removeResp.getStatusCode());
+    }
+
+    @Test
+    void edekMetadataLookupReturnsOwnershipWithoutKeyMaterial() {
+        ResponseEntity<Map> encrypted = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "support lookup target", "customers.support-lookup-test");
+        assertEquals(HttpStatus.CREATED, encrypted.getStatusCode());
+        String edekId = (String) encrypted.getBody().get("edek_id");
+
+        ResponseEntity<Map> lookup = rest.exchange(
+                "/api/sensec/hsm/v1/admin/edek/" + edekId, HttpMethod.GET,
+                new HttpEntity<>(headers("demo-token-ops-admin", "ops-admin")), Map.class);
+
+        assertEquals(HttpStatus.OK, lookup.getStatusCode());
+        Map body = lookup.getBody();
+        assertEquals("payments-svc", body.get("owner_app_id"));
+        assertEquals("customers.support-lookup-test", body.get("dek_name"));
+        assertFalse(body.containsKey("edek_blob"));
+        assertFalse(body.containsKey("fingerprint"));
+    }
+
+    @Test
+    void edekMetadataLookupRequiresGrantScope() {
+        ResponseEntity<Map> encrypted = encryptNamed(
+                "demo-token-payments-svc", "payments-svc", "not for reporting-app", "customers.support-lookup-scope-test");
+        String edekId = (String) encrypted.getBody().get("edek_id");
+
+        ResponseEntity<Map> lookup = rest.exchange(
+                "/api/sensec/hsm/v1/admin/edek/" + edekId, HttpMethod.GET,
+                new HttpEntity<>(headers("demo-token-reporting-app", "reporting-app")), Map.class);
+
+        assertEquals(HttpStatus.FORBIDDEN, lookup.getStatusCode());
+    }
+
+    @Test
+    void edekMetadataLookupUnknownIdReturns404() {
+        ResponseEntity<Map> lookup = rest.exchange(
+                "/api/sensec/hsm/v1/admin/edek/" + java.util.UUID.randomUUID(), HttpMethod.GET,
+                new HttpEntity<>(headers("demo-token-ops-admin", "ops-admin")), Map.class);
+
+        assertEquals(HttpStatus.NOT_FOUND, lookup.getStatusCode());
     }
 }
