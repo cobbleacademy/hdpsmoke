@@ -224,6 +224,12 @@ hsm:
       - pattern: /admin/dek-grants
         methods: [POST, DELETE, GET]
         authorities: [grant]
+      # Read-only ownership/metadata lookup (no key material) -- same 'grant'
+      # scope as the two rules above; supports the same admin workflow (decide
+      # what to grant). See AdminController.getEdekMetadata.
+      - pattern: /admin/edek/*
+        methods: [GET]
+        authorities: [grant]
       - pattern: /admin/apps/status
         methods: [POST]
         authorities: [manage_apps]
