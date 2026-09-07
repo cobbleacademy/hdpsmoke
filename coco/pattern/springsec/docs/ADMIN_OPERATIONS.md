@@ -22,6 +22,7 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/dek-grants` | `grant` | Add a fine-grained grant, scoped to one `dek_name` of `owner_app_id`'s |
 | `DELETE /admin/dek-grants` | `grant` | Remove a fine-grained grant |
 | `GET /admin/dek-grants` | `grant` | List all fine-grained grants |
+| `GET /admin/edek/{edekId}` | `grant` | Read-only ownership/metadata lookup for one EDEK — `owner_app_id`, `dek_name`, `data_classification`, etc. No key material or fingerprint (see below) |
 | `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
 | `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
@@ -92,6 +93,51 @@ curl -X POST "$BASE/admin/apps/mtls-cert" \
   -d '{"app_id": "payments-svc", "cert_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"}'
 # -> {"app_id":"payments-svc","fingerprint":"4cc8c5b3...","updated_at":"..."}
 ```
+
+## Resolving a cross-app decrypt denial — `GET /admin/edek/{edekId}`
+
+The most common support ticket in this system's shape is exactly the one that
+motivated this endpoint: an app calls `/decrypt`, gets `403 {"detail":"Access
+denied"}`, and the only fact support actually needs to resolve it is *who
+owns the data*. Before this endpoint, that meant either a direct DB query
+against `edek_records` or digging through Splunk for the `no_grant_for_owner`
+audit event's `owner_app_id` field — both work, but both require DB/Splunk
+access support may not have, and both are slower than they need to be for
+what is otherwise a one-line answer.
+
+`GET /admin/edek/{edekId}` returns exactly that one-line answer and nothing
+riskier:
+
+```bash
+curl "$BASE/admin/edek/32dacf35-6fe7-45cb-b120-8d24bbe821b7" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
+# -> {"edek_id":"32dacf35-...","owner_app_id":"payments-svc","dek_name":"customers.support-lookup-test",
+#     "data_classification":null,"algorithm":"AES-256-GCM","encoding":"utf8","kek_name":"hsm-master-kek",
+#     "kek_version":"demo-v2","rotation_status":"CURRENT","current_dek_name":"customers.support-lookup-test",
+#     "created_at":"...","rotated_at":null}
+```
+
+**Support workflow, end to end:**
+1. The calling app's error (or its own logs) names the `edek_id` from the
+   ciphertext token it tried to decrypt. If it doesn't have that handy, the
+   `no_grant_for_owner` audit event carries the same `edek_id` and already
+   includes `owner_app_id` directly — either path gets you here.
+2. `GET /admin/edek/{edekId}` → read `owner_app_id` (who to grant *from*) and
+   `dek_name` (if you want a fine-grained grant instead of coarse).
+3. `POST /admin/grants` (coarse) or `POST /admin/dek-grants` (scoped to that
+   one `dek_name`) with the requesting app as `grantee_app_id` and the
+   looked-up app as `owner_app_id`.
+4. Done — no restart needed, since `POST /admin/grants`/`/admin/dek-grants`
+   update `AppRegistryService`'s cache in-process, unlike a direct SQL write.
+
+**Same `grant` scope as the grants endpoints, deliberately.** Whoever can
+already see and manage cross-app grants is exactly who needs this to decide
+what to grant — a separate scope would just mean provisioning another
+permission for the same people. **Deliberately excludes `edek_blob` (the
+wrapped key material) and `fingerprint`** — this endpoint can only ever
+answer "who owns it," never "what does it decrypt to," which is what makes
+it safe to hand to support tooling that must never come near plaintext or
+anything that could help forge a match against one.
 
 ## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented
 
@@ -222,4 +268,8 @@ curl -X POST "$BASE/admin/dek-grants" \
 
 # List all fine-grained grants
 curl "$BASE/admin/dek-grants" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
+
+# Look up who owns an EDEK, to resolve a cross-app decrypt denial
+curl "$BASE/admin/edek/32dacf35-6fe7-45cb-b120-8d24bbe821b7" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
 ```
