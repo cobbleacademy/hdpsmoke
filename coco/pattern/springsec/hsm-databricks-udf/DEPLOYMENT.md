@@ -2,18 +2,33 @@
 
 Companion to [`../java/docs/DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_UDF_DESIGN.md)
 (the design/rationale) and [`sql/create_functions.sql`](sql/create_functions.sql)
-(the actual `CREATE FUNCTION` DDL). This doc is the concrete "how do I actually
-get this running" walkthrough per compute type, plus example queries.
+(the actual `CREATE FUNCTION` DDL).
 
 **Status:** the package itself is built and verified — its crypto is proven
 byte-for-byte compatible with `hsm-core-service`'s real Java implementation in
 both directions (see `tests/test_live_interop.py`, run for real against a live
-local instance while this was built). **The Databricks-side steps below have
-not been run against a real Databricks workspace** — this repo has no
-Databricks access. Treat them as the concrete, ready-to-execute plan, not
-something already confirmed working on Databricks itself.
+local instance while this was built). **The steps below have not been run
+against a real Databricks workspace** — this repo has no Databricks access.
+One specific step is called out below as needing a smoke test before you rely
+on it for real: whether `dbutils` is available unqualified inside a Unity
+Catalog Python function body.
 
-## 0. One-time prerequisites, regardless of compute type
+## Why one flow now covers all three compute types
+
+An earlier draft of this doc had separate instructions per compute type
+(cluster-attached libraries for job/classic, an admin-allowlisted volume for
+shared, a notebook-scoped `%pip install` for serverless). That was working
+around a real limitation instead of using what Databricks actually built for
+this: `CREATE FUNCTION`'s `ENVIRONMENT` clause declares a function's Python
+dependencies (PyPI packages, or a wheel path in a Unity Catalog volume) *as
+part of the function's own definition* — confirmed directly against
+Databricks' `CREATE FUNCTION` docs. Combined with `dbutils.secrets.get(...)`
+for credentials (Unity Catalog's own governed secrets mechanism, also
+confirmed directly, not assumed), the function carries everything it needs
+wherever it's invoked from — no separate per-cluster setup, no dependency on
+whichever session happened to register it.
+
+## 0. One-time prerequisites
 
 1. **Register the calling app in `hsm-core-service`** (if not already), with
    at minimum the `dek_issue`/`dek_unwrap` scopes — see
@@ -39,119 +54,96 @@ something already confirmed working on Databricks itself.
    cd hsm-databricks-udf
    python -m build   # produces dist/hsm_databricks_udf-0.1.0-py3-none-any.whl
    ```
-
-## 1. Job clusters / classic all-purpose clusters
-
-The straightforward path — full control over cluster config and libraries.
-
-1. **Upload the wheel** to a Unity Catalog volume or DBFS:
-   ```
+6. **Upload the wheel to a Unity Catalog volume** — this is what the
+   `ENVIRONMENT` clause's wheel path points at, so it must be a volume, not
+   DBFS:
+   ```bash
    databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl \
-     dbfs:/FileStore/hsm-databricks-udf/hsm_databricks_udf-0.1.0-py3-none-any.whl
+     dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
    ```
-2. **Attach it as a cluster library** — Compute → your cluster → Libraries →
-   Install New → select the uploaded wheel.
-3. **Set cluster environment variables** — Compute → your cluster → Edit →
-   Advanced options → Environment variables:
-   ```
-   HSM_SERVICE_BASE_URL=https://hsm-core-service.internal:8443/api/sensec/hsm/v1
-   HSM_APP_ID=databricks-udf
-   HSM_BEARER_TOKEN={{secrets/hsm/databricks-udf-token}}
-   HSM_PRIVATE_KEY_PEM={{secrets/hsm/databricks-udf-private-key}}
-   ```
-   The `{{secrets/scope/key}}` syntax pulls from a Databricks secret scope —
-   never paste the token/private key in plaintext. Create the scope first:
+7. **Create a Databricks secret scope** holding the bearer token and private
+   key. The person who runs `sql/create_functions.sql` (the function's
+   *creator*) needs `READ SECRET` on this scope — callers of the function
+   later need only `EXECUTE` on the function itself, never access to the
+   scope (Unity Catalog's definer-rights model for secrets used inside a
+   function):
    ```bash
    databricks secrets create-scope hsm
    databricks secrets put-secret hsm databricks-udf-token --string-value "$TOKEN"
    databricks secrets put-secret hsm databricks-udf-private-key --file hsm-databricks-key.pem
    ```
-4. **Register the functions**: run [`sql/create_functions.sql`](sql/create_functions.sql)
-   in a notebook cell or via the SQL editor, attached to this cluster.
-5. **Run it**:
-   ```sql
-   SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci');
-   -- -> "v1.AbC123..."
 
-   SELECT main.hsm.hsm_decrypt('v1.AbC123...');
-   -- -> "4111-1111-1111-1234"
+## 1. Register the functions
 
-   -- Over a real table:
-   SELECT id, main.hsm.hsm_decrypt(ciphertext_token) AS account_number
-   FROM main.payments.customer_accounts;
-   ```
+Edit the `HSM_SERVICE_BASE_URL`/`HSM_APP_ID` values and the volume path in
+[`sql/create_functions.sql`](sql/create_functions.sql) to match your
+deployment, then run it — from a notebook, the SQL editor, or a job, on
+**any** compute type (job/classic, shared, or serverless all work identically
+here, since nothing in this step is compute-specific):
 
-## 2. Shared clusters (Unity Catalog standard access mode)
+```sql
+-- contents of sql/create_functions.sql
+```
 
-Same steps as job clusters (§1), plus one extra, admin-only step:
+The `ENVIRONMENT` clause resolves the wheel + its dependencies wherever the
+function later executes; the `dbutils.secrets.get(...)` calls inside the
+function body resolve credentials the same way, regardless of which
+cluster/warehouse a future caller uses.
 
-1. **Request the wheel be allowlisted** for standard-access-mode compute —
-   a workspace admin runs:
-   ```sql
-   -- Or via the UI: Data Governance -> Unity Catalog -> Allowlist
-   ALLOW LIBRARY '/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl' FOR ALL CLUSTERS;
-   ```
-   (Custom JARs/wheels on standard-access-mode clusters require this —
-   DBR 13.3+, confirmed against current Databricks docs.) Uploading the wheel
-   to a Unity Catalog volume rather than DBFS is the recommended path here,
-   since volumes are what the allowlist mechanism is built around.
-2. Steps 3–5 from §1 are identical — environment variables, `CREATE FUNCTION`,
-   and the same `SELECT hsm_decrypt(...)` queries work unchanged, since Unity
-   Catalog Functions are the same governed object regardless of which
-   compute type executes them.
+**Smoke-test this specific step before relying on it**: whether `dbutils` is
+available as a bare name inside a Unity Catalog Python function's `AS $$ ...
+$$` body (versus needing an explicit import) isn't something this
+environment could verify against a real workspace. Run one call and confirm
+it works:
 
-## 3. Serverless (notebooks, jobs, SQL warehouses)
+```sql
+SELECT main.hsm.hsm_encrypt('smoke test', 'deployment.smoke.test');
+```
 
-No cluster to configure — environment variables and libraries work
-differently here.
+If `dbutils` isn't in scope there, the fallback is unchanged from before:
+`config.py` reads `os.environ` regardless of how those variables got set, so
+setting `HSM_SERVICE_BASE_URL`/`HSM_APP_ID`/`HSM_BEARER_TOKEN`/
+`HSM_PRIVATE_KEY_PEM` as cluster-level environment variables (job/classic/
+shared clusters support this directly; serverless would need them set via
+`os.environ[...] = ...` in whatever code path actually runs first) still
+works — only the *how credentials get into the process* changes, not
+anything in the package itself.
 
-1. **Publish the wheel to a Unity Catalog volume** (serverless doesn't
-   support DBFS-attached compute-scoped libraries the way clusters do):
-   ```
-   databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl \
-     dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
-   ```
-2. **Install it notebook-scoped**, in the first cell of the notebook/job that
-   registers or calls the functions:
-   ```python
-   %pip install /Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
-   dbutils.library.restartPython()
-   ```
-3. **Set environment variables via secrets, read in-notebook** (serverless has
-   no cluster-level environment-variable UI):
-   ```python
-   import os
-   os.environ["HSM_SERVICE_BASE_URL"] = "https://hsm-core-service.internal:8443/api/sensec/hsm/v1"
-   os.environ["HSM_APP_ID"] = "databricks-udf"
-   os.environ["HSM_BEARER_TOKEN"] = dbutils.secrets.get(scope="hsm", key="databricks-udf-token")
-   os.environ["HSM_PRIVATE_KEY_PEM"] = dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key")
-   ```
-4. **If the workspace runs restricted serverless egress**, allowlist
-   `hsm-core-service`'s domain — Settings → Network → Network Policies →
-   add the domain to the allowed internet destinations. Confirmed directly
-   against Databricks docs: serverless Python UDFs can reach external HTTPS
-   endpoints on port 443, but a restricted-egress workspace still needs the
-   domain explicitly added.
-5. **Register the functions and query**, identical to §1 step 4–5 — run
-   `sql/create_functions.sql`, then:
-   ```sql
-   SELECT main.hsm.hsm_decrypt(ciphertext_token) FROM main.payments.customer_accounts LIMIT 10;
-   ```
+## 2. Run it
+
+```sql
+SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci');
+-- -> "v1.AbC123..."
+
+SELECT main.hsm.hsm_decrypt('v1.AbC123...');
+-- -> "4111-1111-1111-1234"
+
+-- Over a real table:
+SELECT id, main.hsm.hsm_decrypt(ciphertext_token) AS account_number
+FROM main.payments.customer_accounts;
+```
+
+## 3. Serverless-specific note: network egress
+
+Python UDFs can reach external HTTPS endpoints on serverless — confirmed
+directly against Databricks docs — but if the workspace runs *restricted*
+serverless egress, `hsm-core-service`'s domain must be explicitly added:
+Settings → Network → Network Policies → allowed internet destinations. This
+is a one-time workspace-level change, unrelated to the function registration
+above.
 
 ## 4. Verifying a deployment actually works
-
-Before trusting any of the above in a real workflow, run the same round-trip
-this package's own test suite already proves works against the JVM side:
 
 ```sql
 -- Round trip through the UDFs themselves
 SELECT main.hsm.hsm_decrypt(main.hsm.hsm_encrypt('test value', 'deployment.verify.column')) = 'test value' AS round_trip_ok;
 -- -> true
-
--- Cross-check against the real /decrypt endpoint directly (not through this
--- package at all) -- proves the token these UDFs produce is genuinely
--- hsm-core-service's own wire format, not just internally self-consistent:
 ```
+
+Cross-check against the real `/decrypt` endpoint directly (not through this
+package at all) to prove the token these UDFs produce is genuinely
+`hsm-core-service`'s own wire format, not just internally self-consistent:
+
 ```bash
 TOKEN=$(databricks sql query "SELECT main.hsm.hsm_encrypt('cross-check', 'deployment.verify.column2')" | tail -1)
 curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID: databricks-udf" \
@@ -163,14 +155,16 @@ curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID
 
 | Symptom | Likely cause |
 |---|---|
-| `ConfigError: HSM_SERVICE_BASE_URL is not set` | Environment variable not set on this compute type — see the compute-specific step above |
+| `ConfigError: HSM_SERVICE_BASE_URL is not set` | The `dbutils.secrets.get(...)` bootstrap in the function body didn't run or `dbutils` wasn't in scope — see §1's smoke test |
+| `NameError: name 'dbutils' is not defined` | `dbutils` isn't available unqualified in this function body context — fall back to cluster-level environment variables, see §1 |
 | `SvcClientError: /dek/issue -> 403: ...` | App not registered, wrong scope, or (for a cross-app `dek_name`) no grant — see [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)'s `GET /admin/edek/{edekId}` support workflow |
 | `SvcClientError: /dek/issue -> 422: App '...' has no public_key_pem registered` | Step 0.3 (register the public key) wasn't done for this `HSM_APP_ID` |
-| Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §3 step 4 for serverless specifically |
-| `ImportError: No module named 'hsm_databricks_udf'` | Wheel not installed on this compute, or (serverless) `%pip install` didn't run before the function's first call |
+| Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §3 for serverless specifically |
+| `ImportError: No module named 'hsm_databricks_udf'` | The `ENVIRONMENT` clause's wheel path is wrong, or the wheel wasn't actually uploaded to that Unity Catalog volume path — see §0.6 |
 
 ## 6. Open items before a production rollout
 
-See [`DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_UDF_DESIGN.md) §14 —
-in particular, whether the RSA-OAEP transport-unwrap needs to stay inside a
-FIPS-140-validated module, still unconfirmed at the time this was built.
+- The `dbutils`-inside-function-body wiring (§1) — needs a real smoke test.
+- See [`DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_UDF_DESIGN.md) §14
+  — in particular, whether the RSA-OAEP transport-unwrap needs to stay inside
+  a FIPS-140-validated module, still unconfirmed at the time this was built.
