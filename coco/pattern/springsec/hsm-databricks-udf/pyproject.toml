@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hsm-databricks-udf"
+version = "0.1.0"
+description = "hsm_encrypt/hsm_decrypt as Unity Catalog Python Functions -- see java/docs/DATABRICKS_UDF_DESIGN.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0",
+    "requests>=2.31",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
