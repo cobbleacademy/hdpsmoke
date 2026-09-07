@@ -102,13 +102,24 @@ public class SvcClient {
     public record IssueItem(String key, String dataClassification, String name) {
     }
 
-    public record IssueResult(String key, String status, UUID edekId, String wrappedDekB64, String detail, boolean reused) {
+    /**
+     * ownerAppId is the record's permanent owner -- NOT necessarily the
+     * calling app once a grant-authorized cross-app dek_name reuse is in
+     * play. Callers MUST use this (never their own configured appId) as the
+     * AES-GCM AAD for local encrypt; using the caller's own identity for a
+     * cross-app reuse silently produces a ciphertext nothing can ever
+     * decrypt again -- a real, confirmed bug fixed on the hsm-core-service
+     * side of this exact response (EncryptionService.ResolvedDek's javadoc
+     * has the full story) the same round this field was added here.
+     */
+    public record IssueResult(String key, String status, UUID edekId, String wrappedDekB64, String ownerAppId, String detail, boolean reused) {
     }
 
     public record UnwrapItem(String key, UUID edekId) {
     }
 
-    public record UnwrapResult(String key, String status, UUID edekId, String wrappedDekB64, String detail) {
+    /** ownerAppId is the record's permanent owner -- required as the AES-GCM AAD for local decrypt; see IssueResult's javadoc for the identical reasoning on the encrypt side. */
+    public record UnwrapResult(String key, String status, UUID edekId, String wrappedDekB64, String ownerAppId, String detail) {
     }
 
     private record ItemsRequest<T>(List<T> items) {
