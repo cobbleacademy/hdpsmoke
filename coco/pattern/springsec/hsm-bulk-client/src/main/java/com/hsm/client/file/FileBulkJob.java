@@ -115,7 +115,7 @@ public class FileBulkJob {
     // per-column granularity like DB's ColumnMapping does). Unset config.dekName()
     // means every file's DEK is genuinely one-off by design -- unchanged per-batch
     // behavior, no persistent cache, no benefit to caching a one-off value anyway.
-    private final Map<UUID, byte[]> namedDekCache;
+    private final Map<UUID, OwnedFileDek> namedDekCache;
 
     public FileBulkJob(ClientProperties.File config, SvcConfig svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -148,7 +148,19 @@ public class FileBulkJob {
         return config.dekName() != null && !config.dekName().isBlank();
     }
 
-    private record NamedFileDek(UUID edekId, byte[] dek) {
+    /**
+     * ownerAppId is the record's permanent owner -- NOT necessarily
+     * svcConfig.appId() once a grant-authorized cross-app dek_name reuse is
+     * in play. Must be used as the AES-GCM AAD, never svcConfig.appId()
+     * directly -- see SvcClient.IssueResult's javadoc for the full reasoning
+     * and the confirmed bug this field exists to avoid (same fix as
+     * DbBulkJob's NamedDek, just for this class's own per-job DEK).
+     */
+    private record NamedFileDek(UUID edekId, String ownerAppId, byte[] dek) {
+    }
+
+    /** Decrypt-side cache/lookup entry -- same ownerAppId reasoning as NamedFileDek. */
+    private record OwnedFileDek(String ownerAppId, byte[] dek) {
     }
 
     /** One /dek/issue call for the whole job when config.dekName() is set -- resolved once, shared read-only across every worker. */
@@ -163,8 +175,8 @@ public class FileBulkJob {
             throw new IllegalStateException("dek/issue failed for dek-name=" + r.key() + ": " + r.detail());
         }
         byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(r.wrappedDekB64()), privateKey);
-        log.info("file_bulk_named_dek_resolved dek_name={} reused={}", r.key(), r.reused());
-        return new NamedFileDek(r.edekId(), dek);
+        log.info("file_bulk_named_dek_resolved dek_name={} reused={} owner_app_id={}", r.key(), r.reused(), r.ownerAppId());
+        return new NamedFileDek(r.edekId(), r.ownerAppId(), dek);
     }
 
     /** Loads prior progress (resume=true) or clears it for a fresh start (resume=false); no-op entirely when checkpointing is disabled. */
@@ -214,7 +226,7 @@ public class FileBulkJob {
             logCompletion("decrypt", doneCounter.get(), startMs);
         } finally {
             if (namedDekCache != null) {
-                namedDekCache.values().forEach(DekManager::zeroDek);
+                namedDekCache.values().forEach(owned -> DekManager.zeroDek(owned.dek()));
             }
         }
     }
@@ -305,7 +317,7 @@ public class FileBulkJob {
 
             if (namedDek != null) {
                 for (String path : toProcess) {
-                    encryptOneFile(path, namedDek.edekId(), namedDek.dek());
+                    encryptOneFile(path, namedDek.edekId(), namedDek.dek(), namedDek.ownerAppId());
                     onFileDone(path, jobId, doneCounter);
                 }
             } else {
@@ -325,7 +337,7 @@ public class FileBulkJob {
                     }
                     byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
                     try {
-                        encryptOneFile(path, result.edekId(), dek);
+                        encryptOneFile(path, result.edekId(), dek, result.ownerAppId());
                         onFileDone(path, jobId, doneCounter);
                     } finally {
                         DekManager.zeroDek(dek);
@@ -351,7 +363,7 @@ public class FileBulkJob {
         }
     }
 
-    private void encryptOneFile(String relativePath, UUID edekId, byte[] dek) {
+    private void encryptOneFile(String relativePath, UUID edekId, byte[] dek, String ownerAppId) {
         try (InputStream in = sourceStore.openRead(relativePath);
              DataOutputStream out = new DataOutputStream(targetStore.openWrite(relativePath))) {
             out.writeLong(edekId.getMostSignificantBits());
@@ -374,7 +386,7 @@ public class FileBulkJob {
                 // /decrypt too, not just this class's own local path.
                 String base64Plaintext = Base64.getEncoder().encodeToString(marked);
                 DekManager.EncryptResult encrypted = DekManager.encrypt(
-                        base64Plaintext.getBytes(StandardCharsets.UTF_8), dek, svcConfig.appId());
+                        base64Plaintext.getBytes(StandardCharsets.UTF_8), dek, ownerAppId);
                 byte[] frame = new byte[DekManager.IV_LENGTH + DekManager.TAG_LENGTH + encrypted.ciphertext().length];
                 System.arraycopy(encrypted.iv(), 0, frame, 0, DekManager.IV_LENGTH);
                 System.arraycopy(encrypted.tag(), 0, frame, DekManager.IV_LENGTH, DekManager.TAG_LENGTH);
@@ -415,10 +427,10 @@ public class FileBulkJob {
             // per file.
             List<UUID> distinctEdekIds = edekIdByPath.values().stream().distinct().toList();
 
-            Map<UUID, byte[]> dekByEdekId = new LinkedHashMap<>();
+            Map<UUID, OwnedFileDek> dekByEdekId = new LinkedHashMap<>();
             if (namedDekCache != null) {
                 for (UUID id : distinctEdekIds) {
-                    byte[] cached = namedDekCache.get(id);
+                    OwnedFileDek cached = namedDekCache.get(id);
                     if (cached != null) {
                         dekByEdekId.put(id, cached);
                     }
@@ -439,31 +451,32 @@ public class FileBulkJob {
                     if ("success".equals(e.getValue().status())) {
                         byte[] dek = TransportWrapper.unwrap(
                                 Base64.getDecoder().decode(e.getValue().wrappedDekB64()), privateKey);
-                        dekByEdekId.put(e.getKey(), dek);
+                        OwnedFileDek owned = new OwnedFileDek(e.getValue().ownerAppId(), dek);
+                        dekByEdekId.put(e.getKey(), owned);
                         if (namedDekCache != null) {
-                            namedDekCache.put(e.getKey(), dek);
+                            namedDekCache.put(e.getKey(), owned);
                         }
                     }
                 }
 
                 for (String path : toProcess) {
                     UUID edekId = edekIdByPath.get(path);
-                    byte[] dek = dekByEdekId.get(edekId);
-                    if (dek == null) {
+                    OwnedFileDek owned = dekByEdekId.get(edekId);
+                    if (owned == null) {
                         SvcClient.UnwrapResult result = resultByEdekId.get(edekId);
                         throw new IllegalStateException("dek/unwrap failed for file " + path
                                 + ": " + (result == null ? "no result returned" : result.detail()));
                     }
-                    decryptOneFile(path, dek);
+                    decryptOneFile(path, owned.dek(), owned.ownerAppId());
                     onFileDone(path, jobId, doneCounter);
                 }
             } finally {
                 // Only zero DEKs NOT retained in namedDekCache -- those are the same
                 // byte[] instances the cache holds for future batches, zeroing them
                 // here would corrupt the cache for later reuse.
-                for (Map.Entry<UUID, byte[]> e : dekByEdekId.entrySet()) {
+                for (Map.Entry<UUID, OwnedFileDek> e : dekByEdekId.entrySet()) {
                     if (namedDekCache == null || !namedDekCache.containsKey(e.getKey())) {
-                        DekManager.zeroDek(e.getValue());
+                        DekManager.zeroDek(e.getValue().dek());
                     }
                 }
             }
@@ -489,7 +502,7 @@ public class FileBulkJob {
         }
     }
 
-    private void decryptOneFile(String relativePath, byte[] dek) {
+    private void decryptOneFile(String relativePath, byte[] dek, String ownerAppId) {
         try (DataInputStream in = new DataInputStream(sourceStore.openRead(relativePath));
              OutputStream out = targetStore.openWrite(relativePath)) {
             in.readLong(); // edek_id -- already consumed via readEdekIdHeader before the /dek/unwrap call
@@ -509,7 +522,7 @@ public class FileBulkJob {
                 byte[] ciphertext = Arrays.copyOfRange(frame, DekManager.IV_LENGTH + DekManager.TAG_LENGTH, frame.length);
                 byte[] plaintext;
                 try {
-                    plaintext = DekManager.decrypt(ciphertext, tag, iv, dek, svcConfig.appId());
+                    plaintext = DekManager.decrypt(ciphertext, tag, iv, dek, ownerAppId);
                 } catch (AEADBadTagException e) {
                     throw new IllegalStateException("AEAD tag verification failed decrypting chunk of " + relativePath, e);
                 }
