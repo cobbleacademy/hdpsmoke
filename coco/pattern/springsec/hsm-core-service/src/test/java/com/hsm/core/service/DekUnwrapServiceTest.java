@@ -142,8 +142,23 @@ class DekUnwrapServiceTest {
 
         DekUnwrapResultItem item = response.items().get(0);
         assertEquals("success", item.status());
+        // Regression coverage for a real, confirmed bug: DekUnwrapResultItem used to
+        // omit ownerAppId entirely, leaving a grant-authorized caller with no way to
+        // know which app_id to use as the AES-GCM AAD for its own local decrypt --
+        // see DekIssueServiceTest's crossAppEncryptGrantReuse... test for the encrypt-
+        // side twin of this bug and the full end-to-end reasoning.
+        assertEquals(ownerAppId, item.ownerAppId());
         byte[] unwrapped = TransportWrapper.unwrap(Base64.getDecoder().decode(item.wrappedDekB64()), granteeKeys.getPrivate());
         assertTrue(Arrays.equals(rawDek, unwrapped));
+
+        // Prove item.ownerAppId() is actually the correct AAD: encrypt a real
+        // ciphertext as the true owner would (AAD = ownerAppId), then have the
+        // grantee decrypt it locally using exactly the DEK + ownerAppId this
+        // endpoint just returned.
+        byte[] plaintext = "owner-produced ciphertext, grantee decrypts locally".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        DekManager.EncryptResult encrypted = DekManager.encrypt(plaintext, rawDek, ownerAppId);
+        byte[] decrypted = DekManager.decrypt(encrypted.ciphertext(), encrypted.tag(), encrypted.iv(), unwrapped, item.ownerAppId());
+        assertEquals(new String(plaintext, java.nio.charset.StandardCharsets.UTF_8), new String(decrypted, java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test

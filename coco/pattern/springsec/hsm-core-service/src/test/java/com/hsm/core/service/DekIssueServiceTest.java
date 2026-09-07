@@ -7,8 +7,10 @@ import com.hsm.core.dto.DekIssueItem;
 import com.hsm.core.dto.DekIssueRequest;
 import com.hsm.core.dto.DekIssueResponse;
 import com.hsm.core.dto.DekIssueResultItem;
+import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
+import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.web.ApiException;
@@ -52,6 +54,9 @@ class DekIssueServiceTest {
 
     @Autowired
     private EdekRecordRepository edekRecordRepository;
+
+    @Autowired
+    private AppGrantRepository appGrantRepository;
 
     @Autowired
     private KekClient kekClient;
@@ -160,6 +165,52 @@ class DekIssueServiceTest {
 
         assertEquals(1, edekRecordRepository.findAll().stream()
                 .filter(r -> "customers.ssn".equals(r.getDekName())).count());
+    }
+
+    /**
+     * Regression test for a real, confirmed bug: DekIssueResultItem used to omit
+     * ownerAppId entirely, leaving a grant-authorized cross-app caller with no way
+     * to know which app_id to use as the AES-GCM AAD for its own local encrypt.
+     * Using the caller's own app_id (the only thing it had) produced a ciphertext
+     * that nothing could ever decrypt again -- reproduced end-to-end against a
+     * live server before this fix (see EncryptionService.ResolvedDek's javadoc for
+     * the full reasoning; this test proves the same fix on the /dek/issue path).
+     */
+    @Test
+    void crossAppEncryptGrantReuseReturnsCorrectOwnerAndProducesDecryptableCiphertext() throws Exception {
+        KeyPair ownerKeys = generateTestKeyPair();
+        KeyPair granteeKeys = generateTestKeyPair();
+        String ownerAppId = "dek-issue-owner-1";
+        String granteeAppId = "dek-issue-grantee-1";
+        registerAppWithKeyPair(ownerAppId, ownerKeys.getPublic());
+        registerAppWithKeyPair(granteeAppId, granteeKeys.getPublic());
+
+        DekIssueRequest mintReq = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "cross.app.issue.column")));
+        DekIssueResultItem minted = dekIssueService.issue(mintReq, ownerAppId, "test-sub", "127.0.0.1").items().get(0);
+        assertEquals(ownerAppId, minted.ownerAppId());
+
+        appGrantRepository.save(new AppGrant(granteeAppId, ownerAppId, "encrypt"));
+
+        DekIssueRequest reuseReq = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "cross.app.issue.column")));
+        DekIssueResultItem reused = dekIssueService.issue(reuseReq, granteeAppId, "test-sub", "127.0.0.1").items().get(0);
+        assertTrue(reused.reused());
+        assertEquals(minted.edekId(), reused.edekId());
+        // The actual bug: ownership must NOT appear to transfer to the grantee.
+        assertEquals(ownerAppId, reused.ownerAppId());
+
+        // Grantee unwraps the transport-wrapped DEK with its own private key --
+        // exactly what a real CLNT does -- then locally encrypts using
+        // reused.ownerAppId() as AAD, per the contract this field now exists for.
+        byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(reused.wrappedDekB64()), granteeKeys.getPrivate());
+        byte[] plaintext = "grantee-produced ciphertext must stay decryptable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        DekManager.EncryptResult encrypted = DekManager.encrypt(plaintext, dek, reused.ownerAppId());
+
+        // Decrypt exactly as DecryptionService does: unwrap the same persisted EDEK
+        // via the real KEK, and verify the AAD-bound tag with the record's true owner.
+        EdekRecord record = edekRecordRepository.findById(reused.edekId()).orElseThrow();
+        byte[] dekViaKek = kekClient.unwrapDek(Base64.getDecoder().decode(record.getEdekBlob()), record.getKekName(), record.getKekVersion());
+        byte[] decrypted = DekManager.decrypt(encrypted.ciphertext(), encrypted.tag(), encrypted.iv(), dekViaKek, record.getAppId());
+        assertEquals(new String(plaintext, java.nio.charset.StandardCharsets.UTF_8), new String(decrypted, java.nio.charset.StandardCharsets.UTF_8));
     }
 
     @Test
