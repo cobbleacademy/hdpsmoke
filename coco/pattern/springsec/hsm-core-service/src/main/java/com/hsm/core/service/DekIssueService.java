@@ -143,7 +143,7 @@ public class DekIssueService {
                 try {
                     byte[] wrappedForTransport = TransportWrapper.wrap(dek, callerPublicKey);
                     return DekIssueResultItem.success(item.key(), record.getEdekId(),
-                            Base64.getEncoder().encodeToString(wrappedForTransport), true);
+                            Base64.getEncoder().encodeToString(wrappedForTransport), record.getAppId(), true);
                 } finally {
                     DekManager.zeroDek(dek);
                 }
@@ -161,7 +161,7 @@ public class DekIssueService {
             edekRecordRepository.save(record);
 
             byte[] wrappedForTransport = TransportWrapper.wrap(dek, callerPublicKey);
-            return DekIssueResultItem.success(item.key(), edekId, Base64.getEncoder().encodeToString(wrappedForTransport), false);
+            return DekIssueResultItem.success(item.key(), edekId, Base64.getEncoder().encodeToString(wrappedForTransport), appId, false);
         } finally {
             DekManager.zeroDek(dek);
         }

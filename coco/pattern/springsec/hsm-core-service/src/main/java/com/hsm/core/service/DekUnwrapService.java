@@ -121,7 +121,7 @@ public class DekUnwrapService {
         byte[] dek = kekClient.unwrapDek(edekBytes, kekName, record.getKekVersion());
         try {
             byte[] wrappedForTransport = TransportWrapper.wrap(dek, callerPublicKey);
-            return DekUnwrapResultItem.success(item.key(), item.edekId(), Base64.getEncoder().encodeToString(wrappedForTransport));
+            return DekUnwrapResultItem.success(item.key(), item.edekId(), Base64.getEncoder().encodeToString(wrappedForTransport), ownerAppId);
         } finally {
             DekManager.zeroDek(dek);
         }

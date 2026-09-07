@@ -67,8 +67,19 @@ public class EncryptionService {
         this.appRegistry = appRegistry;
     }
 
-    /** Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or from DekCache) or a newly minted one (reused=false, not yet persisted). */
-    private record ResolvedDek(UUID edekId, byte[] dek, String kekVersion, String kekName, String edekBlobB64, boolean reused) {
+    /**
+     * Resolution result feeding encrypt() -- either an existing named DEK (reused=true, unwrapped fresh or
+     * from DekCache) or a newly minted one (reused=false, not yet persisted). ownerAppId is the record's
+     * permanent owner -- the caller on mint (first-encrypt-wins), or record.getAppId() on reuse, which is
+     * NOT necessarily the current caller once V14 cross-app encrypt grants are in play. This must be used
+     * as the AES-GCM AAD (and reported as the response's owner_app_id), never the raw caller appId: AAD is
+     * fixed forever at the record's true owner because DecryptionService verifies every token against
+     * ownerAppId regardless of which grant-authorized app produced it -- using the caller's appId here for
+     * a cross-app reuse silently produces a token nothing can ever decrypt again (confirmed by reproducing
+     * it end-to-end: owner's grant check passes but tag verification fails; the writer's tag would have
+     * matched but its grant check fails, since an encrypt grant doesn't imply a decrypt grant).
+     */
+    private record ResolvedDek(UUID edekId, byte[] dek, String kekVersion, String kekName, String edekBlobB64, boolean reused, String ownerAppId) {
     }
 
     public EncryptResponse encrypt(EncryptRequest request, String appId, String callerSub, String callerIp) {
@@ -106,7 +117,7 @@ public class EncryptionService {
 
         DekManager.EncryptResult result;
         try {
-            result = DekManager.encrypt(plaintextBytes, resolved.dek(), appId);
+            result = DekManager.encrypt(plaintextBytes, resolved.dek(), resolved.ownerAppId());
         } finally {
             DekManager.zeroDek(resolved.dek());
         }
@@ -140,7 +151,7 @@ public class EncryptionService {
 
         return new EncryptResponse(
                 DekManager.packToken(edekId, result.iv(), result.tag(), result.ciphertext()),
-                edekId, appId, DekManager.ALGORITHM, request.encoding(), resolved.kekVersion(),
+                edekId, resolved.ownerAppId(), DekManager.ALGORITHM, request.encoding(), resolved.kekVersion(),
                 resolved.reused(),
                 "success", "ENCRYPT_SUCCESS", "Encryption completed successfully",
                 MDC.get(CorrelationIdFilter.MDC_KEY)
@@ -198,7 +209,7 @@ public class EncryptionService {
                     dek = kekClient.unwrapDek(edekBytes, kekName, record.getKekVersion());
                     dekCache.set(edekIdStr, dek, record.getDataClassification());
                 }
-                return new ResolvedDek(record.getEdekId(), dek, record.getKekVersion(), kekName, null, true);
+                return new ResolvedDek(record.getEdekId(), dek, record.getKekVersion(), kekName, null, true, record.getAppId());
             }
         }
 
@@ -210,7 +221,7 @@ public class EncryptionService {
             dekCache.set(edekId.toString(), dek, dataClassification);
         }
         return new ResolvedDek(edekId, dek, wrapResult.kekVersion(), kekName,
-                Base64.getEncoder().encodeToString(wrapResult.edekBytes()), false);
+                Base64.getEncoder().encodeToString(wrapResult.edekBytes()), false, appId);
     }
 
     /** One dek_name is bound to exactly one data_classification -- reject only on an explicit, non-blank conflict; a blank side is a no-op (informational field stays as the other side already has it). */
