@@ -11,7 +11,9 @@ from dataclasses import dataclass
 
 import requests
 
-from .config import Config
+from . import transport
+from .auth import SelfSignedJwtTokenProvider, StaticTokenProvider, TokenProvider
+from .config import Config, ConfigError
 
 
 class SvcClientError(RuntimeError):
@@ -34,13 +36,15 @@ class UnwrapResult:
 
 
 class SvcClient:
-    def __init__(self, config: Config, session: requests.Session | None = None) -> None:
+    def __init__(self, config: Config, session: requests.Session | None = None,
+                 token_provider: TokenProvider | None = None) -> None:
         self._config = config
         self._session = session or requests.Session()
+        self._token_provider = token_provider or _build_token_provider(config)
 
     def _headers(self) -> dict[str, str]:
         return {
-            "Authorization": f"Bearer {self._config.bearer_token}",
+            "Authorization": f"Bearer {self._token_provider.get_bearer_token()}",
             "X-App-ID": self._config.app_id,
             "Content-Type": "application/json",
         }
@@ -81,6 +85,20 @@ class SvcClient:
             detail = _extract_detail(resp)
             raise SvcClientError(f"{path} -> {resp.status_code}: {detail}")
         return resp.json()
+
+
+def _build_token_provider(config: Config) -> TokenProvider:
+    if config.auth_mode == "STATIC":
+        if not config.bearer_token:
+            raise ConfigError("HSM_AUTH_MODE=STATIC requires HSM_BEARER_TOKEN")
+        return StaticTokenProvider(config.bearer_token)
+    elif config.auth_mode == "SELF_SIGNED_JWT":
+        if not config.signing_private_key_pem:
+            raise ConfigError("HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM (or HSM_PRIVATE_KEY_PEM as a fallback)")
+        signing_key = transport.parse_private_key_pem(config.signing_private_key_pem)
+        return SelfSignedJwtTokenProvider(signing_key, config.app_id, config.self_signed_audience)
+    else:
+        raise ConfigError(f"Unknown auth_mode: {config.auth_mode}")
 
 
 def _first_result_or_raise(data: dict, items_key: str) -> dict:
