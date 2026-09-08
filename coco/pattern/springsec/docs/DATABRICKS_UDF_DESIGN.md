@@ -20,10 +20,14 @@ decrypt again, because the AES-GCM AAD used the *caller's* app_id rather than
 the DEK's true, permanent owner. Fixed in `EncryptionService`, `DekIssueService`,
 and `DekUnwrapService` (plus their response DTOs, which never exposed
 `owner_app_id` at all on the `/dek/issue`/`/dek/unwrap` path — this package
-needed that field, building it surfaced the gap). The equivalent bug still
-exists in the JVM clients (`hsm-bulk-client`'s `DbBulkJob`/`FileBulkJob`,
-`hsm-crypto-client`'s `HsmCryptoClient`) — confirmed present, not yet fixed;
-flagged as a follow-up, out of scope for this design doc.
+needed that field, building it surfaced the gap). The equivalent bug also
+existed in the JVM clients (`hsm-bulk-client`'s `DbBulkJob`/`FileBulkJob`,
+`hsm-crypto-client`'s `HsmCryptoClient`) — since fixed, same pattern
+(`ownerAppId` threaded through the cached DEK value and used as the AAD
+instead of the client's own configured `appId`); confirmed via
+`CoreBulkFileInteropTest` and a new `HsmCryptoClientTest`, full multi-module
+suite green (125 tests). `hsm-spark-adapter` needed no change — its UDFs are
+pure delegates to `HsmCryptoClient`, no independent AAD logic.
 
 ## 1. What this is, in one paragraph
 
@@ -247,13 +251,37 @@ isn't re-litigated by this design).
 ## 11. Registering the UDFs
 
 Unity Catalog Python Functions are registered via `CREATE FUNCTION`, not
-`spark.sql.extensions`:
+`spark.sql.extensions`. The function's own `ENVIRONMENT` clause declares its
+dependencies (this package's wheel, uploaded to a Unity Catalog volume) —
+resolved wherever the function actually executes, not wherever it was
+registered from; confirmed directly against Databricks' `CREATE FUNCTION`
+docs, not assumed. Credentials are resolved via `dbutils.secrets.get(...)`
+inside the function body — Unity Catalog's own governed secrets mechanism
+(definer-rights: the creator needs the secret scope, callers only need
+`EXECUTE` on the function). See `../../hsm-databricks-udf/sql/create_functions.sql`
+and `../../hsm-databricks-udf/DEPLOYMENT.md` for the full, current version —
+an earlier draft of this section showed a bare `LANGUAGE PYTHON` function
+relying on a cluster-attached library, which doesn't travel with the function
+to a different caller invoking it later (a SQL warehouse query, a job that
+never ran the registering notebook); the `ENVIRONMENT`/`dbutils.secrets`
+version below fixes that:
 
 ```sql
 CREATE OR REPLACE FUNCTION main.hsm.hsm_decrypt(ciphertext_token STRING)
 RETURNS STRING
 LANGUAGE PYTHON
+ENVIRONMENT (
+  dependencies = '["cryptography>=42.0", "requests>=2.31",
+                   "/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl"]',
+  environment_version = 'None'
+)
 AS $$
+    import os
+    if "HSM_BEARER_TOKEN" not in os.environ:
+        os.environ["HSM_SERVICE_BASE_URL"] = "https://hsm-core-service.internal:8443/api/sensec/hsm/v1"
+        os.environ["HSM_APP_ID"] = "databricks-udf"
+        os.environ["HSM_BEARER_TOKEN"] = dbutils.secrets.get(scope="hsm", key="databricks-udf-token")
+        os.environ["HSM_PRIVATE_KEY_PEM"] = dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key")
     from hsm_databricks_udf.udf import decrypt
     return decrypt(ciphertext_token)
 $$;
@@ -265,6 +293,10 @@ log, independent of which cluster or warehouse a caller uses to invoke it.
 This is a meaningful side benefit over the current Spark-extension model:
 access to `hsm_decrypt` itself becomes a Unity Catalog grant, on top of
 whatever `hsm-core-service`-side authorization already applies.
+
+**Not independently verified against a live workspace**: whether `dbutils`
+is available unqualified inside a Unity Catalog Python function body. `DEPLOYMENT.md`
+§1 has the smoke test and the environment-variable fallback if it isn't.
 
 ## 12. Error handling
 
@@ -298,12 +330,21 @@ the initial design.
 
 - RSA-OAEP unwrap's exact FIPS scope (§8) — small stakes, still worth a direct
   answer before build rather than assuming.
-- Where does the compiled wheel get distributed — a Unity Catalog volume,
-  an internal PyPI index, or bundled directly into the job's dependencies?
-  Affects the shared-cluster admin-allowlist mechanics.
-- Auth mode: `SELF_SIGNED_JWT` vs mTLS for the Databricks-side credential —
-  depends on whether the target workspace's network setup can present a
-  client certificate to `hsm-core-service` at all.
+- ~~Where does the compiled wheel get distributed~~ — resolved: a Unity
+  Catalog volume path, declared directly in `CREATE FUNCTION`'s `ENVIRONMENT`
+  clause (§11) — no per-cluster library attachment needed.
+- **Whether `dbutils` is available unqualified inside a Unity Catalog Python
+  function body** (§11) — confirmed only that `dbutils.secrets.get(...)` is
+  documented to work inside such a function; not independently verified
+  against a live workspace. `DEPLOYMENT.md` §1 has the smoke test and the
+  environment-variable fallback if it isn't.
+- ~~Auth mode: `SELF_SIGNED_JWT` vs mTLS for the Databricks-side credential~~
+  — `SELF_SIGNED_JWT` is implemented (`auth.py`'s `SelfSignedJwtTokenProvider`,
+  a Python port of the JVM reference implementation) and verified end-to-end
+  against a real `hsm-core-service` instance (`tests/test_live_interop.py`).
+  `STATIC` remains the default for simplicity; `mTLS` and `AZURE_AD` are not
+  implemented — still depend on the target workspace's network setup /
+  identity provider, out of scope until a concrete need arises.
 - Whether a Python UDTF (table-valued, batched) is worth building alongside
   the scalar UDF from the start, or only if per-row call overhead proves to
   matter in practice.
