@@ -47,8 +47,31 @@ whichever session happened to register it.
      -H "Content-Type: application/json" \
      -d "{\"app_id\": \"databricks-udf\", \"encryption_public_key_pem\": \"$(cat hsm-databricks-key.pub.pem)\"}"
    ```
-4. **Get a bearer token** for this app — a static token today (see
-   `config.py`'s note on `SELF_SIGNED_JWT`/mTLS as follow-ups, not yet built).
+4. **Choose an auth mode** — `STATIC` (a fixed bearer token, simplest) or
+   `SELF_SIGNED_JWT` (this app signs its own short-lived token locally on
+   every call, no externally-managed token to renew). `AZURE_AD`/`MTLS`
+   aren't implemented in this package yet — see `DATABRICKS_UDF_DESIGN.md`
+   §14.
+   - **STATIC**: get a bearer token for this app the usual way (a demo token,
+     or whatever `hsm-core-service`'s deployment issues for real tokens).
+   - **SELF_SIGNED_JWT**: generate a *second*, dedicated signing keypair
+     (independent of the DEK-transport keypair from step 2 — though it may
+     reuse the same PEM, the legacy one-keypair fallback both
+     `HsmCryptoClient.Builder` and this package support) and register its
+     public half via `POST /admin/apps/keys`' `signing_public_key_pem` field:
+     ```bash
+     openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out hsm-databricks-signing-key.pem
+     openssl pkey -in hsm-databricks-signing-key.pem -pubout -out hsm-databricks-signing-key.pub.pem
+     curl -X POST "$BASE/admin/apps/keys" \
+       -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+       -H "Content-Type: application/json" \
+       -d "{\"app_id\": \"databricks-udf\", \"signing_public_key_pem\": \"$(cat hsm-databricks-signing-key.pub.pem)\"}"
+     ```
+     The `aud` claim this package signs defaults to `"hsm-core-service"` —
+     override via `HSM_SELF_SIGNED_AUDIENCE` if the server's own
+     `hsm.jwt.audience` config differs. Verified end-to-end against a real
+     `hsm-core-service` instance (`tests/test_live_interop.py::test_self_signed_jwt_accepted_by_real_server_end_to_end`),
+     not just structurally.
 5. **Build the wheel**:
    ```bash
    cd hsm-databricks-udf
@@ -61,25 +84,34 @@ whichever session happened to register it.
    databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl \
      dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
    ```
-7. **Create a Databricks secret scope** holding the bearer token and private
-   key. The person who runs `sql/create_functions.sql` (the function's
-   *creator*) needs `READ SECRET` on this scope — callers of the function
-   later need only `EXECUTE` on the function itself, never access to the
-   scope (Unity Catalog's definer-rights model for secrets used inside a
-   function):
+7. **Create a Databricks secret scope** holding whichever credential your
+   chosen auth mode needs, plus the DEK-transport private key either way. The
+   person who runs `sql/create_functions.sql` (the function's *creator*)
+   needs `READ SECRET` on this scope — callers of the function later need
+   only `EXECUTE` on the function itself, never access to the scope (Unity
+   Catalog's definer-rights model for secrets used inside a function):
    ```bash
    databricks secrets create-scope hsm
-   databricks secrets put-secret hsm databricks-udf-token --string-value "$TOKEN"
    databricks secrets put-secret hsm databricks-udf-private-key --file hsm-databricks-key.pem
+
+   # STATIC:
+   databricks secrets put-secret hsm databricks-udf-token --string-value "$TOKEN"
+
+   # SELF_SIGNED_JWT (instead of the token above):
+   databricks secrets put-secret hsm databricks-udf-signing-key --file hsm-databricks-signing-key.pem
    ```
 
 ## 1. Register the functions
 
 Edit the `HSM_SERVICE_BASE_URL`/`HSM_APP_ID` values and the volume path in
 [`sql/create_functions.sql`](sql/create_functions.sql) to match your
-deployment, then run it — from a notebook, the SQL editor, or a job, on
-**any** compute type (job/classic, shared, or serverless all work identically
-here, since nothing in this step is compute-specific):
+deployment, and pick the bootstrap block matching your chosen auth mode (the
+file shows `STATIC` inline in both function bodies, with the
+`SELF_SIGNED_JWT` variant given as a commented-out alternative to swap in —
+use one or the other, not both, for a given `app_id`). Then run it — from a
+notebook, the SQL editor, or a job, on **any** compute type (job/classic,
+shared, or serverless all work identically here, since nothing in this step
+is compute-specific):
 
 ```sql
 -- contents of sql/create_functions.sql
@@ -102,12 +134,13 @@ SELECT main.hsm.hsm_encrypt('smoke test', 'deployment.smoke.test');
 
 If `dbutils` isn't in scope there, the fallback is unchanged from before:
 `config.py` reads `os.environ` regardless of how those variables got set, so
-setting `HSM_SERVICE_BASE_URL`/`HSM_APP_ID`/`HSM_BEARER_TOKEN`/
-`HSM_PRIVATE_KEY_PEM` as cluster-level environment variables (job/classic/
-shared clusters support this directly; serverless would need them set via
-`os.environ[...] = ...` in whatever code path actually runs first) still
-works — only the *how credentials get into the process* changes, not
-anything in the package itself.
+setting `HSM_SERVICE_BASE_URL`/`HSM_APP_ID`/`HSM_AUTH_MODE` plus either
+`HSM_BEARER_TOKEN` (`STATIC`) or `HSM_SIGNING_PRIVATE_KEY_PEM`
+(`SELF_SIGNED_JWT`), and `HSM_PRIVATE_KEY_PEM` either way, as cluster-level
+environment variables (job/classic/shared clusters support this directly;
+serverless would need them set via `os.environ[...] = ...` in whatever code
+path actually runs first) still works — only the *how credentials get into
+the process* changes, not anything in the package itself.
 
 ## 2. Run it
 
@@ -159,6 +192,8 @@ curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID
 | `NameError: name 'dbutils' is not defined` | `dbutils` isn't available unqualified in this function body context — fall back to cluster-level environment variables, see §1 |
 | `SvcClientError: /dek/issue -> 403: ...` | App not registered, wrong scope, or (for a cross-app `dek_name`) no grant — see [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)'s `GET /admin/edek/{edekId}` support workflow |
 | `SvcClientError: /dek/issue -> 422: App '...' has no public_key_pem registered` | Step 0.3 (register the public key) wasn't done for this `HSM_APP_ID` |
+| `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is set to `SELF_SIGNED_JWT` but the bootstrap block wasn't swapped to set `HSM_SIGNING_PRIVATE_KEY_PEM` — see §0.4/§1 |
+| `SvcClientError: /dek/issue -> 401: ...` (with `HSM_AUTH_MODE=SELF_SIGNED_JWT`) | No `signing_public_key_pem` registered for this `app_id` (step 0.4), the `aud` claim doesn't match the server's `hsm.jwt.audience`, or the signing key PEM doesn't match what was registered |
 | Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §3 for serverless specifically |
 | `ImportError: No module named 'hsm_databricks_udf'` | The `ENVIRONMENT` clause's wheel path is wrong, or the wheel wasn't actually uploaded to that Unity Catalog volume path — see §0.6 |
 
