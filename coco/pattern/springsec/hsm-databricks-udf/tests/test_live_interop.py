@@ -41,6 +41,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from hsm_databricks_udf import dek_manager, transport
+from hsm_databricks_udf.config import Config
+from hsm_databricks_udf.svc_client import SvcClient
 
 BASE_URL = os.environ.get("HSM_LIVE_TEST_BASE_URL")
 pytestmark = pytest.mark.skipif(not BASE_URL, reason="set HSM_LIVE_TEST_BASE_URL to run against a live hsm-core-service")
@@ -132,3 +134,66 @@ def test_dek_issue_reuse_reports_correct_owner(keypair_and_registered_app):
     assert second["reused"] is True
     assert second["edek_id"] == first["edek_id"]
     assert second["owner_app_id"] == "payments-svc"
+
+
+def test_self_signed_jwt_accepted_by_real_server_end_to_end(monkeypatch):
+    """
+    Proves SelfSignedJwtTokenProvider's output is genuinely accepted by
+    hsm-core-service's real SelfSignedAppKeyJwtValidator -- not just
+    structurally correct in isolation (see test_auth.py for that). Registers
+    a DEDICATED signing key (separate from the DEK-transport key, exercising
+    the non-fallback path) via POST /admin/apps/keys, then drives the actual
+    SvcClient/Config classes end to end -- the exact code path
+    udf.py._ensure_initialized() uses -- with HSM_AUTH_MODE=SELF_SIGNED_JWT,
+    no static demo token anywhere in this test.
+    """
+    signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    signing_public_pem = signing_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    signing_private_pem = signing_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+
+    resp = requests.post(f"{BASE_URL}/admin/apps/keys",
+                          headers=_headers("demo-token-ops-admin", "ops-admin"),
+                          json={"app_id": "payments-svc", "signing_public_key_pem": signing_public_pem})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["has_signing_key"] is True
+
+    # Separate DEK-transport keypair -- SELF_SIGNED_JWT auth and the
+    # DEK-transport key are independent concerns, same as on the JVM side.
+    transport_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    transport_public_pem = transport_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    transport_private_pem = transport_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    resp = requests.post(f"{BASE_URL}/admin/apps/keys",
+                          headers=_headers("demo-token-ops-admin", "ops-admin"),
+                          json={"app_id": "payments-svc", "encryption_public_key_pem": transport_public_pem})
+    assert resp.status_code == 200, resp.text
+
+    monkeypatch.setenv("HSM_SERVICE_BASE_URL", BASE_URL)
+    monkeypatch.setenv("HSM_APP_ID", "payments-svc")
+    monkeypatch.setenv("HSM_AUTH_MODE", "SELF_SIGNED_JWT")
+    monkeypatch.setenv("HSM_PRIVATE_KEY_PEM", transport_private_pem)
+    monkeypatch.setenv("HSM_SIGNING_PRIVATE_KEY_PEM", signing_private_pem)
+
+    config = Config.from_env()
+    assert config.auth_mode == "SELF_SIGNED_JWT"
+    svc_client = SvcClient(config)
+
+    dek_name = f"self-signed-jwt-interop.{uuid.uuid4()}"
+    result = svc_client.issue_dek(dek_name)
+    assert result.owner_app_id == "payments-svc"
+
+    raw_dek = transport.unwrap(base64.b64decode(result.wrapped_dek_b64), transport_key)
+    assert len(raw_dek) == 32
