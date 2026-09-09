@@ -32,6 +32,7 @@ on the Java side.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import uuid
 
@@ -40,7 +41,7 @@ import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from hsm_databricks_udf import dek_manager, transport
+from hsm_databricks_udf import dek_manager, transport, udf
 from hsm_databricks_udf.config import Config
 from hsm_databricks_udf.svc_client import SvcClient
 
@@ -197,3 +198,48 @@ def test_self_signed_jwt_accepted_by_real_server_end_to_end(monkeypatch):
 
     raw_dek = transport.unwrap(base64.b64decode(result.wrapped_dek_b64), transport_key)
     assert len(raw_dek) == 32
+
+
+def test_udf_encrypt_decrypt_via_credentials_json_against_real_server():
+    """
+    Drives udf.encrypt()/udf.decrypt() through their actual public signature
+    -- credentials_json as an explicit argument -- against a real
+    hsm-core-service instance. This is the exact call shape
+    sql/create_functions.sql now uses (see DEPLOYMENT.md): dbutils cannot run
+    inside a Unity Catalog Python Function body (confirmed against
+    Databricks' own docs/KB, not assumed), so credentials_json is built by
+    the CALLER (a notebook/job, where dbutils does work) and passed in per
+    call, never resolved by the function itself.
+
+    Registers its own dedicated keypair rather than reusing the module-scoped
+    keypair_and_registered_app fixture -- other tests in this module
+    re-register payments-svc's encryption_public_key_pem with a different
+    key (e.g. test_self_signed_jwt_accepted_by_real_server_end_to_end), so
+    relying on that shared fixture here would be order-dependent.
+    """
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    resp = requests.post(f"{BASE_URL}/admin/apps/keys",
+                          headers=_headers("demo-token-ops-admin", "ops-admin"),
+                          json={"app_id": "payments-svc", "encryption_public_key_pem": public_pem})
+    assert resp.status_code == 200, resp.text
+
+    credentials_json = json.dumps({
+        "HSM_SERVICE_BASE_URL": BASE_URL,
+        "HSM_APP_ID": "payments-svc",
+        "HSM_AUTH_MODE": "STATIC",
+        "HSM_PRIVATE_KEY_PEM": private_pem,
+        "HSM_BEARER_TOKEN": "demo-token-payments-svc",
+    })
+    dek_name = f"udf-credentials-json-interop.{uuid.uuid4()}"
+
+    token = udf.encrypt("value from a real UDF call", dek_name, None, credentials_json)
+    assert udf.decrypt(token, credentials_json) == "value from a real UDF call"
