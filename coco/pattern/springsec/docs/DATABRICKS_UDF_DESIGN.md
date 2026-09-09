@@ -18,9 +18,15 @@ does not work — `dbutils` is only available in the calling notebook/job's
 own driver context, confirmed directly against Databricks' own docs/KB,
 never inside a UDF or Unity Catalog Python Function body. `hsm_encrypt`/
 `hsm_decrypt` now take an explicit `credentials_json` argument instead,
-resolved by the *caller* (where `dbutils` works) — Databricks' own
-documented workaround for this exact failure. See §11 and `DEPLOYMENT.md`
-for the fix and the governance tradeoff it introduces.
+built by a `hsm_credentials()` SQL helper function using Databricks' native
+`secret(scope, key)` scalar expression (a general SQL function, not confined
+to `CREATE CONNECTION`) — pure SQL, no `dbutils`/notebook/Python required at
+all, callable from a SQL editor or SQL warehouse query directly. Because a
+plain `LANGUAGE SQL` function runs with its *owner's* privileges by default
+(definer rights, same as a view — confirmed directly against Databricks'
+docs), this actually **preserves** the original design's governance goal:
+only `hsm_credentials()`'s owner needs `READ SECRET`, every caller needs
+only `EXECUTE`. See §11 and `DEPLOYMENT.md` for the full mechanism.
 
 **A real, serious bug in `hsm-core-service` itself was found and fixed while
 building this** — see §6's "AAD" note and `EncryptionService.ResolvedDek`'s
@@ -275,12 +281,25 @@ notebook/job's own driver context, never inside a UDF or Unity Catalog
 Python Function body. A `CREATE FUNCTION ... LANGUAGE PYTHON` body calling
 `dbutils.secrets.get(...)` raises `NameError: name 'dbutils' is not defined`
 — confirmed live, not merely from docs, after this design shipped and a
-real deployment attempt hit exactly that. Fixed by adopting Databricks' own
-documented workaround for this exact failure: the caller fetches the secret
-where `dbutils` does work (their own notebook/job) and passes it into the
-function as an explicit `credentials_json` argument instead:
+real deployment attempt hit exactly that.
+
+Fixed by having `hsm_encrypt`/`hsm_decrypt` take an explicit
+`credentials_json` argument, built entirely in SQL by a third helper
+function, `hsm_credentials()` — no `dbutils`, notebook, or Python required
+anywhere in the calling path:
 
 ```sql
+CREATE OR REPLACE FUNCTION main.hsm.hsm_credentials()
+RETURNS STRING
+LANGUAGE SQL
+RETURN to_json(named_struct(
+    'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
+    'HSM_APP_ID',           'databricks-udf',
+    'HSM_AUTH_MODE',        'STATIC',
+    'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
+    'HSM_BEARER_TOKEN',     secret('hsm', 'databricks-udf-token')
+));
+
 CREATE OR REPLACE FUNCTION main.hsm.hsm_decrypt(
     ciphertext_token STRING,
     credentials_json STRING
@@ -298,30 +317,31 @@ AS $$
 $$;
 ```
 
-called as (from a notebook/job, where `dbutils` works):
+called as, from pure SQL — a SQL editor, a dashboard, a SQL warehouse query,
+or `spark.sql(...)` in a notebook, all identical:
 
-```python
-creds = json.dumps({
-    "HSM_SERVICE_BASE_URL": "...", "HSM_APP_ID": "databricks-udf", "HSM_AUTH_MODE": "STATIC",
-    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
-    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
-})
-spark.sql("SELECT main.hsm.hsm_decrypt(ciphertext_token, :creds) FROM t", args={"creds": creds})
+```sql
+SELECT main.hsm.hsm_decrypt(ciphertext_token, main.hsm.hsm_credentials()) FROM t;
 ```
 
-See `../../hsm-databricks-udf/sql/create_functions.sql` and
-`../../hsm-databricks-udf/DEPLOYMENT.md` for the full, current version and
-calling pattern.
+`secret(scope, key)` is a general Databricks SQL scalar expression
+(Databricks Runtime 11.3 LTS+), not something confined to
+`CREATE CONNECTION` — confirmed directly against Databricks' own docs, not
+assumed. See `../../hsm-databricks-udf/sql/create_functions.sql` and
+`../../hsm-databricks-udf/DEPLOYMENT.md` for the full, current version.
 
-The function is still a governed Unity Catalog object — grantable/revocable
+The functions are still governed Unity Catalog objects — grantable/revocable
 via standard Unity Catalog permissions, auditable via Unity Catalog's own
 audit log, independent of which cluster or warehouse a caller uses to invoke
-it. That side benefit over the Spark-extension model is unchanged. **What is
-lost versus the original (`dbutils`-in-body) design**: Unity Catalog's
-definer-rights model no longer applies to the secret itself. Since
-credentials now travel as a caller-supplied argument, every caller needs
-their own `READ SECRET` grant on the scope, not just `EXECUTE` on the
-function — see `DEPLOYMENT.md`'s governance-tradeoff note.
+them. That side benefit over the Spark-extension model is unchanged.
+**Governance is actually preserved, not traded away**: a plain
+`CREATE FUNCTION ... LANGUAGE SQL` body runs with its *owner's* privileges
+by default (definer rights, same as a view — confirmed directly against
+Databricks' docs), so `secret(...)` inside `hsm_credentials()` checks the
+owner's `READ SECRET` grant, never the caller's. Only whoever registers
+`hsm_credentials()` needs `READ SECRET` on the `hsm` scope; every other
+caller needs only `EXECUTE` on all three functions and never touches the
+raw secret.
 
 ## 12. Error handling
 
@@ -363,11 +383,14 @@ the initial design.
   against Databricks' own docs/KB (and hit live, exactly as predicted, on a
   real deployment attempt) that `dbutils` only works in the calling
   notebook/job's own driver context, never inside a UDF or Unity Catalog
-  Python Function body. §11 rewritten around the fix: credentials now travel
-  as a caller-supplied `credentials_json` argument, resolved via `dbutils`
-  in the *caller's* notebook/job, not inside the function. Traded away
-  Unity Catalog's definer-rights isolation for the secret in the process —
-  see §11's tradeoff note and `DEPLOYMENT.md`.
+  Python Function body. §11 rewritten around the fix: `hsm_encrypt`/
+  `hsm_decrypt` take a caller-supplied `credentials_json` argument, built
+  entirely in SQL by a `hsm_credentials()` helper function using the native
+  `secret(scope, key)` expression — no `dbutils`/notebook/Python needed to
+  call it. Because `LANGUAGE SQL` functions default to definer rights,
+  Unity Catalog's secret-isolation goal is preserved, not traded away: only
+  `hsm_credentials()`'s owner needs `READ SECRET`, every caller needs only
+  `EXECUTE`. See §11 and `DEPLOYMENT.md`.
 - ~~Auth mode: `SELF_SIGNED_JWT` vs mTLS for the Databricks-side credential~~
   — `SELF_SIGNED_JWT` is implemented (`auth.py`'s `SelfSignedJwtTokenProvider`,
   a Python port of the JVM reference implementation) and verified end-to-end
