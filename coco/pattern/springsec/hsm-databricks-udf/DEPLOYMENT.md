@@ -4,13 +4,16 @@ Companion to [`../java/docs/DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_U
 (the design/rationale) and [`sql/create_functions.sql`](sql/create_functions.sql)
 (the actual `CREATE FUNCTION` DDL).
 
-**Status:** the package itself is built and verified — its crypto is proven
-byte-for-byte compatible with `hsm-core-service`'s real Java implementation in
-both directions, including the credential-passing call path described below
-(see `tests/test_live_interop.py`, run for real against a live local
-instance). **The Databricks-side deployment steps themselves have not been
-run against a real Databricks workspace** — this repo has no Databricks
-access.
+**Status:** built and verified — its crypto is proven byte-for-byte
+compatible with `hsm-core-service`'s real Java implementation in both
+directions (see `tests/test_live_interop.py`, run for real against a live
+local instance), **and confirmed working end-to-end against a real
+Databricks workspace**, both `STATIC` and `SELF_SIGNED_JWT` auth modes, via
+the `hsm_credentials()` calling pattern described below. This repo itself
+has no Databricks access, so that live verification happened on the
+deploying user's own workspace, not something this session could run
+directly — treat compute types, network policies, or steps not explicitly
+exercised there as still unconfirmed rather than assuming full coverage.
 
 ## How credentials reach the function
 
@@ -21,20 +24,33 @@ only available in the calling notebook/job's own driver context, never
 inside a UDF or Unity Catalog Python Function body. It raises
 `NameError: name 'dbutils' is not defined`.
 
-The fix: `hsm_encrypt`/`hsm_decrypt` take an explicit `credentials_json`
-argument — a JSON object with the same field names as this package's `HSM_*`
-config (see `config.py`'s `Config.from_json`) — instead of resolving
-credentials internally. `credentials_json` is built in **pure SQL**, with no
-`dbutils`/notebook/Python required, via `sql/create_functions.sql`'s
-`hsm_credentials()` helper function, which wraps Databricks' built-in
-`secret(scope, key)` scalar function (Databricks Runtime 11.3 LTS+ — a
-general SQL expression, not something confined to `CREATE CONNECTION`)
-combined with `to_json(named_struct(...))`:
+The fix: the real crypto functions, `hsm_encrypt_detail`/`hsm_decrypt_detail`,
+take an explicit `credentials_json` argument — a JSON object with the same
+field names as this package's `HSM_*` config (see `config.py`'s
+`Config.from_json`) — instead of resolving credentials internally.
+`credentials_json` is built in **pure SQL**, with no `dbutils`/notebook/
+Python required, via `sql/create_functions.sql`'s `hsm_credentials()`
+helper function, which wraps Databricks' built-in `secret(scope, key)`
+scalar function (Databricks Runtime 11.3 LTS+ — a general SQL expression,
+not something confined to `CREATE CONNECTION`) combined with
+`to_json(named_struct(...))`.
+
+On top of that, two simplified wrappers — `hsm_encrypt`/`hsm_decrypt` — call
+the `_detail` functions with `hsm_credentials()` baked in, so the common
+case never has to mention credentials at all:
 
 ```sql
-SELECT main.hsm.hsm_decrypt(ciphertext_token, main.hsm.hsm_credentials())
+SELECT main.hsm.hsm_decrypt(ciphertext_token)
 FROM main.payments.customer_accounts;
 ```
+
+Reach for `hsm_encrypt_detail`/`hsm_decrypt_detail` directly only when a
+call needs a *different* `credentials_json` than this deployment's default
+(e.g. acting on behalf of a different `app_id`). Unity Catalog does not
+support function overloading — `CREATE OR REPLACE` on a name requires the
+same parameter list as before, confirmed directly against Databricks' own
+docs — so the simplified and explicit forms need distinct names rather than
+being two arities of the same function.
 
 `hsm_credentials()` is the **single, standardized** place `credentials_json`
 gets built — every caller (SQL editor, dashboard, SQL warehouse query, job,
@@ -45,14 +61,20 @@ mode, secret scope/key names); nothing else in that file should need to
 change per-deployment.
 
 **Governance — better than the original `dbutils`-in-body design, not worse**:
-a plain `CREATE FUNCTION ... LANGUAGE SQL` body (`hsm_credentials()`) runs
-with the **function owner's** privileges by default (definer rights, same as
-a view) — confirmed directly against Databricks' own docs. So `secret(...)`
-inside it checks the *owner's* `READ SECRET` grant, never the caller's:
-only whoever registers `hsm_credentials()` needs `READ SECRET` on the `hsm`
-scope; every other caller needs only `EXECUTE` on the three functions
-(`hsm_credentials`, `hsm_encrypt`, `hsm_decrypt`) and never touches the raw
-secret at all.
+a plain `CREATE FUNCTION ... LANGUAGE SQL` body (`hsm_credentials()`, and
+the `hsm_encrypt`/`hsm_decrypt` wrappers) runs with the **function owner's**
+privileges by default (definer rights, same as a view) — confirmed directly
+against Databricks' own docs. So `secret(...)` inside `hsm_credentials()`
+checks the *owner's* `READ SECRET` grant, never the caller's: only whoever
+registers these functions needs `READ SECRET` on the `hsm` scope. A caller
+of the simplified `hsm_encrypt`/`hsm_decrypt` needs only `EXECUTE` on those
+two — the same delegation a view uses when it references another view the
+caller can't see directly — and never touches `hsm_credentials()`,
+`hsm_encrypt_detail`/`hsm_decrypt_detail`, or the raw secret at all. **This
+nested chain hasn't been smoke-tested live yet** (the flat, explicit-argument
+form was what got confirmed against a real workspace) — verify a
+grants-only caller can actually invoke the simplified wrappers before
+relying on this for real access control.
 
 ## Why one flow now covers all three compute types for the wheel itself
 
@@ -163,17 +185,27 @@ identically here, since nothing in this step is compute-specific).
 
 ## 2. Run it
 
-Pure SQL, no notebook or `dbutils` required:
+Pure SQL, no notebook or `dbutils` required — the simplified wrappers cover
+the common case:
 
 ```sql
-SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci', main.hsm.hsm_credentials()) AS token;
+SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci') AS token;
 -- -> "v1.AbC123..."
 
-SELECT main.hsm.hsm_decrypt('v1.AbC123...', main.hsm.hsm_credentials()) AS plaintext;
+SELECT main.hsm.hsm_decrypt('v1.AbC123...') AS plaintext;
 -- -> "4111-1111-1111-1234"
 
 -- Over a real table:
-SELECT id, main.hsm.hsm_decrypt(ciphertext_token, main.hsm.hsm_credentials()) AS account_number
+SELECT id, main.hsm.hsm_decrypt(ciphertext_token) AS account_number
+FROM main.payments.customer_accounts;
+```
+
+Need a *different* credential than this deployment's default (e.g. a
+different `app_id`)? Use the `_detail` functions with an explicit
+`credentials_json` instead:
+
+```sql
+SELECT main.hsm.hsm_decrypt_detail(ciphertext_token, main.hsm.hsm_credentials()) AS account_number
 FROM main.payments.customer_accounts;
 ```
 
@@ -192,19 +224,25 @@ with sql.connect(server_hostname="<workspace-hostname>",
                   access_token="<personal-access-token-or-oauth>") as conn:
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT main.hsm.hsm_decrypt(
-                main.hsm.hsm_encrypt(%(pt)s, %(dn)s, NULL, main.hsm.hsm_credentials()),
-                main.hsm.hsm_credentials()
-            ) = %(pt)s AS round_trip_ok
+            SELECT main.hsm.hsm_decrypt(main.hsm.hsm_encrypt(%(pt)s, %(dn)s, NULL)) = %(pt)s AS round_trip_ok
         """, {"pt": "test value", "dn": "deployment.verify.column"})
         row = cur.fetchone()
         assert row.round_trip_ok
 ```
 
-This is the recommended smoke test for a fresh deployment (§4 has the
-cross-check against `/decrypt` directly). `pip install databricks-sql-connector`
-locally or run this from a notebook (where `spark.sql(...)` works equally
-well as a substitute for the connector).
+This is the recommended smoke test for a fresh deployment. `pip install
+databricks-sql-connector` locally or run this from a notebook (where
+`spark.sql(...)` works equally well as a substitute for the connector). To
+cross-check against the real `/decrypt` endpoint directly — proving the
+token these UDFs produce is genuinely `hsm-core-service`'s own wire format,
+not just internally self-consistent:
+
+```bash
+TOKEN=$(databricks sql query "SELECT main.hsm.hsm_encrypt('cross-check', 'deployment.verify.column2', NULL)" | tail -1)
+curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID: databricks-udf" \
+  -H "Content-Type: application/json" -d "{\"ciphertext\": \"$TOKEN\"}"
+# -> {"plaintext": "cross-check", ...}
+```
 
 ## 4. Serverless-specific note: network egress
 
@@ -233,7 +271,8 @@ above.
 | `ConfigError: HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty ...` | `hsm_credentials()` (or an env var) sets this field but it resolves to an empty string — check the secret name it references actually holds the signing key, not a leftover/wrong value |
 | Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §4 for serverless specifically |
 | `ImportError: No module named 'hsm_databricks_udf'` | The `ENVIRONMENT` clause's wheel path is wrong, or the wheel wasn't actually uploaded to that Unity Catalog volume path — see §0.6 |
-| `PERMISSION_DENIED` calling `hsm_credentials()`/`hsm_encrypt`/`hsm_decrypt` | The caller needs `EXECUTE` on all three functions — they do **not** need `READ SECRET` on the `hsm` scope directly (see the governance note above); only the function owner does |
+| `PERMISSION_DENIED` calling `hsm_encrypt`/`hsm_decrypt` | The caller needs `EXECUTE` on `hsm_encrypt`/`hsm_decrypt` only — not on `hsm_credentials()`, `hsm_encrypt_detail`/`hsm_decrypt_detail`, or `READ SECRET` on the `hsm` scope (see the governance note above). If this still fails after granting `EXECUTE` on the two simplified functions, the nested definer-rights delegation may not be behaving as expected on your workspace — as a fallback, grant `EXECUTE` on all four functions to unblock, and treat that as a signal worth reporting/investigating rather than accepting silently |
+| `PERMISSION_DENIED` calling `hsm_encrypt_detail`/`hsm_decrypt_detail`/`hsm_credentials()` directly | These need their own `EXECUTE` grant, separate from `hsm_encrypt`/`hsm_decrypt` — see the `hsm-power-users` example grant in `sql/create_functions.sql` |
 
 ## 6. Open items before a production rollout
 
