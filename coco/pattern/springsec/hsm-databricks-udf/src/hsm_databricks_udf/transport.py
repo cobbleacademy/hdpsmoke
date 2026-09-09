@@ -19,6 +19,9 @@ never leaves the Databricks worker process, by the same design.
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
@@ -40,20 +43,43 @@ def unwrap(wrapped_dek: bytes, private_key: rsa.RSAPrivateKey) -> bytes:
 
 
 def parse_public_key_pem(pem: str | bytes) -> rsa.RSAPublicKey:
-    """Parse a PEM-encoded ('-----BEGIN PUBLIC KEY-----...') RSA public key, as stored in app_registrations.public_key_pem."""
-    if isinstance(pem, str):
-        pem = pem.encode()
-    key = serialization.load_pem_public_key(pem)
+    """Parse an RSA public key, as stored in app_registrations.public_key_pem -- either raw PEM or base64-encoded PEM, see _normalize_key_material."""
+    key = serialization.load_pem_public_key(_normalize_key_material(pem))
     if not isinstance(key, rsa.RSAPublicKey):
         raise ValueError("public_key_pem is not an RSA key")
     return key
 
 
 def parse_private_key_pem(pem: str | bytes, password: bytes | None = None) -> rsa.RSAPrivateKey:
-    """Parse a PEM-encoded PKCS#8 RSA private key -- this package's own keypair, never sent to hsm-core-service."""
-    if isinstance(pem, str):
-        pem = pem.encode()
-    key = serialization.load_pem_private_key(pem, password=password)
+    """Parse this package's own RSA private key -- either raw PEM or base64-encoded PEM, see _normalize_key_material. Never sent to hsm-core-service."""
+    key = serialization.load_pem_private_key(_normalize_key_material(pem), password=password)
     if not isinstance(key, rsa.RSAPrivateKey):
         raise ValueError("private key PEM is not an RSA key")
     return key
+
+
+def _normalize_key_material(pem: str | bytes) -> bytes:
+    """
+    Accepts either raw PEM text ('-----BEGIN ...-----...') or that same PEM
+    base64-encoded as a single line -- a common, deliberately supported way
+    to store multi-line key material in a secret manager's plain string
+    field (e.g. Databricks `secrets put-secret --string-value "$(base64 -w0
+    key.pem)"`), which sidesteps every newline-mangling risk a raw multi-line
+    upload is exposed to across different CLI/UI paths. Detected by whether
+    the PEM marker is present -- if not, the value is assumed to be
+    base64-encoded PEM and decoded before parsing.
+    """
+    if isinstance(pem, str):
+        pem = pem.encode()
+    if b"-----BEGIN" in pem:
+        return pem
+    try:
+        decoded = base64.b64decode(pem, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise ValueError(
+            "key material is neither raw PEM (no '-----BEGIN' marker found) "
+            f"nor valid base64: {e}"
+        ) from e
+    if b"-----BEGIN" not in decoded:
+        raise ValueError("base64-decoded key material does not contain a PEM '-----BEGIN' marker")
+    return decoded
