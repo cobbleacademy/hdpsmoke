@@ -460,17 +460,13 @@ cp "$JAVA_HOME/lib/security/cacerts" /tmp/hsm-verify-cacerts
 "$JAVA_HOME/bin/keytool" -importcert -alias istio-root-ca \
   -file /tmp/istio-chain.pem -keystore /tmp/hsm-verify-cacerts -storepass changeit -noprompt
 ----------------------------------------------------------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS main.hsm.hsm_encrypt;
+DROP FUNCTION IF EXISTS main.hsm.hsm_decrypt;
+DROP FUNCTION IF EXISTS main.hsm.hsm_encrypt_detail;
+DROP FUNCTION IF EXISTS main.hsm.hsm_decrypt_detail;
+DROP FUNCTION IF EXISTS main.hsm.hsm_credentials;
+
 SELECT main.hsm.hsm_decrypt(
-  ciphertext_token,
-  to_json(named_struct(
-    'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
-    'HSM_APP_ID',           'databricks-udf',
-    'HSM_AUTH_MODE',        'STATIC',
-    'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
-    'HSM_BEARER_TOKEN',     secret('hsm', 'databricks-udf-token')
-  ))
-) AS plaintext
-FROM main.payments.customer_accounts;SELECT main.hsm.hsm_decrypt(
   ciphertext_token,
   to_json(named_struct(
     'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
