@@ -100,3 +100,34 @@ def test_from_json_rejects_static_mode_missing_bearer_token():
     })
     with pytest.raises(ConfigError, match="HSM_BEARER_TOKEN"):
         Config.from_json(creds)
+
+
+def test_from_json_self_signed_jwt_rejects_present_but_empty_signing_key():
+    """
+    A present-but-empty HSM_SIGNING_PRIVATE_KEY_PEM must NOT silently fall
+    back to the transport key -- that exact silent substitution was a real,
+    live bug: a hsm_credentials() still wired for the STATIC template (never
+    setting this field, or wiring it to an empty/wrong secret) caused
+    signing with the wrong key and an opaque 401 "Invalid token signature"
+    from the server, instead of a clear config error surfaced locally.
+    """
+    creds = json.dumps({
+        "HSM_SERVICE_BASE_URL": "https://hsm.internal/api/sensec/hsm/v1",
+        "HSM_APP_ID": "databricks-udf",
+        "HSM_AUTH_MODE": "SELF_SIGNED_JWT",
+        "HSM_PRIVATE_KEY_PEM": "TRANSPORT-KEY-PEM",
+        "HSM_SIGNING_PRIVATE_KEY_PEM": "",
+    })
+    with pytest.raises(ConfigError, match="HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty"):
+        Config.from_json(creds)
+
+
+def test_from_env_self_signed_jwt_rejects_present_but_empty_signing_key(monkeypatch):
+    monkeypatch.setenv("HSM_SERVICE_BASE_URL", "https://hsm.internal/api/sensec/hsm/v1")
+    monkeypatch.setenv("HSM_APP_ID", "databricks-udf")
+    monkeypatch.setenv("HSM_AUTH_MODE", "SELF_SIGNED_JWT")
+    monkeypatch.setenv("HSM_PRIVATE_KEY_PEM", "TRANSPORT-KEY-PEM")
+    monkeypatch.setenv("HSM_SIGNING_PRIVATE_KEY_PEM", "")
+
+    with pytest.raises(ConfigError, match="HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty"):
+        Config.from_env()
