@@ -39,7 +39,25 @@ def wrap(dek: bytes, public_key: rsa.RSAPublicKey) -> bytes:
 
 def unwrap(wrapped_dek: bytes, private_key: rsa.RSAPrivateKey) -> bytes:
     """RSA-OAEP-256 unwrap -- this package's actual call path, once per DEK (see cache.py)."""
-    return private_key.decrypt(wrapped_dek, _OAEP_PADDING)
+    try:
+        return private_key.decrypt(wrapped_dek, _OAEP_PADDING)
+    except ValueError as e:
+        # hsm-core-service wraps every DEK against whatever public_key_pem is
+        # CURRENTLY registered for this app_id -- an OAEP decrypt failure here
+        # (after /dek/issue or /dek/unwrap already succeeded, i.e. the server
+        # side is fine) means the private key in use does not correspond to
+        # that registration: either it was regenerated/re-exported without
+        # re-running POST /admin/apps/keys with the matching new public key,
+        # or the transport and JWT-signing keys got swapped in the secret
+        # scope. It is never a recoverable/retryable condition. See
+        # DEPLOYMENT.md's troubleshooting table.
+        raise ValueError(
+            "RSA-OAEP unwrap failed -- the private key in use does not match "
+            "the public_key_pem currently registered for this app_id in "
+            "hsm-core-service. Re-derive the public key from this exact "
+            "private key and re-register it via POST /admin/apps/keys "
+            f"(see DEPLOYMENT.md's troubleshooting table). Original error: {e}"
+        ) from e
 
 
 def parse_public_key_pem(pem: str | bytes) -> rsa.RSAPublicKey:

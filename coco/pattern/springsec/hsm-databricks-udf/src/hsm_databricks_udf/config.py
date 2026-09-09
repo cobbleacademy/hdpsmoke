@@ -30,6 +30,8 @@ import os
 from dataclasses import dataclass
 from typing import Callable
 
+_MISSING = object()
+
 
 class ConfigError(RuntimeError):
     pass
@@ -86,11 +88,35 @@ class Config:
                 request_timeout_seconds=timeout,
             )
         elif auth_mode == "SELF_SIGNED_JWT":
-            # Falls back to the DEK-transport key PEM if no dedicated signing key
-            # is set -- the same legacy one-keypair switch AppRegistryService.
-            # getSigningPublicKey (server) and HsmCryptoClient.Builder (JVM
-            # client) both support.
-            signing_private_key_pem = get("HSM_SIGNING_PRIVATE_KEY_PEM") or private_key_pem
+            # HSM_BEARER_TOKEN is STATIC-only and never read here -- this mode
+            # mints its own bearer token (a JWT) locally from the signing key,
+            # never accepts one as input.
+            #
+            # Falls back to the DEK-transport key PEM if HSM_SIGNING_PRIVATE_KEY_PEM
+            # is genuinely ABSENT -- the same legacy one-keypair switch
+            # AppRegistryService.getSigningPublicKey (server) and
+            # HsmCryptoClient.Builder (JVM client) both support. But a
+            # present-and-empty value is NOT treated the same as absent: that
+            # almost always means a wiring mistake upstream (e.g. hsm_credentials()
+            # still populating HSM_BEARER_TOKEN from a STATIC-mode template
+            # instead of HSM_SIGNING_PRIVATE_KEY_PEM) that would otherwise
+            # silently sign with the wrong key and fail server-side with an
+            # opaque "Invalid token signature" instead of a clear config error
+            # -- confirmed as a real, live failure mode, not hypothetical.
+            signing_raw = get("HSM_SIGNING_PRIVATE_KEY_PEM", _MISSING)
+            if signing_raw is _MISSING:
+                signing_private_key_pem = private_key_pem
+            elif not signing_raw:
+                raise ConfigError(
+                    "HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty (as a "
+                    f"{source_hint}). This almost always means the wrong secret "
+                    "was wired into it -- check hsm_credentials() is using the "
+                    "SELF_SIGNED_JWT template (HSM_SIGNING_PRIVATE_KEY_PEM), not "
+                    "the STATIC one (HSM_BEARER_TOKEN, which SELF_SIGNED_JWT "
+                    "never reads). See DEPLOYMENT.md."
+                )
+            else:
+                signing_private_key_pem = signing_raw
             audience = get("HSM_SELF_SIGNED_AUDIENCE") or "hsm-core-service"
             return cls(
                 base_url=str(base_url).rstrip("/"), app_id=app_id, auth_mode=auth_mode,
