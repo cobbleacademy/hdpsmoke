@@ -6,78 +6,62 @@ Companion to [`../java/docs/DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_U
 
 **Status:** the package itself is built and verified — its crypto is proven
 byte-for-byte compatible with `hsm-core-service`'s real Java implementation in
-both directions, including the real credential-passing call path described
-below (see `tests/test_live_interop.py`, run for real against a live local
+both directions, including the credential-passing call path described below
+(see `tests/test_live_interop.py`, run for real against a live local
 instance). **The Databricks-side deployment steps themselves have not been
 run against a real Databricks workspace** — this repo has no Databricks
 access.
 
-## How credentials reach the function — and why this changed
+## How credentials reach the function
 
 An earlier version of this doc had the function body call
-`dbutils.secrets.get(...)` directly inside `AS $$ ... $$`, relying on Unity
-Catalog's secrets mechanism. **That does not work and was never actually
-run against a live workspace before shipping** — confirmed directly against
-Databricks' own docs and support KB once it was tried for real: `dbutils` is
-only available in the calling notebook/job's *own driver context*, never
-inside a UDF or Unity Catalog Python Function body. Calling it from inside a
-`CREATE FUNCTION ... LANGUAGE PYTHON` body raises exactly
+`dbutils.secrets.get(...)` directly inside `AS $$ ... $$`. **That does not
+work** — confirmed directly against Databricks' own docs/KB: `dbutils` is
+only available in the calling notebook/job's own driver context, never
+inside a UDF or Unity Catalog Python Function body. It raises
 `NameError: name 'dbutils' is not defined`.
 
-The fix, matching Databricks' own documented workaround for this exact
-failure: **the caller fetches the secret where `dbutils` does work (their
-own notebook/job) and passes it into the function call as an explicit
-argument**, instead of the function resolving its own credentials. Both
-functions now take a `credentials_json` argument — a JSON object holding the
-same fields as this package's `HSM_*` config (see `config.py`'s
-`Config.from_json`):
+The fix: `hsm_encrypt`/`hsm_decrypt` take an explicit `credentials_json`
+argument — a JSON object with the same field names as this package's `HSM_*`
+config (see `config.py`'s `Config.from_json`) — instead of resolving
+credentials internally. `credentials_json` is built in **pure SQL**, with no
+`dbutils`/notebook/Python required, via `sql/create_functions.sql`'s
+`hsm_credentials()` helper function, which wraps Databricks' built-in
+`secret(scope, key)` scalar function (Databricks Runtime 11.3 LTS+ — a
+general SQL expression, not something confined to `CREATE CONNECTION`)
+combined with `to_json(named_struct(...))`:
 
-```python
-import json
-
-creds = json.dumps({
-    "HSM_SERVICE_BASE_URL": "https://hsm-core-service.internal:8443/api/sensec/hsm/v1",
-    "HSM_APP_ID": "databricks-udf",
-    "HSM_AUTH_MODE": "STATIC",
-    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
-    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
-})
-
-df = spark.sql(
-    "SELECT id, main.hsm.hsm_decrypt(ciphertext_token, :creds) AS account_number "
-    "FROM main.payments.customer_accounts",
-    args={"creds": creds},
-)
+```sql
+SELECT main.hsm.hsm_decrypt(ciphertext_token, main.hsm.hsm_credentials())
+FROM main.payments.customer_accounts;
 ```
 
-Always pass `credentials_json` as a **bind parameter** (`args={...}` /
-`:creds`), never string-interpolated into SQL text — interpolation would put
-the raw private key and token into the query text itself (logged, visible in
-query history).
+`hsm_credentials()` is the **single, standardized** place `credentials_json`
+gets built — every caller (SQL editor, dashboard, SQL warehouse query, job,
+or a notebook via `spark.sql(...)`) shares this one definition rather than
+each re-typing secret scope/key names. Edit its literals in
+`sql/create_functions.sql` to match your deployment (base URL, app_id, auth
+mode, secret scope/key names); nothing else in that file should need to
+change per-deployment.
 
-**A real governance tradeoff versus the original design**: Unity Catalog's
-definer-rights model (function creator holds the secret scope, callers only
-need `EXECUTE`) is what the `dbutils`-in-body approach was meant to get —
-callers would never need direct secret access. That's no longer true: since
-credentials now travel as a caller-supplied argument, **every caller needs
-their own `READ SECRET` grant on the scope holding this app's key/token**, in
-addition to `EXECUTE` on the functions. This is a real, known regression
-from the original design goal, not an oversight — it's the price of `dbutils`
-not being callable inside the function body at all. If tighter control over
-who can access the raw credential matters more than this UDF's convenience,
-consider a small wrapper notebook/job that is the only principal with
-`READ SECRET`, and grant other users access to *that* instead of the raw
-scope.
+**Governance — better than the original `dbutils`-in-body design, not worse**:
+a plain `CREATE FUNCTION ... LANGUAGE SQL` body (`hsm_credentials()`) runs
+with the **function owner's** privileges by default (definer rights, same as
+a view) — confirmed directly against Databricks' own docs. So `secret(...)`
+inside it checks the *owner's* `READ SECRET` grant, never the caller's:
+only whoever registers `hsm_credentials()` needs `READ SECRET` on the `hsm`
+scope; every other caller needs only `EXECUTE` on the three functions
+(`hsm_credentials`, `hsm_encrypt`, `hsm_decrypt`) and never touches the raw
+secret at all.
 
 ## Why one flow now covers all three compute types for the wheel itself
 
 `CREATE FUNCTION`'s `ENVIRONMENT` clause declares a function's Python
 dependencies (PyPI packages, or a wheel path in a Unity Catalog volume) *as
 part of the function's own definition* — confirmed directly against
-Databricks' `CREATE FUNCTION` docs. This part of the original design still
-holds: the wheel + its dependencies are resolved wherever the function
-executes, not wherever it was registered from, regardless of compute type.
-It's only the *credentials* mechanism above that had to change.
+Databricks' `CREATE FUNCTION` docs. The wheel + its dependencies are
+resolved wherever the function executes, not wherever it was registered
+from, regardless of compute type.
 
 ## 0. One-time prerequisites
 
@@ -85,11 +69,28 @@ It's only the *credentials* mechanism above that had to change.
    at minimum the `dek_issue`/`dek_unwrap` scopes — see
    [`java/docs/APP_ONBOARDING.md`](../java/docs/APP_ONBOARDING.md).
 2. **Generate an RSA keypair** for this app (the DEK-transport keypair —
-   separate from any JWT-signing key):
+   separate from any JWT-signing key). **Do not passphrase-protect it** —
+   `transport.py`'s `parse_private_key_pem` always parses with no password;
+   a passphrase-protected key fails with `ValueError: Could not deserialize
+   key data...` (see §5's troubleshooting table):
    ```bash
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out hsm-databricks-key.pem
    openssl pkey -in hsm-databricks-key.pem -pubout -out hsm-databricks-key.pub.pem
    ```
+   `HSM_PRIVATE_KEY_PEM`/`HSM_SIGNING_PRIVATE_KEY_PEM` accept either the raw
+   multi-line PEM *or* that same PEM base64-encoded as a single line —
+   deliberately supported, not a workaround (`transport.py`'s
+   `_normalize_key_material` detects which one it got). **Base64 is the
+   recommended way to store it** in a secret scope's plain string field,
+   since it sidesteps every newline-mangling risk a raw multi-line value is
+   exposed to across different upload paths (CLI quoting, UI text boxes,
+   etc.):
+   ```bash
+   databricks secrets put-secret hsm databricks-udf-private-key --string-value "$(base64 -w0 hsm-databricks-key.pem)"
+   ```
+   (`base64 -w0` disables line-wrapping — without it, most `base64`
+   implementations insert newlines every 76 characters, which would defeat
+   the point.) Storing the raw PEM via `--file` still works too.
 3. **Register the public key** via `POST /admin/apps/keys` (see
    [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)):
    ```bash
@@ -108,8 +109,9 @@ It's only the *credentials* mechanism above that had to change.
    - **SELF_SIGNED_JWT**: generate a *second*, dedicated signing keypair
      (independent of the DEK-transport keypair from step 2 — though it may
      reuse the same PEM, the legacy one-keypair fallback both
-     `HsmCryptoClient.Builder` and this package support) and register its
-     public half via `POST /admin/apps/keys`' `signing_public_key_pem` field:
+     `HsmCryptoClient.Builder` and this package support), also unencrypted,
+     and register its public half via `POST /admin/apps/keys`'
+     `signing_public_key_pem` field:
      ```bash
      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out hsm-databricks-signing-key.pem
      openssl pkey -in hsm-databricks-signing-key.pem -pubout -out hsm-databricks-signing-key.pub.pem
@@ -137,79 +139,74 @@ It's only the *credentials* mechanism above that had to change.
    ```
 7. **Create a Databricks secret scope** holding whichever credential your
    chosen auth mode needs, plus the DEK-transport private key either way.
-   Unlike the earlier design, this scope is now read by every *caller*
-   (their own notebook/job, to build `credentials_json`), not by the
-   function itself — see the governance-tradeoff note above for the access
-   implications:
+   Store the keys base64-encoded, per §0.2's recommendation:
    ```bash
    databricks secrets create-scope hsm
-   databricks secrets put-secret hsm databricks-udf-private-key --file hsm-databricks-key.pem
+   databricks secrets put-secret hsm databricks-udf-private-key --string-value "$(base64 -w0 hsm-databricks-key.pem)"
 
    # STATIC:
    databricks secrets put-secret hsm databricks-udf-token --string-value "$TOKEN"
 
    # SELF_SIGNED_JWT (instead of the token above):
-   databricks secrets put-secret hsm databricks-udf-signing-key --file hsm-databricks-signing-key.pem
+   databricks secrets put-secret hsm databricks-udf-signing-key --string-value "$(base64 -w0 hsm-databricks-signing-key.pem)"
    ```
-   Grant `READ SECRET` on this scope to whichever principals should be able
-   to call `hsm_encrypt`/`hsm_decrypt`.
+   Only the identity that will *register* `hsm_credentials()` (its owner)
+   needs `READ SECRET` on this scope — see the governance note above.
 
 ## 1. Register the functions
 
-Edit the volume path in [`sql/create_functions.sql`](sql/create_functions.sql)
-to match your deployment, then run it — from a notebook, the SQL editor, or a
+Edit the literals inside `hsm_credentials()` and the volume path in
+[`sql/create_functions.sql`](sql/create_functions.sql) to match your
+deployment, then run the whole file — from a notebook, the SQL editor, or a
 job, on **any** compute type (job/classic, shared, or serverless all work
-identically here, since nothing in this step is compute-specific):
-
-```sql
--- contents of sql/create_functions.sql
-```
-
-Both functions now take `credentials_json` as their last argument — see
-above for what to put in it and why.
+identically here, since nothing in this step is compute-specific).
 
 ## 2. Run it
 
-From a notebook or job (where `dbutils` is available to fetch the secret):
+Pure SQL, no notebook or `dbutils` required:
 
-```python
-import json
+```sql
+SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci', main.hsm.hsm_credentials()) AS token;
+-- -> "v1.AbC123..."
 
-creds = json.dumps({
-    "HSM_SERVICE_BASE_URL": "https://hsm-core-service.internal:8443/api/sensec/hsm/v1",
-    "HSM_APP_ID": "databricks-udf",
-    "HSM_AUTH_MODE": "STATIC",
-    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
-    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
-})
+SELECT main.hsm.hsm_decrypt('v1.AbC123...', main.hsm.hsm_credentials()) AS plaintext;
+-- -> "4111-1111-1111-1234"
 
-spark.sql(
-    "SELECT main.hsm.hsm_encrypt(:pt, :dn, NULL, :creds) AS token",
-    args={"pt": "4111-1111-1111-1234", "dn": "customers.account_number", "creds": creds},
-).show()
-# -> "v1.AbC123..."
-
-spark.sql(
-    "SELECT main.hsm.hsm_decrypt(:tok, :creds) AS plaintext",
-    args={"tok": "v1.AbC123...", "creds": creds},
-).show()
-# -> "4111-1111-1111-1234"
-
-# Over a real table:
-spark.sql(
-    "SELECT id, main.hsm.hsm_decrypt(ciphertext_token, :creds) AS account_number "
-    "FROM main.payments.customer_accounts",
-    args={"creds": creds},
-).show()
+-- Over a real table:
+SELECT id, main.hsm.hsm_decrypt(ciphertext_token, main.hsm.hsm_credentials()) AS account_number
+FROM main.payments.customer_accounts;
 ```
 
-A SQL warehouse query (no `dbutils` there either) needs `creds` built
-upstream — e.g. by a notebook/job that resolves it once and writes it as a
-session variable or query parameter the warehouse query then binds; a bare
-`SELECT` typed directly into a SQL editor has no `dbutils` equivalent, so
-this UDF is best driven from a notebook/job in practice.
+## 3. Testing from Python (standardized on the same `hsm_credentials()`)
 
-## 3. Serverless-specific note: network egress
+Use the official `databricks-sql-connector` (DB-API driver for a Databricks
+SQL warehouse) to run the *same* SQL — this tests the actual deployed UC
+function through the real SQL layer, not a local stand-in, and never
+duplicates the credential-building logic in Python:
+
+```python
+from databricks import sql
+
+with sql.connect(server_hostname="<workspace-hostname>",
+                  http_path="<warehouse-http-path>",
+                  access_token="<personal-access-token-or-oauth>") as conn:
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT main.hsm.hsm_decrypt(
+                main.hsm.hsm_encrypt(%(pt)s, %(dn)s, NULL, main.hsm.hsm_credentials()),
+                main.hsm.hsm_credentials()
+            ) = %(pt)s AS round_trip_ok
+        """, {"pt": "test value", "dn": "deployment.verify.column"})
+        row = cur.fetchone()
+        assert row.round_trip_ok
+```
+
+This is the recommended smoke test for a fresh deployment (§4 has the
+cross-check against `/decrypt` directly). `pip install databricks-sql-connector`
+locally or run this from a notebook (where `spark.sql(...)` works equally
+well as a substitute for the connector).
+
+## 4. Serverless-specific note: network egress
 
 Python UDFs can reach external HTTPS endpoints on serverless — confirmed
 directly against Databricks docs — but if the workspace runs *restricted*
@@ -218,49 +215,26 @@ Settings → Network → Network Policies → allowed internet destinations. Thi
 is a one-time workspace-level change, unrelated to the function registration
 above.
 
-## 4. Verifying a deployment actually works
-
-```python
-creds = json.dumps({...})  # as above
-
-result = spark.sql(
-    "SELECT main.hsm.hsm_decrypt(main.hsm.hsm_encrypt(:pt, :dn, NULL, :creds), :creds) = :pt AS round_trip_ok",
-    args={"pt": "test value", "dn": "deployment.verify.column", "creds": creds},
-).collect()
-assert result[0]["round_trip_ok"]
-```
-
-Cross-check against the real `/decrypt` endpoint directly (not through this
-package at all) to prove the token these UDFs produce is genuinely
-`hsm-core-service`'s own wire format, not just internally self-consistent:
-
-```bash
-TOKEN=$(databricks sql query "SELECT main.hsm.hsm_encrypt('cross-check', 'deployment.verify.column2', NULL, '$CREDS_JSON')" | tail -1)
-curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID: databricks-udf" \
-  -H "Content-Type: application/json" -d "{\"ciphertext\": \"$TOKEN\"}"
-# -> {"plaintext": "cross-check", ...}
-```
-
 ## 5. Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
-| `NameError: name 'dbutils' is not defined` (raised from inside `hsm_encrypt`/`hsm_decrypt`) | The function body is calling `dbutils` directly — confirmed to never work inside a Unity Catalog Python Function; fetch the secret in the calling notebook/job instead and pass it via `credentials_json` (see above) |
-| `ConfigError: credentials_json is not valid JSON: ...` | The caller passed something other than a JSON object string as the last argument |
-| `ConfigError: HSM_SERVICE_BASE_URL is not set (expected as a credentials_json field)` | A required field is missing from the `credentials_json` object the caller built |
+| `NameError: name 'dbutils' is not defined` (raised from inside `hsm_encrypt`/`hsm_decrypt`) | The function body is calling `dbutils` directly — confirmed to never work inside a Unity Catalog Python Function; use `main.hsm.hsm_credentials()` instead (see above) |
+| `ValueError: Could not deserialize key data. The data may be in an incorrect format, the provided password may be incorrect...` | Two likely causes: (1) the DEK-transport (or signing) private key was generated **with a passphrase** — `transport.py` always parses with no password; regenerate unencrypted (§0.2); (2) the secret's content is neither raw PEM nor valid base64 of PEM — both formats are accepted (`transport.py`'s `_normalize_key_material` auto-detects), so this means the upload itself was corrupted (wrong file, truncated, extra quoting). Verify without printing the raw value: `SELECT length(secret(...)) AS len` and compare against the expected length of your base64'd (or raw) key file |
+| `ValueError: base64-decoded key material does not contain a PEM '-----BEGIN' marker` | The secret decoded from base64 fine but isn't actually a PEM key — wrong secret name/scope, or the value stored there is something else entirely |
+| `ValueError: key material is neither raw PEM ... nor valid base64` | The secret's string value doesn't start with `-----BEGIN` and also isn't valid base64 — most likely it was stored with the file's raw bytes read incorrectly, or a placeholder/empty value was uploaded by mistake |
+| `ConfigError: credentials_json is not valid JSON: ...` | `hsm_credentials()`'s `to_json(named_struct(...))` output isn't reaching the function correctly, or something else is being passed as the last argument |
+| `ConfigError: HSM_SERVICE_BASE_URL is not set (expected as a credentials_json field)` | A required field is missing from `hsm_credentials()`'s `named_struct(...)` |
 | `SvcClientError: /dek/issue -> 403: ...` | App not registered, wrong scope, or (for a cross-app `dek_name`) no grant — see [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)'s `GET /admin/edek/{edekId}` support workflow |
 | `SvcClientError: /dek/issue -> 422: App '...' has no public_key_pem registered` | Step 0.3 (register the public key) wasn't done for this `HSM_APP_ID` |
-| `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is `SELF_SIGNED_JWT` in `credentials_json` but `HSM_SIGNING_PRIVATE_KEY_PEM` (or `HSM_PRIVATE_KEY_PEM` as a fallback) wasn't included |
+| `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is `SELF_SIGNED_JWT` in `hsm_credentials()`'s output but `HSM_SIGNING_PRIVATE_KEY_PEM` (or `HSM_PRIVATE_KEY_PEM` as a fallback) wasn't included |
 | `SvcClientError: /dek/issue -> 401: ...` (with `HSM_AUTH_MODE=SELF_SIGNED_JWT`) | No `signing_public_key_pem` registered for this `app_id` (step 0.4), the `aud` claim doesn't match the server's `hsm.jwt.audience`, or the signing key PEM doesn't match what was registered |
-| Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §3 for serverless specifically |
+| Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §4 for serverless specifically |
 | `ImportError: No module named 'hsm_databricks_udf'` | The `ENVIRONMENT` clause's wheel path is wrong, or the wheel wasn't actually uploaded to that Unity Catalog volume path — see §0.6 |
-| `PERMISSION_DENIED` fetching the secret in the calling notebook | The caller's own identity needs `READ SECRET` on the `hsm` scope now (see the governance-tradeoff note above) — `EXECUTE` on the function alone is no longer sufficient |
+| `PERMISSION_DENIED` calling `hsm_credentials()`/`hsm_encrypt`/`hsm_decrypt` | The caller needs `EXECUTE` on all three functions — they do **not** need `READ SECRET` on the `hsm` scope directly (see the governance note above); only the function owner does |
 
 ## 6. Open items before a production rollout
 
-- The governance tradeoff above (callers need direct `READ SECRET` access,
-  not just `EXECUTE`) — acceptable for this package's current scope, worth
-  revisiting if broader/less-trusted caller access is needed later.
 - See [`DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_UDF_DESIGN.md) §14
   — in particular, whether the RSA-OAEP transport-unwrap needs to stay inside
   a FIPS-140-validated module, still unconfirmed at the time this was built.
