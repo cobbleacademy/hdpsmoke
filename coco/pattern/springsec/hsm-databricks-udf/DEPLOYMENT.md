@@ -6,27 +6,78 @@ Companion to [`../java/docs/DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_U
 
 **Status:** the package itself is built and verified — its crypto is proven
 byte-for-byte compatible with `hsm-core-service`'s real Java implementation in
-both directions (see `tests/test_live_interop.py`, run for real against a live
-local instance while this was built). **The steps below have not been run
-against a real Databricks workspace** — this repo has no Databricks access.
-One specific step is called out below as needing a smoke test before you rely
-on it for real: whether `dbutils` is available unqualified inside a Unity
-Catalog Python function body.
+both directions, including the real credential-passing call path described
+below (see `tests/test_live_interop.py`, run for real against a live local
+instance). **The Databricks-side deployment steps themselves have not been
+run against a real Databricks workspace** — this repo has no Databricks
+access.
 
-## Why one flow now covers all three compute types
+## How credentials reach the function — and why this changed
 
-An earlier draft of this doc had separate instructions per compute type
-(cluster-attached libraries for job/classic, an admin-allowlisted volume for
-shared, a notebook-scoped `%pip install` for serverless). That was working
-around a real limitation instead of using what Databricks actually built for
-this: `CREATE FUNCTION`'s `ENVIRONMENT` clause declares a function's Python
+An earlier version of this doc had the function body call
+`dbutils.secrets.get(...)` directly inside `AS $$ ... $$`, relying on Unity
+Catalog's secrets mechanism. **That does not work and was never actually
+run against a live workspace before shipping** — confirmed directly against
+Databricks' own docs and support KB once it was tried for real: `dbutils` is
+only available in the calling notebook/job's *own driver context*, never
+inside a UDF or Unity Catalog Python Function body. Calling it from inside a
+`CREATE FUNCTION ... LANGUAGE PYTHON` body raises exactly
+`NameError: name 'dbutils' is not defined`.
+
+The fix, matching Databricks' own documented workaround for this exact
+failure: **the caller fetches the secret where `dbutils` does work (their
+own notebook/job) and passes it into the function call as an explicit
+argument**, instead of the function resolving its own credentials. Both
+functions now take a `credentials_json` argument — a JSON object holding the
+same fields as this package's `HSM_*` config (see `config.py`'s
+`Config.from_json`):
+
+```python
+import json
+
+creds = json.dumps({
+    "HSM_SERVICE_BASE_URL": "https://hsm-core-service.internal:8443/api/sensec/hsm/v1",
+    "HSM_APP_ID": "databricks-udf",
+    "HSM_AUTH_MODE": "STATIC",
+    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
+    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
+})
+
+df = spark.sql(
+    "SELECT id, main.hsm.hsm_decrypt(ciphertext_token, :creds) AS account_number "
+    "FROM main.payments.customer_accounts",
+    args={"creds": creds},
+)
+```
+
+Always pass `credentials_json` as a **bind parameter** (`args={...}` /
+`:creds`), never string-interpolated into SQL text — interpolation would put
+the raw private key and token into the query text itself (logged, visible in
+query history).
+
+**A real governance tradeoff versus the original design**: Unity Catalog's
+definer-rights model (function creator holds the secret scope, callers only
+need `EXECUTE`) is what the `dbutils`-in-body approach was meant to get —
+callers would never need direct secret access. That's no longer true: since
+credentials now travel as a caller-supplied argument, **every caller needs
+their own `READ SECRET` grant on the scope holding this app's key/token**, in
+addition to `EXECUTE` on the functions. This is a real, known regression
+from the original design goal, not an oversight — it's the price of `dbutils`
+not being callable inside the function body at all. If tighter control over
+who can access the raw credential matters more than this UDF's convenience,
+consider a small wrapper notebook/job that is the only principal with
+`READ SECRET`, and grant other users access to *that* instead of the raw
+scope.
+
+## Why one flow now covers all three compute types for the wheel itself
+
+`CREATE FUNCTION`'s `ENVIRONMENT` clause declares a function's Python
 dependencies (PyPI packages, or a wheel path in a Unity Catalog volume) *as
 part of the function's own definition* — confirmed directly against
-Databricks' `CREATE FUNCTION` docs. Combined with `dbutils.secrets.get(...)`
-for credentials (Unity Catalog's own governed secrets mechanism, also
-confirmed directly, not assumed), the function carries everything it needs
-wherever it's invoked from — no separate per-cluster setup, no dependency on
-whichever session happened to register it.
+Databricks' `CREATE FUNCTION` docs. This part of the original design still
+holds: the wheel + its dependencies are resolved wherever the function
+executes, not wherever it was registered from, regardless of compute type.
+It's only the *credentials* mechanism above that had to change.
 
 ## 0. One-time prerequisites
 
@@ -85,11 +136,11 @@ whichever session happened to register it.
      dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
    ```
 7. **Create a Databricks secret scope** holding whichever credential your
-   chosen auth mode needs, plus the DEK-transport private key either way. The
-   person who runs `sql/create_functions.sql` (the function's *creator*)
-   needs `READ SECRET` on this scope — callers of the function later need
-   only `EXECUTE` on the function itself, never access to the scope (Unity
-   Catalog's definer-rights model for secrets used inside a function):
+   chosen auth mode needs, plus the DEK-transport private key either way.
+   Unlike the earlier design, this scope is now read by every *caller*
+   (their own notebook/job, to build `credentials_json`), not by the
+   function itself — see the governance-tradeoff note above for the access
+   implications:
    ```bash
    databricks secrets create-scope hsm
    databricks secrets put-secret hsm databricks-udf-private-key --file hsm-databricks-key.pem
@@ -100,61 +151,63 @@ whichever session happened to register it.
    # SELF_SIGNED_JWT (instead of the token above):
    databricks secrets put-secret hsm databricks-udf-signing-key --file hsm-databricks-signing-key.pem
    ```
+   Grant `READ SECRET` on this scope to whichever principals should be able
+   to call `hsm_encrypt`/`hsm_decrypt`.
 
 ## 1. Register the functions
 
-Edit the `HSM_SERVICE_BASE_URL`/`HSM_APP_ID` values and the volume path in
-[`sql/create_functions.sql`](sql/create_functions.sql) to match your
-deployment, and pick the bootstrap block matching your chosen auth mode (the
-file shows `STATIC` inline in both function bodies, with the
-`SELF_SIGNED_JWT` variant given as a commented-out alternative to swap in —
-use one or the other, not both, for a given `app_id`). Then run it — from a
-notebook, the SQL editor, or a job, on **any** compute type (job/classic,
-shared, or serverless all work identically here, since nothing in this step
-is compute-specific):
+Edit the volume path in [`sql/create_functions.sql`](sql/create_functions.sql)
+to match your deployment, then run it — from a notebook, the SQL editor, or a
+job, on **any** compute type (job/classic, shared, or serverless all work
+identically here, since nothing in this step is compute-specific):
 
 ```sql
 -- contents of sql/create_functions.sql
 ```
 
-The `ENVIRONMENT` clause resolves the wheel + its dependencies wherever the
-function later executes; the `dbutils.secrets.get(...)` calls inside the
-function body resolve credentials the same way, regardless of which
-cluster/warehouse a future caller uses.
-
-**Smoke-test this specific step before relying on it**: whether `dbutils` is
-available as a bare name inside a Unity Catalog Python function's `AS $$ ...
-$$` body (versus needing an explicit import) isn't something this
-environment could verify against a real workspace. Run one call and confirm
-it works:
-
-```sql
-SELECT main.hsm.hsm_encrypt('smoke test', 'deployment.smoke.test');
-```
-
-If `dbutils` isn't in scope there, the fallback is unchanged from before:
-`config.py` reads `os.environ` regardless of how those variables got set, so
-setting `HSM_SERVICE_BASE_URL`/`HSM_APP_ID`/`HSM_AUTH_MODE` plus either
-`HSM_BEARER_TOKEN` (`STATIC`) or `HSM_SIGNING_PRIVATE_KEY_PEM`
-(`SELF_SIGNED_JWT`), and `HSM_PRIVATE_KEY_PEM` either way, as cluster-level
-environment variables (job/classic/shared clusters support this directly;
-serverless would need them set via `os.environ[...] = ...` in whatever code
-path actually runs first) still works — only the *how credentials get into
-the process* changes, not anything in the package itself.
+Both functions now take `credentials_json` as their last argument — see
+above for what to put in it and why.
 
 ## 2. Run it
 
-```sql
-SELECT main.hsm.hsm_encrypt('4111-1111-1111-1234', 'customers.account_number', 'pci');
--- -> "v1.AbC123..."
+From a notebook or job (where `dbutils` is available to fetch the secret):
 
-SELECT main.hsm.hsm_decrypt('v1.AbC123...');
--- -> "4111-1111-1111-1234"
+```python
+import json
 
--- Over a real table:
-SELECT id, main.hsm.hsm_decrypt(ciphertext_token) AS account_number
-FROM main.payments.customer_accounts;
+creds = json.dumps({
+    "HSM_SERVICE_BASE_URL": "https://hsm-core-service.internal:8443/api/sensec/hsm/v1",
+    "HSM_APP_ID": "databricks-udf",
+    "HSM_AUTH_MODE": "STATIC",
+    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
+    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
+})
+
+spark.sql(
+    "SELECT main.hsm.hsm_encrypt(:pt, :dn, NULL, :creds) AS token",
+    args={"pt": "4111-1111-1111-1234", "dn": "customers.account_number", "creds": creds},
+).show()
+# -> "v1.AbC123..."
+
+spark.sql(
+    "SELECT main.hsm.hsm_decrypt(:tok, :creds) AS plaintext",
+    args={"tok": "v1.AbC123...", "creds": creds},
+).show()
+# -> "4111-1111-1111-1234"
+
+# Over a real table:
+spark.sql(
+    "SELECT id, main.hsm.hsm_decrypt(ciphertext_token, :creds) AS account_number "
+    "FROM main.payments.customer_accounts",
+    args={"creds": creds},
+).show()
 ```
+
+A SQL warehouse query (no `dbutils` there either) needs `creds` built
+upstream — e.g. by a notebook/job that resolves it once and writes it as a
+session variable or query parameter the warehouse query then binds; a bare
+`SELECT` typed directly into a SQL editor has no `dbutils` equivalent, so
+this UDF is best driven from a notebook/job in practice.
 
 ## 3. Serverless-specific note: network egress
 
@@ -167,10 +220,14 @@ above.
 
 ## 4. Verifying a deployment actually works
 
-```sql
--- Round trip through the UDFs themselves
-SELECT main.hsm.hsm_decrypt(main.hsm.hsm_encrypt('test value', 'deployment.verify.column')) = 'test value' AS round_trip_ok;
--- -> true
+```python
+creds = json.dumps({...})  # as above
+
+result = spark.sql(
+    "SELECT main.hsm.hsm_decrypt(main.hsm.hsm_encrypt(:pt, :dn, NULL, :creds), :creds) = :pt AS round_trip_ok",
+    args={"pt": "test value", "dn": "deployment.verify.column", "creds": creds},
+).collect()
+assert result[0]["round_trip_ok"]
 ```
 
 Cross-check against the real `/decrypt` endpoint directly (not through this
@@ -178,7 +235,7 @@ package at all) to prove the token these UDFs produce is genuinely
 `hsm-core-service`'s own wire format, not just internally self-consistent:
 
 ```bash
-TOKEN=$(databricks sql query "SELECT main.hsm.hsm_encrypt('cross-check', 'deployment.verify.column2')" | tail -1)
+TOKEN=$(databricks sql query "SELECT main.hsm.hsm_encrypt('cross-check', 'deployment.verify.column2', NULL, '$CREDS_JSON')" | tail -1)
 curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID: databricks-udf" \
   -H "Content-Type: application/json" -d "{\"ciphertext\": \"$TOKEN\"}"
 # -> {"plaintext": "cross-check", ...}
@@ -188,18 +245,22 @@ curl -X POST "$BASE/decrypt" -H "Authorization: Bearer $SOME_TOKEN" -H "X-App-ID
 
 | Symptom | Likely cause |
 |---|---|
-| `ConfigError: HSM_SERVICE_BASE_URL is not set` | The `dbutils.secrets.get(...)` bootstrap in the function body didn't run or `dbutils` wasn't in scope — see §1's smoke test |
-| `NameError: name 'dbutils' is not defined` | `dbutils` isn't available unqualified in this function body context — fall back to cluster-level environment variables, see §1 |
+| `NameError: name 'dbutils' is not defined` (raised from inside `hsm_encrypt`/`hsm_decrypt`) | The function body is calling `dbutils` directly — confirmed to never work inside a Unity Catalog Python Function; fetch the secret in the calling notebook/job instead and pass it via `credentials_json` (see above) |
+| `ConfigError: credentials_json is not valid JSON: ...` | The caller passed something other than a JSON object string as the last argument |
+| `ConfigError: HSM_SERVICE_BASE_URL is not set (expected as a credentials_json field)` | A required field is missing from the `credentials_json` object the caller built |
 | `SvcClientError: /dek/issue -> 403: ...` | App not registered, wrong scope, or (for a cross-app `dek_name`) no grant — see [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)'s `GET /admin/edek/{edekId}` support workflow |
 | `SvcClientError: /dek/issue -> 422: App '...' has no public_key_pem registered` | Step 0.3 (register the public key) wasn't done for this `HSM_APP_ID` |
-| `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is set to `SELF_SIGNED_JWT` but the bootstrap block wasn't swapped to set `HSM_SIGNING_PRIVATE_KEY_PEM` — see §0.4/§1 |
+| `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is `SELF_SIGNED_JWT` in `credentials_json` but `HSM_SIGNING_PRIVATE_KEY_PEM` (or `HSM_PRIVATE_KEY_PEM` as a fallback) wasn't included |
 | `SvcClientError: /dek/issue -> 401: ...` (with `HSM_AUTH_MODE=SELF_SIGNED_JWT`) | No `signing_public_key_pem` registered for this `app_id` (step 0.4), the `aud` claim doesn't match the server's `hsm.jwt.audience`, or the signing key PEM doesn't match what was registered |
 | Timeout / connection error | Network egress from this compute type to `hsm-core-service` isn't allowed — see §3 for serverless specifically |
 | `ImportError: No module named 'hsm_databricks_udf'` | The `ENVIRONMENT` clause's wheel path is wrong, or the wheel wasn't actually uploaded to that Unity Catalog volume path — see §0.6 |
+| `PERMISSION_DENIED` fetching the secret in the calling notebook | The caller's own identity needs `READ SECRET` on the `hsm` scope now (see the governance-tradeoff note above) — `EXECUTE` on the function alone is no longer sufficient |
 
 ## 6. Open items before a production rollout
 
-- The `dbutils`-inside-function-body wiring (§1) — needs a real smoke test.
+- The governance tradeoff above (callers need direct `READ SECRET` access,
+  not just `EXECUTE`) — acceptable for this package's current scope, worth
+  revisiting if broader/less-trusted caller access is needed later.
 - See [`DATABRICKS_UDF_DESIGN.md`](../java/docs/DATABRICKS_UDF_DESIGN.md) §14
   — in particular, whether the RSA-OAEP transport-unwrap needs to stay inside
   a FIPS-140-validated module, still unconfirmed at the time this was built.
