@@ -478,6 +478,21 @@ SELECT main.hsm.hsm_decrypt(
 ) AS plaintext
 FROM main.payments.customer_accounts;
 ----------------------------------------------------------------------------------------------------------------------------------
+import json
+
+creds = json.dumps({
+    "HSM_SERVICE_BASE_URL": "https://hsm-core-service.internal:8443/api/sensec/hsm/v1",
+    "HSM_APP_ID": "databricks-udf",
+    "HSM_AUTH_MODE": "STATIC",
+    "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
+    "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
+})
+print(len(creds))  # should be 2000+, not ~300
+
+spark.sql("""
+    CREATE TABLE encrypted_test AS
+    SELECT main.hsm.hsm_encrypt_detail('test', 'ssn', NULL, :creds) AS token
+""", args={"creds": creds})
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
