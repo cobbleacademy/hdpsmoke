@@ -11,6 +11,9 @@ import com.hsm.core.dto.AppKeysRequest;
 import com.hsm.core.dto.AppKeysResponse;
 import com.hsm.core.dto.AppStatusRequest;
 import com.hsm.core.dto.AppStatusResponse;
+import com.hsm.core.dto.ClassificationGrantListResponse;
+import com.hsm.core.dto.ClassificationGrantRequest;
+import com.hsm.core.dto.ClassificationGrantResponse;
 import com.hsm.core.dto.DekGrantListResponse;
 import com.hsm.core.dto.DekGrantRequest;
 import com.hsm.core.dto.DekGrantResponse;
@@ -25,11 +28,13 @@ import com.hsm.core.dto.RekeyRequest;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RevertRekeyRequest;
 import com.hsm.core.dto.RotateKekResponse;
+import com.hsm.core.model.AppClassificationGrant;
 import com.hsm.core.model.AppDekGrant;
 import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.repository.EdekRecordRepository;
+import com.hsm.core.service.ClassificationGovernanceService;
 import com.hsm.core.service.RotationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -70,17 +75,19 @@ public class AdminController {
     private final AuditLogger auditLogger;
     private final JdbcTemplate jdbcTemplate;
     private final EdekRecordRepository edekRecordRepository;
+    private final ClassificationGovernanceService classificationGovernance;
     private final String healthCheckKekName;
 
     public AdminController(AppRegistryService appRegistry, KekClient kekClient, RotationService rotationService,
                             AuditLogger auditLogger, JdbcTemplate jdbcTemplate, EdekRecordRepository edekRecordRepository,
-                            HsmProperties hsmProperties) {
+                            ClassificationGovernanceService classificationGovernance, HsmProperties hsmProperties) {
         this.appRegistry = appRegistry;
         this.kekClient = kekClient;
         this.rotationService = rotationService;
         this.auditLogger = auditLogger;
         this.jdbcTemplate = jdbcTemplate;
         this.edekRecordRepository = edekRecordRepository;
+        this.classificationGovernance = classificationGovernance;
         // The legacy single-KEK config value, repurposed purely as a reachability
         // ping target here -- health has never been about one specific business
         // KEK, just "is the vault/HSM endpoint up," so any resolvable key proves that.
@@ -213,6 +220,42 @@ public class AdminController {
                 .map(g -> new DekGrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getDekName(), g.getScope(), g.getCreatedAt()))
                 .toList();
         return new DekGrantListResponse(grants);
+    }
+
+    /**
+     * Own scope (manage_classifications), not 'grant' -- approving which
+     * data_classification an app may declare is a different power from
+     * approving which dek_name it may touch (see ClassificationGovernanceService's
+     * javadoc for why the two are orthogonal), so it doesn't inherit the
+     * dek-name-grant scope by default. See V15's migration comment and
+     * java/docs/ADMIN_OPERATIONS.md for the phased (shadow-mode, then
+     * enforced) rollout this feeds.
+     */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    public ResponseEntity<ClassificationGrantResponse> addClassificationGrant(
+            @Valid @RequestBody ClassificationGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        AppClassificationGrant grant = classificationGovernance.addGrant(body.appId(), body.dataClassification(), "api:" + caller.sub());
+        auditLogger.log("classification_grant_added", "app_id", caller.appId(), "sub", caller.sub(),
+                "grantee_app_id", body.appId(), "data_classification", body.dataClassification(), "status", "success");
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new ClassificationGrantResponse(grant.getAppId(), grant.getDataClassification(), grant.getGrantedBy(), grant.getCreatedAt()));
+    }
+
+    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    public ResponseEntity<Void> removeClassificationGrant(
+            @Valid @RequestBody ClassificationGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        classificationGovernance.removeGrant(body.appId(), body.dataClassification());
+        auditLogger.log("classification_grant_removed", "app_id", caller.appId(), "sub", caller.sub(),
+                "grantee_app_id", body.appId(), "data_classification", body.dataClassification(), "status", "success");
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    public ClassificationGrantListResponse listClassificationGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
+        List<ClassificationGrantResponse> grants = classificationGovernance.listGrants().stream()
+                .map(g -> new ClassificationGrantResponse(g.getAppId(), g.getDataClassification(), g.getGrantedBy(), g.getCreatedAt()))
+                .toList();
+        return new ClassificationGrantListResponse(grants);
     }
 
     /**
