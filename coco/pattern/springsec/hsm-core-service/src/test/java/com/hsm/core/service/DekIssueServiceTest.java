@@ -12,10 +12,12 @@ import com.hsm.core.model.AppClassificationGrant;
 import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
+import com.hsm.core.model.KekRegistryEntry;
 import com.hsm.core.repository.AppClassificationGrantRepository;
 import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import com.hsm.core.repository.EdekRecordRepository;
+import com.hsm.core.repository.KekRegistryEntryRepository;
 import com.hsm.core.web.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,9 @@ class DekIssueServiceTest {
 
     @Autowired
     private AppClassificationGrantRepository appClassificationGrantRepository;
+
+    @Autowired
+    private KekRegistryEntryRepository kekRegistryEntryRepository;
 
     @Autowired
     private RecentEventsBuffer recentEvents;
@@ -336,5 +341,55 @@ class DekIssueServiceTest {
                         && appId.equals(event.get("app_id"))
                         && "reuse".equals(event.get("context")));
         assertFalse(sawReuseEvent, "same-app reuse must never trigger the classification reuse check");
+    }
+
+    /**
+     * Phase 1 wiring check: confirms the real /dek/issue fresh-mint path
+     * actually invokes DekNameReservationService, not just the standalone
+     * service in isolation (see DekNameReservationServiceTest for the
+     * service's own logic). Shadow mode never rejects -- the mint must still
+     * succeed even though the dek_name collides with another app's
+     * kek_registry reservation.
+     */
+    @Test
+    void freshMintCollidingWithAnotherAppsKekRegistryReservationSucceedsButEmitsShadowModeAuditEvent() throws Exception {
+        String reservedForAppId = "dek-issue-kek-registry-owner";
+        String dekName = "customers.dek-issue-reservation-shadow-test";
+        kekRegistryEntryRepository.save(new KekRegistryEntry(reservedForAppId, dekName, KekRegistryEntry.UNSET, "hsm-master-kek"));
+
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "dek-issue-kek-registry-conflicting";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", null, dekName)));
+        DekIssueResultItem result = dekIssueService.issue(request, appId, "test-sub", "127.0.0.1").items().get(0);
+
+        assertEquals("success", result.status());
+
+        boolean sawShadowModeEvent = recentEvents.recent(50).stream().anyMatch(event ->
+                "dek_name_reservation_check".equals(event.get("event_type"))
+                        && appId.equals(event.get("app_id"))
+                        && dekName.equals(event.get("dek_name"))
+                        && reservedForAppId.equals(event.get("reserved_for"))
+                        && "conflict_shadow_mode".equals(event.get("status")));
+        assertTrue(sawShadowModeEvent, "expected a dek_name_reservation_check shadow-mode audit event for the kek_registry conflict");
+    }
+
+    /** An app minting a dek_name it has its OWN kek_registry row for must never be treated as a conflict. */
+    @Test
+    void freshMintWithOwnKekRegistryEntryEmitsNoShadowModeAuditEvent() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "dek-issue-kek-registry-own-entry";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+        String dekName = "customers.dek-issue-own-reservation-test";
+        kekRegistryEntryRepository.save(new KekRegistryEntry(appId, dekName, KekRegistryEntry.UNSET, "hsm-master-kek"));
+
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", null, dekName)));
+        DekIssueResultItem result = dekIssueService.issue(request, appId, "test-sub", "127.0.0.1").items().get(0);
+        assertEquals("success", result.status());
+
+        boolean sawShadowModeEvent = recentEvents.recent(50).stream()
+                .anyMatch(event -> "dek_name_reservation_check".equals(event.get("event_type")) && appId.equals(event.get("app_id")));
+        assertFalse(sawShadowModeEvent, "an app's own kek_registry row must never be treated as a conflict for its own mint");
     }
 }
