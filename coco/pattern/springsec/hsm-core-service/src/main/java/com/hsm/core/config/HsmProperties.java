@@ -22,7 +22,8 @@ public record HsmProperties(
         KekRotation kekRotation,
         NamedDekRotation namedDekRotation,
         Redis redis,
-        DekCache dekCache
+        DekCache dekCache,
+        ClassificationGovernance classificationGovernance
 ) {
 
     public record Azure(
@@ -144,6 +145,21 @@ public record HsmProperties(
             String cekBetaSecretName,
             String excludedClassifications,
             int reloadIntervalSeconds
+    ) {
+    }
+
+    /**
+     * Phase 1 (enforce=false, default)/Phase 2 (enforce=true) toggle for
+     * ClassificationGovernanceService -- see V15's migration comment and
+     * that class's own javadoc. Defaults to false deliberately: flipping to
+     * true the moment app_classification_grants exists would reject every
+     * app that hasn't been backfilled into it yet, the same "would break
+     * every existing app" concern V11's kek_registry javadoc already
+     * documents for an analogous rollout. Flip only after shadow-mode
+     * logging has been used to backfill real usage.
+     */
+    public record ClassificationGovernance(
+            boolean enforce
     ) {
     }
 }
