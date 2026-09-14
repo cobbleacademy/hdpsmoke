@@ -3,8 +3,12 @@ package com.hsm.core.service;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.model.KekRegistryEntry;
 import com.hsm.core.repository.KekRegistryEntryRepository;
+import com.hsm.core.web.ApiException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -27,6 +31,13 @@ import java.util.Optional;
  * exception to "unprovisioned combinations fail closed": failing closed here
  * would break every existing app the moment this table exists, since none of
  * them would have any rows in it yet.
+ *
+ * <p>KEK selection is this class's only job -- it makes no admission
+ * decision itself. A tier-1 (exact dek_name) row separately carries
+ * dek_name-reservation intent for a DIFFERENT app's mint attempt; that check
+ * lives in DekNameReservationService, not here, and this class never
+ * consults another app's rows. See KekRegistryEntry's javadoc for the full
+ * ownership/ KEK-selection distinction and why it matters.
  */
 @Service
 public class KekRegistryService {
@@ -71,5 +82,47 @@ public class KekRegistryService {
     /** For decrypt of pre-multi-KEK rows where EdekRecord.kekName is NULL -- see EdekRecord's javadoc. */
     public String getLegacyDefaultKekName() {
         return legacyDefaultKekName;
+    }
+
+    /**
+     * Admin surface -- POST /admin/kek-registry. dekName/dataClassification
+     * default to KekRegistryEntry.UNSET when null/blank, same normalization
+     * the constructor already applies -- lets a caller register a per-app
+     * default (both unset), a classification-tier row (dekName unset), or
+     * an exact-dek_name (tier 1) row without needing to know the UNSET
+     * sentinel itself. An exact-dek_name row also carries dek_name-reservation
+     * intent once hsm.dek-name-reservation.enforce is on -- see
+     * DekNameReservationService. Idempotent on kekName: re-registering the
+     * same (app_id, dek_name, data_classification) updates kekName in place
+     * rather than erroring.
+     */
+    @Transactional
+    public KekRegistryEntry addOrUpdateEntry(String appId, String dekName, String dataClassification, String kekName) {
+        if (kekName == null || kekName.isBlank()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "kek_name is required");
+        }
+        String normalizedDekName = dekName == null || dekName.isBlank() ? KekRegistryEntry.UNSET : dekName;
+        String normalizedClassification = dataClassification == null || dataClassification.isBlank() ? KekRegistryEntry.UNSET : dataClassification;
+
+        KekRegistryEntry.Key key = new KekRegistryEntry.Key(appId, normalizedDekName, normalizedClassification);
+        KekRegistryEntry existing = repository.findById(key).orElse(null);
+        if (existing != null) {
+            existing.setKekName(kekName);
+            return repository.save(existing);
+        }
+        return repository.save(new KekRegistryEntry(appId, normalizedDekName, normalizedClassification, kekName));
+    }
+
+    /** Admin surface -- DELETE /admin/kek-registry. Same UNSET normalization as addOrUpdateEntry. */
+    @Transactional
+    public void removeEntry(String appId, String dekName, String dataClassification) {
+        String normalizedDekName = dekName == null || dekName.isBlank() ? KekRegistryEntry.UNSET : dekName;
+        String normalizedClassification = dataClassification == null || dataClassification.isBlank() ? KekRegistryEntry.UNSET : dataClassification;
+        repository.deleteById(new KekRegistryEntry.Key(appId, normalizedDekName, normalizedClassification));
+    }
+
+    /** Admin surface -- GET /admin/kek-registry. */
+    public List<KekRegistryEntry> listEntries() {
+        return repository.findAll();
     }
 }

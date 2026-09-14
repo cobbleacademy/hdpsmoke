@@ -50,11 +50,13 @@ public class DekIssueService {
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
     private final ClassificationGovernanceService classificationGovernance;
+    private final DekNameReservationService dekNameReservation;
 
     public DekIssueService(KekClient kekClient, KekRegistryService kekRegistryService,
                             EdekRecordRepository edekRecordRepository, AppRegistryService appRegistry,
                             AuditLogger auditLogger, HsmProperties properties,
-                            ClassificationGovernanceService classificationGovernance) {
+                            ClassificationGovernanceService classificationGovernance,
+                            DekNameReservationService dekNameReservation) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
@@ -62,6 +64,7 @@ public class DekIssueService {
         this.auditLogger = auditLogger;
         this.properties = properties;
         this.classificationGovernance = classificationGovernance;
+        this.dekNameReservation = dekNameReservation;
     }
 
     public DekIssueResponse issue(DekIssueRequest request, String appId, String callerSub, String callerIp) {
@@ -161,6 +164,7 @@ public class DekIssueService {
         }
 
         classificationGovernance.checkFirstMintClassification(appId, name, item.dataClassification());
+        dekNameReservation.checkReservation(appId, name);
         byte[] dek = DekManager.generateDek();
         UUID edekId = UUID.randomUUID();
         try {

@@ -53,11 +53,12 @@ public class EncryptionService {
     private final ExecutorService batchExecutor;
     private final AppRegistryService appRegistry;
     private final ClassificationGovernanceService classificationGovernance;
+    private final DekNameReservationService dekNameReservation;
 
     public EncryptionService(KekClient kekClient, KekRegistryService kekRegistryService, EdekRecordRepository edekRecordRepository,
                               DekCache dekCache, PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
                               ExecutorService batchExecutor, AppRegistryService appRegistry,
-                              ClassificationGovernanceService classificationGovernance) {
+                              ClassificationGovernanceService classificationGovernance, DekNameReservationService dekNameReservation) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
@@ -68,6 +69,7 @@ public class EncryptionService {
         this.batchExecutor = batchExecutor;
         this.appRegistry = appRegistry;
         this.classificationGovernance = classificationGovernance;
+        this.dekNameReservation = dekNameReservation;
     }
 
     /**
@@ -228,6 +230,7 @@ public class EncryptionService {
         }
 
         classificationGovernance.checkFirstMintClassification(appId, dekName, dataClassification);
+        dekNameReservation.checkReservation(appId, dekName);
         byte[] dek = DekManager.generateDek();
         String kekName = kekRegistryService.resolve(appId, dekName, dataClassification);
         KekClient.WrapResult wrapResult = kekClient.wrapDek(dek, kekName);
