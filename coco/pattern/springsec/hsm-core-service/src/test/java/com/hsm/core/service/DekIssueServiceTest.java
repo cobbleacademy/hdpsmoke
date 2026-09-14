@@ -1,5 +1,6 @@
 package com.hsm.core.service;
 
+import com.hsm.core.audit.RecentEventsBuffer;
 import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.crypto.TransportWrapper;
@@ -7,9 +8,11 @@ import com.hsm.core.dto.DekIssueItem;
 import com.hsm.core.dto.DekIssueRequest;
 import com.hsm.core.dto.DekIssueResponse;
 import com.hsm.core.dto.DekIssueResultItem;
+import com.hsm.core.model.AppClassificationGrant;
 import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
+import com.hsm.core.repository.AppClassificationGrantRepository;
 import com.hsm.core.repository.AppGrantRepository;
 import com.hsm.core.repository.AppRegistrationRepository;
 import com.hsm.core.repository.EdekRecordRepository;
@@ -57,6 +60,12 @@ class DekIssueServiceTest {
 
     @Autowired
     private AppGrantRepository appGrantRepository;
+
+    @Autowired
+    private AppClassificationGrantRepository appClassificationGrantRepository;
+
+    @Autowired
+    private RecentEventsBuffer recentEvents;
 
     @Autowired
     private KekClient kekClient;
@@ -226,5 +235,106 @@ class DekIssueServiceTest {
         DekIssueResultItem result = dekIssueService.issue(conflicting, appId, "test-sub", "127.0.0.1").items().get(0);
         assertEquals("error", result.status());
         assertTrue(result.detail().contains("already bound to data_classification"));
+    }
+
+    /**
+     * Phase 1 (shadow mode) wiring check: confirms the real /dek/issue
+     * fresh-mint path actually invokes ClassificationGovernanceService, not
+     * just the standalone service in isolation (see
+     * ClassificationGovernanceServiceTest for the service's own logic).
+     * Shadow mode never rejects -- the request must still succeed even
+     * though the classification is unapproved.
+     */
+    @Test
+    void freshMintWithUnapprovedClassificationSucceedsButEmitsShadowModeAuditEvent() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "bulk-test-app-classification-shadow";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.shadow-mode-test")));
+        DekIssueResultItem result = dekIssueService.issue(request, appId, "test-sub", "127.0.0.1").items().get(0);
+
+        assertEquals("success", result.status());
+
+        boolean sawShadowModeEvent = recentEvents.recent(50).stream().anyMatch(event ->
+                "classification_check".equals(event.get("event_type"))
+                        && appId.equals(event.get("app_id"))
+                        && "pii".equals(event.get("data_classification"))
+                        && "unapproved_shadow_mode".equals(event.get("status")));
+        assertTrue(sawShadowModeEvent, "expected a classification_check shadow-mode audit event for an unapproved classification");
+    }
+
+    /** Same wiring check as above, but with an approved grant -- no shadow-mode event should fire. */
+    @Test
+    void freshMintWithApprovedClassificationEmitsNoShadowModeAuditEvent() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "bulk-test-app-classification-approved";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+        appClassificationGrantRepository.save(new AppClassificationGrant(appId, "pii", "security-team"));
+
+        DekIssueRequest request = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "customers.shadow-mode-approved-test")));
+        DekIssueResultItem result = dekIssueService.issue(request, appId, "test-sub", "127.0.0.1").items().get(0);
+
+        assertEquals("success", result.status());
+
+        boolean sawShadowModeEvent = recentEvents.recent(50).stream().anyMatch(event ->
+                "classification_check".equals(event.get("event_type")) && appId.equals(event.get("app_id")));
+        assertFalse(sawShadowModeEvent, "an approved classification must not emit a classification_check event");
+    }
+
+    /**
+     * Phase 2 wiring check: a cross-app REUSE (grantee holds an encrypt grant
+     * on the dek_name but no classification grant) must also emit a
+     * shadow-mode event -- a dek_name grant and a classification grant are
+     * orthogonal, both required (see EncryptionService.resolveDek's identical
+     * check). The request must still succeed in shadow mode.
+     */
+    @Test
+    void crossAppReuseWithUnapprovedClassificationSucceedsButEmitsShadowModeAuditEventWithReuseContext() throws Exception {
+        KeyPair ownerKeys = generateTestKeyPair();
+        KeyPair granteeKeys = generateTestKeyPair();
+        String ownerAppId = "dek-issue-classification-owner";
+        String granteeAppId = "dek-issue-classification-grantee";
+        registerAppWithKeyPair(ownerAppId, ownerKeys.getPublic());
+        registerAppWithKeyPair(granteeAppId, granteeKeys.getPublic());
+
+        DekIssueRequest mintReq = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "cross.app.classification.dek")));
+        dekIssueService.issue(mintReq, ownerAppId, "test-sub", "127.0.0.1");
+
+        appGrantRepository.save(new AppGrant(granteeAppId, ownerAppId, "encrypt"));
+
+        DekIssueRequest reuseReq = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "cross.app.classification.dek")));
+        DekIssueResultItem result = dekIssueService.issue(reuseReq, granteeAppId, "test-sub", "127.0.0.1").items().get(0);
+
+        assertEquals("success", result.status());
+
+        boolean sawReuseShadowModeEvent = recentEvents.recent(50).stream().anyMatch(event ->
+                "classification_check".equals(event.get("event_type"))
+                        && granteeAppId.equals(event.get("app_id"))
+                        && "reuse".equals(event.get("context"))
+                        && "pii".equals(event.get("data_classification"))
+                        && "unapproved_shadow_mode".equals(event.get("status")));
+        assertTrue(sawReuseShadowModeEvent, "expected a reuse-context classification_check event for the unapproved grantee");
+    }
+
+    /** Same-app reuse must never trigger the classification-reuse check -- only cross-app reuse does. */
+    @Test
+    void sameAppReuseNeverEmitsClassificationReuseAuditEvent() throws Exception {
+        KeyPair keyPair = generateTestKeyPair();
+        String appId = "dek-issue-classification-same-app";
+        registerAppWithKeyPair(appId, keyPair.getPublic());
+
+        DekIssueRequest first = new DekIssueRequest(List.of(new DekIssueItem("row-1", "pii", "same.app.classification.dek")));
+        dekIssueService.issue(first, appId, "test-sub", "127.0.0.1");
+
+        DekIssueRequest second = new DekIssueRequest(List.of(new DekIssueItem("row-2", "pii", "same.app.classification.dek")));
+        DekIssueResultItem result = dekIssueService.issue(second, appId, "test-sub", "127.0.0.1").items().get(0);
+        assertEquals("success", result.status());
+
+        boolean sawReuseEvent = recentEvents.recent(50).stream().anyMatch(event ->
+                "classification_check".equals(event.get("event_type"))
+                        && appId.equals(event.get("app_id"))
+                        && "reuse".equals(event.get("context")));
+        assertFalse(sawReuseEvent, "same-app reuse must never trigger the classification reuse check");
     }
 }
