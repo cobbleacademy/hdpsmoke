@@ -411,6 +411,33 @@ see [`ADMIN_OPERATIONS.md`](ADMIN_OPERATIONS.md)) and the new
 `POST`/`DELETE`/`GET /admin/dek-grants` (fine-grained), both gated behind the
 existing `grant` authority.
 
+## 1e. `dek_name` reservation via `kek_registry`, prior to first mint
+
+Everything in §1d governs a `dek_name` **after** it already has an
+`EdekRecord` — first-encrypt-wins decides ownership, and grants govern reuse
+from there. Raised in review: what stops a *different* app from minting a
+`dek_name` **first**, before the app that actually wants it ever gets the
+chance? `kek_registry`'s exact-`dek_name` (tier 1) rows — `(app_id,
+dek_name, '')` — answer this: registering one for `(app02,
+"customers.ssn")` reserves that `dek_name` for `app02`, and a *different*
+app's fresh mint of that exact name is rejected (`403`), gated by
+`hsm.dek-name-reservation.enforce` — see `DekNameReservationService` and
+[`ADMIN_OPERATIONS.md`](ADMIN_OPERATIONS.md) for the phased rollout.
+
+**This was not `kek_registry`'s original role.** It shipped (V11) three
+migrations before V14 as a pure KEK-selection preference table with no
+admission-control involvement at all — see `KekRegistryEntry`'s own javadoc
+for the full correction and the evidence behind it. Confusing the two is
+easy, since both key off `(app_id, dek_name)`; they're enforced by entirely
+separate services (`DekNameReservationService` vs. `KekRegistryService`) and
+apply at different points in the request lifecycle (before vs. after an
+`EdekRecord` exists).
+
+**Only the exact-`dek_name` tier carries reservation intent.** A
+classification-level or per-app-default `kek_registry` row (`dek_name`
+unset) names no specific `dek_name` and is never treated as a reservation,
+regardless of who registered it.
+
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 
 For a service-to-service (client-credentials) scenario like this one, the

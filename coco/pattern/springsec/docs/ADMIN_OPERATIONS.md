@@ -26,6 +26,9 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/apps/classifications` | `manage_classifications` | Approve an app to use a given `data_classification` on a fresh DEK mint or a cross-app reuse (see below) |
 | `DELETE /admin/apps/classifications` | `manage_classifications` | Revoke a classification approval |
 | `GET /admin/apps/classifications` | `manage_classifications` | List all classification approvals |
+| `POST /admin/kek-registry` | `manage_kek_registry` | Register a KEK-selection preference for an app (per-`dek_name`, per-classification, or per-app default) — an exact-`dek_name` entry also reserves that `dek_name` (see below) |
+| `DELETE /admin/kek-registry` | `manage_kek_registry` | Remove a `kek_registry` entry |
+| `GET /admin/kek-registry` | `manage_kek_registry` | List all `kek_registry` entries |
 | `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
 | `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
@@ -201,6 +204,62 @@ classification an app may use is a different power from approving which
 separate from `manage_apps` for (different blast radius, different people
 should be able to grant one without the other).
 
+## Reserving a `dek_name` — `POST/DELETE/GET /admin/kek-registry`
+
+**The gap this closes**: `kek_registry` (which KEK wraps a fresh DEK) and
+*dek_name ownership* (which app may mint/touch a `dek_name`, governed by
+first-encrypt-wins + `app_grants`/`app_dek_grants`) used to be entirely
+unrelated. Registering a `kek_registry` row for `(app02, "some.dek.name")`
+never stopped `app01` from minting that exact `dek_name` first — there was
+no admission check anywhere that looked at another app's `kek_registry`
+rows. An exact-`dek_name` `kek_registry` entry now also functions as a
+reservation: a different app trying to mint that same `dek_name` for the
+first time is rejected (once enforcement is on — see the phased rollout
+below).
+
+```bash
+curl -X POST "$BASE/admin/kek-registry" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "app02", "dek_name": "customers.ssn", "kek_name": "hsm-master-kek"}'
+# -> {"app_id":"app02","dek_name":"customers.ssn","data_classification":"","kek_name":"hsm-master-kek","created_at":"...","updated_at":"..."}
+```
+
+`app_id`/`dek_name`/`kek_name` are required; omitting `dek_name` registers a
+classification-level or per-app-default row instead (see `kek_registry`'s
+3-tier resolution in `KekRegistryService`'s javadoc) — **those never carry
+reservation intent**, only an exact `dek_name` row does, since only that
+tier names a specific `dek_name` at all.
+
+**Phased rollout — read this before flipping `hsm.dek-name-reservation.enforce`**:
+`kek_registry` already has real rows today, created before this check
+existed. `hsm.dek-name-reservation.enforce` (env var
+`DEK_NAME_RESERVATION_ENFORCE`, default `false`) gates whether a collision
+is only *logged* (shadow mode — a `dek_name_reservation_check`/
+`conflict_shadow_mode` audit event, plus a `WARN` log line) or actually
+*rejected* (`403`).
+
+1. **Deploy with `enforce=false` (the default) first.** Watch for
+   `dek_name_reservation_shadow_mode_conflict` log lines over a real
+   traffic window — each one names the `app_id` attempting the mint and
+   which `app_id` already holds the conflicting `kek_registry` row.
+2. **Resolve any real collisions you observe** — either the conflicting
+   `kek_registry` row was a stale/unused registration (safe to remove via
+   `DELETE /admin/kek-registry`) or the second app genuinely needs a
+   different `dek_name`.
+3. **Flip `enforce=true`** only once you're confident no legitimate,
+   currently-working mint would be rejected — the same "would break every
+   existing app the moment this table exists" concern that applies to any
+   fail-open-to-fail-closed rollout in this codebase.
+
+**Never applies to same-app minting or unnamed encrypts.** An app is always
+free to mint its own `dek_name` regardless of anyone else's `kek_registry`
+rows; unnamed encrypts have no `dek_name` to reserve.
+
+**Own scope (`manage_kek_registry`), not `grant`.** Provisioning/reserving a
+`dek_name` is a different power from authorizing cross-app access to a
+`dek_name` that already exists.
+
 ## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented
 
 Added via `V5__add_timestamps_to_access_tables.sql`, closing the gap that
@@ -343,4 +402,13 @@ curl -X POST "$BASE/admin/apps/classifications" \
 
 # List all classification approvals
 curl "$BASE/admin/apps/classifications" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
+
+# Reserve a dek_name for an app (see the phased-rollout note above)
+curl -X POST "$BASE/admin/kek-registry" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "dek_name": "customers.ssn", "kek_name": "hsm-master-kek"}'
+
+# List all kek_registry entries
+curl "$BASE/admin/kek-registry" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
 ```
