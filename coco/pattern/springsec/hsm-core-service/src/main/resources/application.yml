@@ -166,6 +166,15 @@ hsm:
     cron: ${NAMED_DEK_ROTATION_CRON:0 3 * * *}
     enabled: ${NAMED_DEK_ROTATION_ENABLED:true}
     max-age-hours: ${NAMED_DEK_ROTATION_MAX_AGE_HOURS:720}
+  # Phase 1 (default)/Phase 2 toggle for data-classification governance -- see
+  # ClassificationGovernanceService's javadoc and V15's migration comment.
+  # false: unapproved (app_id, data_classification) combos on a fresh mint are
+  # only logged (audit event + warning), never rejected. true: rejected. Flip
+  # only after shadow-mode logging has been used to backfill
+  # app_classification_grants for existing real usage -- flipping immediately
+  # on a fresh table would reject every app that hasn't been backfilled yet.
+  classification-governance:
+    enforce: ${CLASSIFICATION_GOVERNANCE_ENFORCE:false}
   redis:
     url: ${REDIS_URL:}
   dek-cache:
@@ -247,3 +256,12 @@ hsm:
       - pattern: /admin/apps/mtls-cert
         methods: [POST]
         authorities: [provision_app_keys]
+
+      # Own scope, not 'grant' -- approving which data_classification an app
+      # may declare is a different power from approving which dek_name it may
+      # touch (orthogonal axes, see ClassificationGovernanceService's javadoc).
+      # See V15's migration comment and ADMIN_OPERATIONS.md for the phased
+      # (shadow-mode, then enforced) rollout this feeds.
+      - pattern: /admin/apps/classifications
+        methods: [POST, DELETE, GET]
+        authorities: [manage_classifications]
