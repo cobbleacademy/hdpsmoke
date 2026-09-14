@@ -526,6 +526,25 @@ Need clarification before I can opine
 "Migration master" and "DEK_Template" — not enough context to tell what these refer to (schema migration tooling? cross-KEK data migration? preset DEK/classification bundles an app selects from?). Worth getting a sentence of definition on each before scoping.
 The reviewer's own note says to defer "master tables, admin piece, REST UI, beautification... any time" — which seems to contradict listing RBAC-in-a-table and KEK-master as "current biggest changes" a few lines later. Worth flagging that tension back to them so priority is unambiguous, rather than guessing which framing wins.
 ----------------------------------------------------------------------------------------------------------------------------------
+Resolved / no action needed:
+
+KEK version — keep, load-bearing.
+Ciphertext version prefix — keep, cheap insurance + fast-fail rejection.
+DEK_Owner/AAD — already built, confirmed correct.
+KEK "master" registry — already exists (kek_registry).
+Automatic DEK creation — already exists.
+Security tool / audit tool architecture — resolved (external, independent of hsm-core-service, JIT elevation, no in-app audit expectation during full outage).
+
+Still open, not yet designed (flagged, not started):
+
+Data classification / app mapping governance — 4 distinct gaps identified, not yet built.
+Admin decrypt-bypass authority — flagged as needing heavy scrutiny (audit, break-glass workflow) before scoping, not designed yet.
+
+Still ambiguous — waiting on you, not something I can resolve by reading code:
+
+"Migration master" — never got a definition of what this refers to.
+"DEK_Template" — same.
+"Key rotation On Demand" — /admin/rotate-kek already exists and is manually callable; unclear if this ask is satisfied by that or means something more (self-service without the rotate authority?).
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
