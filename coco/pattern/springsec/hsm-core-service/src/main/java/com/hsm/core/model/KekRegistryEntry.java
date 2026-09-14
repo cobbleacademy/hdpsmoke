@@ -20,6 +20,23 @@ import java.util.Objects;
  * decrypt and rotation never consult this table again, so a later change here
  * only ever affects new writes, never retroactively reinterprets existing
  * ciphertext (see EdekRecord's own javadoc).
+ *
+ * <p><b>Ownership, precisely:</b> an exact-dek_name row (dekName set,
+ * dataClassification == UNSET -- "tier 1" below) ALSO reserves that
+ * specific dek_name for this appId, gated by
+ * hsm.dek-name-reservation.enforce -- see DekNameReservationService. The
+ * other two tiers (dataClassification set, or both UNSET) carry no
+ * reservation intent at all, since they don't name a specific dek_name.
+ * This was NOT true when this class was first written -- kek_registry
+ * existed for three migrations (V11 through V14) as a pure KEK-selection
+ * preference table with zero admission-control role, and dek_name ownership
+ * was governed entirely by V14's separate first-encrypt-wins mechanism
+ * (idx_edek_current_name + app_grants/app_dek_grants). Confirmed via a full
+ * re-read of every migration, every call site, and the dev-status history
+ * before this comment was corrected -- see AUTHORIZATION.md and V14's own
+ * migration comment ("no ownership concept existed at all") for that
+ * evidence. Flagging the correction explicitly here since the two concepts
+ * being easy to conflate is exactly what caused this comment to need fixing.
  */
 @Entity
 @Table(name = "kek_registry")
