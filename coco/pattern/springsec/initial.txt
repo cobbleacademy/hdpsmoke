@@ -494,6 +494,41 @@ spark.sql("""
     SELECT main.hsm.hsm_encrypt_detail('test', 'ssn', NULL, :creds) AS token
 """, args={"creds": creds})
 ----------------------------------------------------------------------------------------------------------------------------------
+Already done — worth telling the reviewer directly
+
+"Removal of KEK, KEK version... introduce master" — this already exists. A kek_registry table (V11__add_kek_registry_and_multi_kek_support.sql:27-35) resolves which KEK to use per (app_id, dek_name, data_classification), with a fallback chain down to a per-app default, and callers of /encrypt//dek/issue never specify kek_version — it's resolved server-side (KekRegistryService.java:42-69). This is the "master" mechanism the reviewer is asking for.
+
+What should not change: the resolved kek_name/kek_version still gets stamped onto each edek_records row at mint time and never re-resolved later. That's deliberate — it's what keeps an already-minted EDEK decryptable if the registry's "current" KEK changes afterward. So: "introduce a master lookup" — done. "Remove the per-record kek_version field" — same conclusion as before, that would break decrypt/rotation for anything minted before a registry change.
+
+"Automatic DEK creation" — also already exists. /encrypt mints a fresh DEK inline on first use of a dek_name (or an unnamed one-off every time) with zero prior /dek/issue call required (EncryptionService.java:161-166). If the reviewer means something more specific — auto-creating app_registrations/kek_registry rows on first use, say — that's a different, narrower ask worth spelling out explicitly rather than assuming.
+
+DEK_Owner / AAD verification — confirmed, and this is exactly the fix from earlier in this project (the cross-app dek_name reuse bug). Good that the reviewer's instinct lines up with what's already shipped.
+
+"Key rotation On Demand" — POST /admin/rotate-kek already exists and is manually callable (gated by the rotate authority), not schedule-only. Worth asking the reviewer what "on demand" adds beyond an endpoint that's already invocable whenever someone with rotate calls it — unless they mean a lower-friction/self-service trigger without needing that authority, which would be a real (and risky) scope change.
+
+Corrections to the "only two roles, currently bypassable" claim
+
+It's actually 8 distinct authority strings, not 2: rotate, grant, manage_apps, provision_app_keys for admin, plus encrypt/decrypt/dek_issue/dek_unwrap — each independently assignable per application.yml's access-rules block. More granular than the reviewer thinks.
+
+The "can be bypassed" concern is real, but in a narrower place than "the two admin roles": endpoints not listed in access-rules default to permitAll() (documented as intentional, matching current behavior), and separately, the PBAC (policy) layer has an explicit NullPbacClient that always permits when demo mode is on, PBAC is disabled, or the PlainID URL is unset — plus a fail_open mode for when the policy decision point itself errors. Worth clarifying with the reviewer whether their concern is about that layer specifically (which does need hardening for a real prod cutover) versus the endpoint-authority gating (which has no such bypass today).
+
+The two items I'd push back on scoping casually
+
+"Security tool — get all Wrapped_DEK, KEK_name, KEK_version, Algorithm" — this is a materially different, much higher-risk ask than it sounds. GET /admin/edek/{edekId} already returns kek_name/kek_version/algorithm/owner_app_id — the metadata half is done. But it deliberately excludes the wrapped DEK bytes; its own doc comment says it "answers 'who owns it,' never 'what does it decrypt to.'" Actually returning wrapped key material to a tool is a real widening of the blast radius of any credential leak on that tool — I'd want to know specifically why the security tool needs the E_DEK itself (audit/triage vs. actually decrypting) before treating this as a field to add to an existing response.
+
+"Addition of admin scope for non-encrypt/decrypt and bypass decrypt (governance)" — an admin decrypt-bypass is exactly the kind of feature that needs more governance than a normal endpoint, not less: mandatory audit logging (who, when, why, which record), probably a break-glass/dual-control workflow rather than a standing authority, and alerting on use. I'd treat this as the highest-scrutiny item on the whole list, not a routine addition.
+
+Genuine gap I'd agree is worth prioritizing
+
+Data classification / app mapping governance — confirmed real: data_classification is currently unconstrained free text (EncryptRequest.java:12's own comment: "drives audit/retention queries, never enforced here"). The only existing check prevents relabeling an already-named DEK, not the first classification value an app picks. Whitelisting which classifications an app is allowed to use would be a genuine, valuable governance addition, not something already covered elsewhere — I'd rank this above the ambiguous items below.
+
+Need clarification before I can opine
+"Migration master" and "DEK_Template" — not enough context to tell what these refer to (schema migration tooling? cross-KEK data migration? preset DEK/classification bundles an app selects from?). Worth getting a sentence of definition on each before scoping.
+The reviewer's own note says to defer "master tables, admin piece, REST UI, beautification... any time" — which seems to contradict listing RBAC-in-a-table and KEK-master as "current biggest changes" a few lines later. Worth flagging that tension back to them so priority is unambiguous, rather than guessing which framing wins.
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
