@@ -23,7 +23,8 @@ public record HsmProperties(
         NamedDekRotation namedDekRotation,
         Redis redis,
         DekCache dekCache,
-        ClassificationGovernance classificationGovernance
+        ClassificationGovernance classificationGovernance,
+        DekNameReservation dekNameReservation
 ) {
 
     public record Azure(
@@ -159,6 +160,24 @@ public record HsmProperties(
      * logging has been used to backfill real usage.
      */
     public record ClassificationGovernance(
+            boolean enforce
+    ) {
+    }
+
+    /**
+     * Phase 1 (enforce=false, default)/Phase 2 (enforce=true) toggle for
+     * DekNameReservationService -- see that class's own javadoc. An exact-
+     * dek_name (tier 1) kek_registry row now carries dek_name-reservation
+     * intent, not just a KEK-selection preference: a DIFFERENT app minting
+     * that same dek_name first is rejected once enforce=true. Defaults to
+     * false for the same reason ClassificationGovernance does -- kek_registry
+     * already has real rows today, created before this check existed;
+     * flipping to enforce=true immediately could reject a first-time mint
+     * that collides with an existing row nobody intended as a reservation
+     * conflict. Flip only after shadow-mode logging confirms no such
+     * collision exists in current data.
+     */
+    public record DekNameReservation(
             boolean enforce
     ) {
     }
