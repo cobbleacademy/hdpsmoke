@@ -49,16 +49,19 @@ public class DekIssueService {
     private final AppRegistryService appRegistry;
     private final AuditLogger auditLogger;
     private final HsmProperties properties;
+    private final ClassificationGovernanceService classificationGovernance;
 
     public DekIssueService(KekClient kekClient, KekRegistryService kekRegistryService,
                             EdekRecordRepository edekRecordRepository, AppRegistryService appRegistry,
-                            AuditLogger auditLogger, HsmProperties properties) {
+                            AuditLogger auditLogger, HsmProperties properties,
+                            ClassificationGovernanceService classificationGovernance) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
         this.appRegistry = appRegistry;
         this.auditLogger = auditLogger;
         this.properties = properties;
+        this.classificationGovernance = classificationGovernance;
     }
 
     public DekIssueResponse issue(DekIssueRequest request, String appId, String callerSub, String callerIp) {
@@ -124,12 +127,19 @@ public class DekIssueService {
                 // dek_name is globally owned (V14) -- see EncryptionService.resolveDek's
                 // identical check for the full reasoning; this is the same gap on the
                 // /dek/issue path (hsm-spark-adapter, hsm-bulk-client).
-                if (!record.getAppId().equals(appId) && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", name)) {
+                boolean crossApp = !record.getAppId().equals(appId);
+                if (crossApp && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", name)) {
                     throw new ApiException(HttpStatus.FORBIDDEN,
                             "dek_name '" + name + "' is owned by app '" + record.getAppId()
                                     + "' -- request an encrypt grant before reusing it");
                 }
                 checkClassificationMatch(name, record.getDataClassification(), item.dataClassification());
+                if (crossApp) {
+                    // See EncryptionService.resolveDek's identical check for the full
+                    // reasoning -- a dek_name grant and a classification grant are
+                    // orthogonal, both required for a cross-app reuse.
+                    classificationGovernance.checkReuseClassification(appId, name, record.getDataClassification());
+                }
                 if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
                         && item.dataClassification() != null && !item.dataClassification().isBlank()) {
                     record.setDataClassification(item.dataClassification());
@@ -150,6 +160,7 @@ public class DekIssueService {
             }
         }
 
+        classificationGovernance.checkFirstMintClassification(appId, name, item.dataClassification());
         byte[] dek = DekManager.generateDek();
         UUID edekId = UUID.randomUUID();
         try {

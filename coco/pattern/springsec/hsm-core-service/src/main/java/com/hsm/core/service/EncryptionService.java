@@ -52,10 +52,12 @@ public class EncryptionService {
     private final HsmProperties properties;
     private final ExecutorService batchExecutor;
     private final AppRegistryService appRegistry;
+    private final ClassificationGovernanceService classificationGovernance;
 
     public EncryptionService(KekClient kekClient, KekRegistryService kekRegistryService, EdekRecordRepository edekRecordRepository,
                               DekCache dekCache, PbacClient pbacClient, AuditLogger auditLogger, HsmProperties properties,
-                              ExecutorService batchExecutor, AppRegistryService appRegistry) {
+                              ExecutorService batchExecutor, AppRegistryService appRegistry,
+                              ClassificationGovernanceService classificationGovernance) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
@@ -65,6 +67,7 @@ public class EncryptionService {
         this.properties = properties;
         this.batchExecutor = batchExecutor;
         this.appRegistry = appRegistry;
+        this.classificationGovernance = classificationGovernance;
     }
 
     /**
@@ -177,12 +180,23 @@ public class EncryptionService {
                 // specifically); without either, this is a naming collision with someone
                 // else's resource, not a free name, and must be rejected outright rather than
                 // silently minting a second, unrelated DEK under the same name.
-                if (!record.getAppId().equals(appId) && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", dekName)) {
+                boolean crossApp = !record.getAppId().equals(appId);
+                if (crossApp && !appRegistry.isGranted(appId, record.getAppId(), "encrypt", dekName)) {
                     throw new ApiException(HttpStatus.FORBIDDEN,
                             "dek_name '" + dekName + "' is owned by app '" + record.getAppId()
                                     + "' -- request an encrypt grant before reusing it");
                 }
                 checkClassificationMatch(dekName, record.getDataClassification(), dataClassification);
+                if (crossApp) {
+                    // A dek_name-level grant answers WHICH key the grantee may touch;
+                    // this answers WHAT LABEL of data it may itself declare/touch --
+                    // orthogonal, both required. Uses the record's own classification
+                    // (not the raw request value) so an omitted dataClassification on
+                    // this call still gets checked against the data actually being
+                    // touched. Never applied to same-app reuse -- see this method's
+                    // and ClassificationGovernanceService's own javadoc.
+                    classificationGovernance.checkReuseClassification(appId, dekName, record.getDataClassification());
+                }
                 if ((record.getDataClassification() == null || record.getDataClassification().isBlank())
                         && dataClassification != null && !dataClassification.isBlank()) {
                     // First call never set one; this call did, and there's nothing to
@@ -213,6 +227,7 @@ public class EncryptionService {
             }
         }
 
+        classificationGovernance.checkFirstMintClassification(appId, dekName, dataClassification);
         byte[] dek = DekManager.generateDek();
         String kekName = kekRegistryService.resolve(appId, dekName, dataClassification);
         KekClient.WrapResult wrapResult = kekClient.wrapDek(dek, kekName);
