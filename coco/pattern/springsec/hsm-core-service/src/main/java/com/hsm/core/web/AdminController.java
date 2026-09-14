@@ -22,6 +22,9 @@ import com.hsm.core.dto.GrantListResponse;
 import com.hsm.core.dto.GrantRequest;
 import com.hsm.core.dto.GrantResponse;
 import com.hsm.core.dto.HealthResponse;
+import com.hsm.core.dto.KekRegistryEntryListResponse;
+import com.hsm.core.dto.KekRegistryEntryRequest;
+import com.hsm.core.dto.KekRegistryEntryResponse;
 import com.hsm.core.dto.MtlsCertRequest;
 import com.hsm.core.dto.MtlsCertResponse;
 import com.hsm.core.dto.RekeyRequest;
@@ -33,8 +36,10 @@ import com.hsm.core.model.AppDekGrant;
 import com.hsm.core.model.AppGrant;
 import com.hsm.core.model.AppRegistration;
 import com.hsm.core.model.EdekRecord;
+import com.hsm.core.model.KekRegistryEntry;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.service.ClassificationGovernanceService;
+import com.hsm.core.service.KekRegistryService;
 import com.hsm.core.service.RotationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -76,11 +81,13 @@ public class AdminController {
     private final JdbcTemplate jdbcTemplate;
     private final EdekRecordRepository edekRecordRepository;
     private final ClassificationGovernanceService classificationGovernance;
+    private final KekRegistryService kekRegistryService;
     private final String healthCheckKekName;
 
     public AdminController(AppRegistryService appRegistry, KekClient kekClient, RotationService rotationService,
                             AuditLogger auditLogger, JdbcTemplate jdbcTemplate, EdekRecordRepository edekRecordRepository,
-                            ClassificationGovernanceService classificationGovernance, HsmProperties hsmProperties) {
+                            ClassificationGovernanceService classificationGovernance, KekRegistryService kekRegistryService,
+                            HsmProperties hsmProperties) {
         this.appRegistry = appRegistry;
         this.kekClient = kekClient;
         this.rotationService = rotationService;
@@ -88,6 +95,7 @@ public class AdminController {
         this.jdbcTemplate = jdbcTemplate;
         this.edekRecordRepository = edekRecordRepository;
         this.classificationGovernance = classificationGovernance;
+        this.kekRegistryService = kekRegistryService;
         // The legacy single-KEK config value, repurposed purely as a reachability
         // ping target here -- health has never been about one specific business
         // KEK, just "is the vault/HSM endpoint up," so any resolvable key proves that.
@@ -256,6 +264,43 @@ public class AdminController {
                 .map(g -> new ClassificationGrantResponse(g.getAppId(), g.getDataClassification(), g.getGrantedBy(), g.getCreatedAt()))
                 .toList();
         return new ClassificationGrantListResponse(grants);
+    }
+
+    /**
+     * Own scope (manage_kek_registry), not 'grant' -- provisioning/reserving
+     * a dek_name is a different power from authorizing cross-app access to
+     * one that already exists (same reasoning manage_classifications is kept
+     * separate from grant). Lets an app be onboarded/reserve a dek_name via
+     * API instead of a direct DB write -- see DekNameReservationService and
+     * java/docs/ADMIN_OPERATIONS.md for the phased rollout this feeds.
+     */
+    @PostMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    public ResponseEntity<KekRegistryEntryResponse> addKekRegistryEntry(
+            @Valid @RequestBody KekRegistryEntryRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        KekRegistryEntry entry = kekRegistryService.addOrUpdateEntry(body.appId(), body.dekName(), body.dataClassification(), body.kekName());
+        auditLogger.log("kek_registry_entry_added", "app_id", caller.appId(), "sub", caller.sub(),
+                "target_app_id", body.appId(), "dek_name", entry.getDekName(), "data_classification", entry.getDataClassification(),
+                "kek_name", entry.getKekName(), "status", "success");
+        return ResponseEntity.status(HttpStatus.CREATED).body(new KekRegistryEntryResponse(
+                entry.getAppId(), entry.getDekName(), entry.getDataClassification(), entry.getKekName(),
+                entry.getCreatedAt(), entry.getUpdatedAt()));
+    }
+
+    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    public ResponseEntity<Void> removeKekRegistryEntry(
+            @Valid @RequestBody KekRegistryEntryRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
+        kekRegistryService.removeEntry(body.appId(), body.dekName(), body.dataClassification());
+        auditLogger.log("kek_registry_entry_removed", "app_id", caller.appId(), "sub", caller.sub(),
+                "target_app_id", body.appId(), "dek_name", body.dekName(), "data_classification", body.dataClassification(), "status", "success");
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    public KekRegistryEntryListResponse listKekRegistryEntries(@AuthenticationPrincipal AuthenticatedCaller caller) {
+        List<KekRegistryEntryResponse> entries = kekRegistryService.listEntries().stream()
+                .map(e -> new KekRegistryEntryResponse(e.getAppId(), e.getDekName(), e.getDataClassification(), e.getKekName(), e.getCreatedAt(), e.getUpdatedAt()))
+                .toList();
+        return new KekRegistryEntryListResponse(entries);
     }
 
     /**
