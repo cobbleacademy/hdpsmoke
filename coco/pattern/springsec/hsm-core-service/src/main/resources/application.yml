@@ -175,6 +175,15 @@ hsm:
   # on a fresh table would reject every app that hasn't been backfilled yet.
   classification-governance:
     enforce: ${CLASSIFICATION_GOVERNANCE_ENFORCE:false}
+  # Phase 1 (default)/Phase 2 toggle for dek_name reservation via
+  # kek_registry's exact-dek_name (tier 1) rows -- see DekNameReservationService's
+  # javadoc. false: a different app minting a dek_name already reserved by
+  # another app's kek_registry row is only logged, never rejected. true:
+  # rejected. Flip only after shadow-mode logging confirms no existing
+  # kek_registry row collides with a dek_name another app is actively
+  # minting for the first time.
+  dek-name-reservation:
+    enforce: ${DEK_NAME_RESERVATION_ENFORCE:false}
   redis:
     url: ${REDIS_URL:}
   dek-cache:
@@ -265,3 +274,12 @@ hsm:
       - pattern: /admin/apps/classifications
         methods: [POST, DELETE, GET]
         authorities: [manage_classifications]
+
+      # Own scope, not 'grant' -- provisioning/reserving a dek_name is a
+      # different power from authorizing cross-app access to one that
+      # already exists. See DekNameReservationService and
+      # ADMIN_OPERATIONS.md for the phased (shadow-mode, then enforced)
+      # rollout this feeds.
+      - pattern: /admin/kek-registry
+        methods: [POST, DELETE, GET]
+        authorities: [manage_kek_registry]
