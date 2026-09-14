@@ -237,6 +237,43 @@ class EncryptDecryptIntegrationTest {
     }
 
     @Test
+    void classificationGrantsCanBeAddedListedAndRemoved() {
+        HttpHeaders adminHeaders = headers("demo-token-ops-admin", "ops-admin");
+
+        HttpEntity<Map<String, Object>> addReq = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "data_classification", "http-e2e-test-classification"), adminHeaders);
+        ResponseEntity<Map> addResp = rest.postForEntity("/api/sensec/hsm/v1/admin/apps/classifications", addReq, Map.class);
+        assertEquals(HttpStatus.CREATED, addResp.getStatusCode());
+        assertEquals("reporting-app", addResp.getBody().get("app_id"));
+        assertEquals("http-e2e-test-classification", addResp.getBody().get("data_classification"));
+        assertNotNull(addResp.getBody().get("granted_by"));
+        assertNotNull(addResp.getBody().get("created_at"));
+
+        ResponseEntity<Map> listResp = rest.exchange("/api/sensec/hsm/v1/admin/apps/classifications", HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class);
+        assertEquals(HttpStatus.OK, listResp.getStatusCode());
+        List<Map> grants = (List<Map>) listResp.getBody().get("grants");
+        assertTrue(grants.stream().anyMatch(g ->
+                "reporting-app".equals(g.get("app_id")) && "http-e2e-test-classification".equals(g.get("data_classification"))));
+
+        HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "data_classification", "http-e2e-test-classification"), adminHeaders);
+        ResponseEntity<Void> removeResp = rest.exchange(
+                "/api/sensec/hsm/v1/admin/apps/classifications", HttpMethod.DELETE, removeReq, Void.class);
+        assertEquals(HttpStatus.NO_CONTENT, removeResp.getStatusCode());
+    }
+
+    /** payments-svc has no manage_classifications scope -- confirms the new endpoint is actually gated, not open by accident. */
+    @Test
+    void classificationGrantWithoutManageClassificationsScopeIsForbidden() {
+        HttpEntity<Map<String, Object>> req = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "data_classification", "should-not-be-allowed"),
+                headers("demo-token-payments-svc", "payments-svc"));
+        ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/apps/classifications", req, Map.class);
+        assertEquals(HttpStatus.FORBIDDEN, resp.getStatusCode());
+    }
+
+    @Test
     void secondAppReusingAnotherAppsDekNameWithoutGrantIsForbidden() {
         // payments-svc mints "cross.app.dek.a" first and becomes its owner.
         ResponseEntity<Map> first = encryptNamed(
