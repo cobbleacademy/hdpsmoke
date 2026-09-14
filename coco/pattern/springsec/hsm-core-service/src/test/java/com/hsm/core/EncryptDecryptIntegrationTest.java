@@ -274,6 +274,51 @@ class EncryptDecryptIntegrationTest {
     }
 
     @Test
+    void kekRegistryEntriesCanBeAddedListedAndRemoved() {
+        HttpHeaders adminHeaders = headers("demo-token-ops-admin", "ops-admin");
+
+        HttpEntity<Map<String, Object>> addReq = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "dek_name", "http-e2e-kek-registry-test", "kek_name", "hsm-master-kek"), adminHeaders);
+        ResponseEntity<Map> addResp = rest.postForEntity("/api/sensec/hsm/v1/admin/kek-registry", addReq, Map.class);
+        assertEquals(HttpStatus.CREATED, addResp.getStatusCode());
+        assertEquals("reporting-app", addResp.getBody().get("app_id"));
+        assertEquals("http-e2e-kek-registry-test", addResp.getBody().get("dek_name"));
+        assertEquals("hsm-master-kek", addResp.getBody().get("kek_name"));
+        assertNotNull(addResp.getBody().get("created_at"));
+
+        ResponseEntity<Map> listResp = rest.exchange("/api/sensec/hsm/v1/admin/kek-registry", HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class);
+        assertEquals(HttpStatus.OK, listResp.getStatusCode());
+        List<Map> entries = (List<Map>) listResp.getBody().get("entries");
+        assertTrue(entries.stream().anyMatch(e ->
+                "reporting-app".equals(e.get("app_id")) && "http-e2e-kek-registry-test".equals(e.get("dek_name"))));
+
+        HttpEntity<Map<String, Object>> removeReq = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "dek_name", "http-e2e-kek-registry-test"), adminHeaders);
+        ResponseEntity<Void> removeResp = rest.exchange(
+                "/api/sensec/hsm/v1/admin/kek-registry", HttpMethod.DELETE, removeReq, Void.class);
+        assertEquals(HttpStatus.NO_CONTENT, removeResp.getStatusCode());
+    }
+
+    @Test
+    void kekRegistryEntryWithoutManageKekRegistryScopeIsForbidden() {
+        HttpEntity<Map<String, Object>> req = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "dek_name", "should-not-be-allowed", "kek_name", "hsm-master-kek"),
+                headers("demo-token-payments-svc", "payments-svc"));
+        ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/kek-registry", req, Map.class);
+        assertEquals(HttpStatus.FORBIDDEN, resp.getStatusCode());
+    }
+
+    @Test
+    void kekRegistryEntryWithoutKekNameIsRejected() {
+        HttpEntity<Map<String, Object>> req = new HttpEntity<>(
+                Map.of("app_id", "reporting-app", "dek_name", "http-e2e-kek-registry-missing-kek"),
+                headers("demo-token-ops-admin", "ops-admin"));
+        ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/kek-registry", req, Map.class);
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, resp.getStatusCode());
+    }
+
+    @Test
     void secondAppReusingAnotherAppsDekNameWithoutGrantIsForbidden() {
         // payments-svc mints "cross.app.dek.a" first and becomes its owner.
         ResponseEntity<Map> first = encryptNamed(
