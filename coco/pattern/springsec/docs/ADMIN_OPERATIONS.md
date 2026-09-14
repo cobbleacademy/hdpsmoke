@@ -23,6 +23,9 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `DELETE /admin/dek-grants` | `grant` | Remove a fine-grained grant |
 | `GET /admin/dek-grants` | `grant` | List all fine-grained grants |
 | `GET /admin/edek/{edekId}` | `grant` | Read-only ownership/metadata lookup for one EDEK — `owner_app_id`, `dek_name`, `data_classification`, etc. No key material or fingerprint (see below) |
+| `POST /admin/apps/classifications` | `manage_classifications` | Approve an app to use a given `data_classification` on a fresh DEK mint or a cross-app reuse (see below) |
+| `DELETE /admin/apps/classifications` | `manage_classifications` | Revoke a classification approval |
+| `GET /admin/apps/classifications` | `manage_classifications` | List all classification approvals |
 | `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
 | `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
@@ -138,6 +141,65 @@ wrapped key material) and `fingerprint`** — this endpoint can only ever
 answer "who owns it," never "what does it decrypt to," which is what makes
 it safe to hand to support tooling that must never come near plaintext or
 anything that could help forge a match against one.
+
+## Approving data classifications — `POST/DELETE/GET /admin/apps/classifications`
+
+**The gap this closes**: `data_classification` on `/encrypt`/`/dek/issue` is
+free text (`EncryptRequest.dataClassification`'s own comment: "drives
+audit/retention queries, never enforced here"), and the only other existing
+check (`checkClassificationMatch`) only prevents *relabeling* an
+already-minted `dek_name` — it never governed which classification an app
+may declare in the first place. Any app could mint a brand-new `dek_name`
+and stamp any classification on it — `"top_secret_pii"`, or anything else —
+with zero admission control. `app_classification_grants` is a flat
+`(app_id, data_classification)` allow-list closing that gap; see V15's
+migration comment for the full rationale.
+
+```bash
+curl -X POST "$BASE/admin/apps/classifications" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "data_classification": "pii"}'
+# -> {"app_id":"payments-svc","data_classification":"pii","granted_by":"api:demo-user-3","created_at":"..."}
+```
+
+**Phased rollout — read this before flipping `hsm.classification-governance.enforce`**:
+this table exists and is checked from day one, but is **not enforced by
+default**. `hsm.classification-governance.enforce` (env var
+`CLASSIFICATION_GOVERNANCE_ENFORCE`, default `false`) gates whether an
+unapproved `(app_id, data_classification)` combination is only *logged*
+(shadow mode — an audit event, `classification_check`/
+`unapproved_shadow_mode`, plus a `WARN` log line) or actually *rejected*
+(`403`, once `enforce=true`).
+
+1. **Deploy with `enforce=false` (the default) first.** Every real app
+   keeps working exactly as before; nothing is rejected. Watch for
+   `classification_shadow_mode_unapproved` log lines / `classification_check`
+   audit events over a real traffic window — each one names the `app_id` and
+   `data_classification` combination actually in use.
+2. **Backfill `app_classification_grants` from what you observed** — one
+   `POST /admin/apps/classifications` call per legitimate `(app_id,
+   data_classification)` pair seen in step 1.
+3. **Flip `enforce=true`** only once you're confident the backfill is
+   complete. Flipping it on a fresh table (nothing backfilled yet) rejects
+   every app that sets any classification at all — the exact "would break
+   every existing app the moment this table exists" concern `kek_registry`'s
+   own migration comment already documents for an analogous rollout.
+
+**Checked in two places, both gated by the same flag**: a fresh mint (no
+existing `dek_name`) checks the *minting* app; a cross-app *reuse* of an
+existing `dek_name` additionally checks the *grantee* — a `dek_name` grant
+(`app_grants`/`app_dek_grants`) answers "may this app touch this key," which
+is orthogonal to "may this app declare/touch this label of data." Same-app
+reuse is never re-checked — an owner's classification approval is validated
+once, at mint time, not on every subsequent call, consistent with how
+`kek_registry` resolution itself is "resolved once, never re-consulted."
+
+**Own scope (`manage_classifications`), not `grant`.** Approving which
+classification an app may use is a different power from approving which
+`dek_name` it may touch — the same reasoning `provision_app_keys` is kept
+separate from `manage_apps` for (different blast radius, different people
+should be able to grant one without the other).
 
 ## Timestamps on `app_registrations` and `app_decrypt_grants` — implemented
 
@@ -272,4 +334,13 @@ curl "$BASE/admin/dek-grants" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-
 # Look up who owns an EDEK, to resolve a cross-app decrypt denial
 curl "$BASE/admin/edek/32dacf35-6fe7-45cb-b120-8d24bbe821b7" \
   -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
+
+# Approve an app to use a data_classification (see the phased-rollout note above)
+curl -X POST "$BASE/admin/apps/classifications" \
+  -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "payments-svc", "data_classification": "pii"}'
+
+# List all classification approvals
+curl "$BASE/admin/apps/classifications" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin"
 ```
