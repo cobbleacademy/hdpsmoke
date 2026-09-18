@@ -22,9 +22,10 @@ using Hsm.BulkClient.Examples;
 string baseUrl = Environment.GetEnvironmentVariable("HSM_CORE_BASE_URL") ?? "http://localhost:3105";
 string apiV1Prefix = Environment.GetEnvironmentVariable("HSM_CORE_API_V1_PREFIX") ?? "/api/sensec/hsm/v1";
 string appId = Environment.GetEnvironmentVariable("HSM_CORE_APP_ID") ?? "payments-svc";
-string token = Environment.GetEnvironmentVariable("HSM_CORE_TOKEN") ?? "demo-token-payments-svc";
+// HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD -- see Auth.cs
+ITokenProvider tokenProvider = TokenProviderFactory.BuildFromEnv(appId);
 
-var client = new HsmCoreClient(baseUrl, apiV1Prefix, appId, token);
+var client = new HsmCoreClient(baseUrl, apiV1Prefix, appId, tokenProvider);
 
 if (args.Length == 2)
 {

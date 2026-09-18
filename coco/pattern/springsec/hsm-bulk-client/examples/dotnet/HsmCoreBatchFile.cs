@@ -44,12 +44,16 @@
 // 100, shared by encrypt and decrypt) -- this class batches into groups of
 // at most that many chunks per HTTP call.
 //
-// Auth: getting a bearer token/app_id is entirely outside this class's
-// scope -- a real deployment uses an Entra ID/Azure AD app registration
-// doing OAuth2 client-credentials against hsm-core-service's own
-// JWT_AUDIENCE/JWT_ISSUER; a local demo-mode server instead accepts one of
-// a handful of fixed literal strings like "demo-token-payments-svc" (not a
-// template for real auth). See java/docs/APP_ONBOARDING.md.
+// Auth: this class needs an ITokenProvider and matching appId from you --
+// see Auth.cs, which implements 3 of hsm-crypto-client's 4 SvcConfig.AuthMode
+// values (STATIC, SELF_SIGNED_JWT, AZURE_AD -- MTLS is not supported, see
+// that file's own header comment for why). A local demo-mode server accepts
+// one of a handful of fixed literal STATIC tokens like
+// "demo-token-payments-svc" (see MockJwtValidator.DEMO_TOKENS) -- not a
+// template for real auth; a real deployment uses SELF_SIGNED_JWT (a
+// locally-signed short-lived assertion) or AZURE_AD (a real Entra ID token)
+// against hsm-core-service's own JWT_AUDIENCE/JWT_ISSUER. See
+// java/docs/APP_ONBOARDING.md and Auth.cs.
 
 using System;
 using System.Collections.Generic;
@@ -85,9 +89,15 @@ namespace Hsm.BulkClient.Examples
     /// <summary>
     /// Thin wrapper around the two batch endpoints this module needs -- not
     /// a general hsm-core-service client, just enough to drive file
-    /// encrypt/decrypt via chunking. baseUrl/apiV1Prefix/appId/token are
-    /// exactly what SvcClient.java's Java equivalent takes for
-    /// hsm-bulk-service, applied here to hsm-core-service instead.
+    /// encrypt/decrypt via chunking. baseUrl/apiV1Prefix/appId/tokenProvider
+    /// are exactly what SvcClient.java's Java equivalent takes for
+    /// hsm-bulk-service, applied here to hsm-core-service instead -- see
+    /// Auth.cs for the ITokenProvider implementations (STATIC/
+    /// SELF_SIGNED_JWT/AZURE_AD) this expects. GetBearerToken() is called
+    /// fresh on every request, not cached here -- each ITokenProvider does
+    /// its own caching/refresh, since only it knows its own token's real
+    /// expiry (a fixed STATIC string never expires; a signed JWT or an
+    /// Azure AD token does).
     /// </summary>
     public sealed class HsmCoreClient
     {
@@ -96,17 +106,17 @@ namespace Hsm.BulkClient.Examples
         private readonly string _baseUrl;
         private readonly string _apiV1Prefix;
         private readonly string _appId;
-        private readonly string _token;
+        private readonly ITokenProvider _tokenProvider;
         private readonly int _batchMaxItems;
         private readonly HttpClient _http;
 
-        public HsmCoreClient(string baseUrl, string apiV1Prefix, string appId, string token,
+        public HsmCoreClient(string baseUrl, string apiV1Prefix, string appId, ITokenProvider tokenProvider,
             int batchMaxItems = DefaultBatchMaxItems, HttpClient? httpClient = null)
         {
             _baseUrl = baseUrl;
             _apiV1Prefix = apiV1Prefix;
             _appId = appId;
-            _token = token;
+            _tokenProvider = tokenProvider;
             _batchMaxItems = batchMaxItems;
             _http = httpClient ?? new HttpClient();
         }
@@ -114,7 +124,7 @@ namespace Hsm.BulkClient.Examples
         private async Task<List<BatchItemResult>> PostBatchAsync(string path, List<Dictionary<string, object?>> items)
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}{_apiV1Prefix}{path}");
-            req.Headers.Add("Authorization", $"Bearer {_token}");
+            req.Headers.Add("Authorization", $"Bearer {_tokenProvider.GetBearerToken()}");
             req.Headers.Add("X-App-ID", _appId);
             req.Headers.Add("X-Response-Detail", "minimal"); // this module only ever needs ciphertext/plaintext + encoding
             req.Content = JsonContent.Create(new Dictionary<string, object?> { ["items"] = items });

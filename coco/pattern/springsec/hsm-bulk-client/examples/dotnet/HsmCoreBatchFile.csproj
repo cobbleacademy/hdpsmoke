@@ -9,12 +9,19 @@
   </PropertyGroup>
 
   <!--
-    No external NuGet package needed: HttpClient, System.Net.Http.Json, and
-    System.Text.Json have all been part of the BCL/shared framework since
-    .NET Core 3.0/.NET 5. This project file targets net8.0 for the
-    demo/Program.cs's own convenience; HsmCoreBatchFile.cs itself has no
-    net8.0-specific API usage: lower TargetFramework here if your consumer
-    app is on an earlier supported .NET version.
+    HttpClient, System.Net.Http.Json, System.Text.Json, and
+    System.Security.Cryptography.RSA (SELF_SIGNED_JWT signing, Auth.cs) have
+    all been part of the BCL/shared framework since .NET Core 3.0/.NET 5:
+    no NuGet package needed for STATIC or SELF_SIGNED_JWT auth. This project
+    file targets net8.0 for the demo/Program.cs's own convenience;
+    HsmCoreBatchFile.cs itself has no net8.0-specific API usage: lower
+    TargetFramework here if your consumer app is on an earlier supported
+    .NET version.
   -->
+
+  <ItemGroup>
+    <!-- AZURE_AD auth mode only (Auth.cs's AzureAdTokenProvider); not needed for STATIC/SELF_SIGNED_JWT. -->
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+  </ItemGroup>
 
 </Project>
