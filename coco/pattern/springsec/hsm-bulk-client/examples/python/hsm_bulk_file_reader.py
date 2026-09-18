@@ -48,7 +48,10 @@ javadoc), 0x00 means it wasn't. This module always checks it, regardless
 of any config of its own -- every chunk is self-describing, so there's
 nothing to configure here to match whatever job produced the file.
 
-Dependency: pip install requests (via hsm_core_batch_file's HsmCoreClient)
+Dependency: pip install requests (via hsm_core_batch_file's HsmCoreClient).
+Auth is a TokenProvider, not a raw token -- see auth.py (STATIC/
+SELF_SIGNED_JWT/AZURE_AD; SELF_SIGNED_JWT additionally needs `cryptography`,
+AZURE_AD needs `azure-identity` -- only the mode you actually use).
 """
 
 from __future__ import annotations
@@ -143,15 +146,19 @@ if __name__ == "__main__":
     import os
     import sys
 
+    from auth import build_token_provider_from_env
+
     if len(sys.argv) != 3:
         print("usage: python hsm_bulk_file_reader.py <source_bulk_file> <target_output_file>")
         sys.exit(1)
 
+    app_id = os.environ.get("HSM_CORE_APP_ID", "payments-svc")
     client = HsmCoreClient(
         base_url=os.environ.get("HSM_CORE_BASE_URL", "http://localhost:3105"),
         api_v1_prefix=os.environ.get("HSM_CORE_API_V1_PREFIX", "/api/sensec/hsm/v1"),
-        app_id=os.environ.get("HSM_CORE_APP_ID", "payments-svc"),
-        token=os.environ.get("HSM_CORE_TOKEN", "demo-token-payments-svc"),
+        app_id=app_id,
+        # HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD -- see auth.py
+        token_provider=build_token_provider_from_env(app_id),
     )
     decrypt_bulk_file(client, sys.argv[1], sys.argv[2])
     print(f"Decrypted {sys.argv[1]} -> {sys.argv[2]} via hsm-core-service directly (hsm-bulk-service never contacted).")

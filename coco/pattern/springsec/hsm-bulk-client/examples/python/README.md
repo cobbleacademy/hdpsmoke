@@ -1,30 +1,31 @@
 # Python reference: file encrypt/decrypt against hsm-core-service
 
 Two reference modules, covering both directions of the same interoperability
-guarantee: `hsm-core-service` and `hsm-bulk-service` ciphertext is mutually
-decryptable, always, with no adapter beyond parsing bytes already sitting in
-the file or token.
+guarantee: hsm-core-service's two DEK-issuance API shapes -- `/encrypt`/`/decrypt`
+and `/dek/issue`/`/dek/unwrap` -- produce mutually decryptable ciphertext,
+always, with no adapter beyond parsing bytes already sitting in the file or
+token.
 
-## `hsm_core_batch_file.py` — Tier 1: encrypt/decrypt directly, no bulk-service
+## `hsm_core_batch_file.py` — Tier 1: encrypt/decrypt directly, no /dek/issue
 
 Chunk the file yourself, but send each chunk's actual data directly to
 hsm-core-service's own `POST /encrypt/batch` and `POST /decrypt/batch`.
 hsm-core-service does the real AES-256-GCM encryption server-side and hands
-back one opaque ciphertext token per chunk. **No `hsm-bulk-service`, no raw
+back one opaque ciphertext token per chunk. **No `/dek/issue`, no raw
 DEK, ever.** This module never imports a crypto library at all — it's purely
 HTTP + local file chunking + a JSON manifest. This is the reviewed,
 foundational pattern described in `java/docs/BULK_OPERATIONS.md`'s "Files
 with multiple chunks: chunking + stitch-back" section, which this file
 follows directly.
 
-## `hsm_bulk_file_reader.py` — read a REAL `hsm-bulk-client` file, decrypt via `hsm-core-service` alone
+## `hsm_bulk_file_reader.py` — read a REAL `hsm-bulk-client` file, decrypt via `/decrypt/batch` alone
 
 Reads a file actually produced by `hsm-bulk-client`'s `FileBulkJob` (the
 Tier 3 pipeline — local AES-GCM against a DEK obtained from
-`hsm-bulk-service`'s `/dek/issue`) and decrypts it purely through
-`hsm-core-service`'s own `/decrypt/batch` — `hsm-bulk-service` is never
-contacted on this side at all. This is the direct proof that the two
-services' ciphertext is genuinely, mutually interoperable: `FileBulkJob`'s
+hsm-core-service's `/dek/issue`) and decrypts it purely through
+hsm-core-service's own `/decrypt/batch` — `/dek/issue`/`/dek/unwrap` are
+never contacted on this side at all. This is the direct proof that the two
+API shapes' ciphertext is genuinely, mutually interoperable: `FileBulkJob`'s
 own `reconstructCoreServiceToken()` method is what makes this possible, and
 this module is a straight port of that same logic.
 
@@ -32,21 +33,26 @@ this module is a straight port of that same logic.
 
 ```bash
 pip install requests
+# only if you use SELF_SIGNED_JWT auth (see auth.py):
+pip install cryptography
+# only if you use AZURE_AD auth (see auth.py):
+pip install azure-identity
 ```
 
 ## Usage
 
 ```python
 from hsm_core_batch_file import HsmCoreClient, encrypt_file, decrypt_file
+from auth import StaticTokenProvider
 
 client = HsmCoreClient(
     base_url="https://your-hsm-core-service",
     api_v1_prefix="/api/sensec/hsm/v1",
     app_id="your-app-id",
-    token="<bearer token>",
+    token_provider=StaticTokenProvider("<bearer token>"),
 )
 
-# Tier 1: encrypt/decrypt directly, no hsm-bulk-service
+# Tier 1: encrypt/decrypt directly, no /dek/issue
 manifest = encrypt_file(client, "plain.pdf", "plain.pdf.manifest.json")
 decrypt_file(client, "plain.pdf.manifest.json", "plain.pdf")
 
@@ -74,20 +80,58 @@ local service instances (demo mode, H2, `MockJwtValidator`'s
   plaintext's SHA-256 matched the original exactly.
 - `hsm_bulk_file_reader.py`: a 50,000-byte file encrypted by the **actual,
   compiled `hsm-bulk-client` jar** running a real `FileBulkJob` ENCRYPT job
-  against a real `hsm-bulk-service` `/dek/issue` call — then decrypted by
-  this Python module talking only to `hsm-core-service`. SHA-256 matched the
-  original exactly.
+  against a real `hsm-core-service` `/dek/issue` call — then decrypted by
+  this Python module talking only to `hsm-core-service`'s `/decrypt/batch`.
+  SHA-256 matched the original exactly.
 
-## Auth — the one thing this module can't do for you
+## Auth — `auth.py`
 
-Getting a bearer token is out of scope: a real deployment uses an Entra
-ID/Azure AD app registration doing OAuth2 client-credentials against
-hsm-core-service's own `JWT_AUDIENCE`/`JWT_ISSUER`, with a matching row in
-`app_registrations` (`allowed_scopes` including `encrypt`/`decrypt`) —
-neither of which is a live API call, see `java/docs/APP_ONBOARDING.md`. A
-local demo-mode server instead accepts one of a handful of fixed literal
-strings (`demo-token-payments-svc`, etc.) — useful for trying this module
-out, not a template for real auth.
+`HsmCoreClient` takes a `TokenProvider`, not a raw token string — see
+`auth.py`, which implements 3 of hsm-crypto-client's 4 `SvcConfig.AuthMode`
+values:
+
+- **`StaticTokenProvider`** — a fixed bearer token, sent as-is on every
+  call. What the local demo-mode server accepts (`demo-token-payments-svc`,
+  etc., see `MockJwtValidator.DEMO_TOKENS`) — fine for trying this module
+  out, not a template for real auth (a real static Azure AD JWT here would
+  expire mid-session).
+- **`SelfSignedJwtTokenProvider`** — locally signs a short-lived RS256
+  bearer assertion with this app's own private key, matching
+  hsm-core-service's `SelfSignedAppKeyJwtValidator` exactly. No external IdP
+  round trip; caches and only re-signs near expiry. Needs `cryptography`.
+- **`AzureAdTokenProvider`** — acquires a real Entra ID token via
+  `azure-identity`'s `DefaultAzureCredential` (environment → workload
+  identity → managed identity → local-dev fallbacks), scoped to whatever
+  hsm-core-service's own Azure AD app registration exposes. The natural fit
+  for a caller that already runs under an Azure identity (e.g. an Azure
+  Function under its own managed identity) with no key material to
+  provision or rotate. Needs `azure-identity`.
+
+**`MTLS` is not supported by this module.** It authenticates at the TLS
+transport layer (a client cert/key on the connection itself), not via a
+bearer token, so it doesn't fit `TokenProvider`'s shape — `HsmCoreClient`'s
+`requests.Session` would need its own `cert=` wiring if that's ever needed.
+
+Either way, getting the underlying credential material (a signing key, an
+Azure AD app registration/managed identity) provisioned is outside this
+module's scope — a matching row in `app_registrations` (`allowed_scopes`
+including `encrypt`/`decrypt`) is still required regardless of auth mode,
+see `java/docs/APP_ONBOARDING.md`.
+
+`build_token_provider_from_env(app_id)` in `auth.py` selects and constructs
+one of the three from `HSM_CORE_AUTH_MODE` (`STATIC` default,
+`SELF_SIGNED_JWT`, or `AZURE_AD`) plus the matching env vars — used by both
+modules' own `__main__` demo blocks, and reusable directly:
+
+```bash
+export HSM_CORE_AUTH_MODE=SELF_SIGNED_JWT
+export HSM_CORE_SIGNING_PRIVATE_KEY_PEM_PATH=/path/to/private-key.pem
+export HSM_CORE_SELF_SIGNED_AUDIENCE=hsm-core-service   # optional, this is the default
+
+# or:
+export HSM_CORE_AUTH_MODE=AZURE_AD
+export HSM_CORE_AZURE_TOKEN_SCOPE=api://<hsm-core-service-app-id>/.default
+```
 
 ## Two things worth knowing
 

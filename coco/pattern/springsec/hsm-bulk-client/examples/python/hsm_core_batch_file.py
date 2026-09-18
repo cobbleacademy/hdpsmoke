@@ -49,13 +49,16 @@ shared by encrypt and decrypt) -- this module batches into groups of at
 most that many chunks per HTTP call; pass a smaller value if your server's
 configured cap is lower.
 
-Auth: this module needs a bearer token and matching app_id from you --
-getting one is entirely outside this module's scope (a real deployment
-uses an Entra ID/Azure AD app registration doing OAuth2 client-credentials
-against hsm-core-service's own JWT_AUDIENCE/JWT_ISSUER; a local demo-mode
-server instead accepts one of a handful of fixed literal strings like
-"demo-token-payments-svc", see MockJwtValidator.DEMO_TOKENS -- not a
-template for real auth). See java/docs/APP_ONBOARDING.md.
+Auth: this module needs a TokenProvider and matching app_id from you -- see
+auth.py, which implements 3 of hsm-crypto-client's 4 SvcConfig.AuthMode
+values (STATIC, SELF_SIGNED_JWT, AZURE_AD -- MTLS is not supported, see that
+module's own docstring for why). A local demo-mode server accepts one of a
+handful of fixed literal STATIC tokens like "demo-token-payments-svc" (see
+MockJwtValidator.DEMO_TOKENS) -- not a template for real auth; a real
+deployment uses SELF_SIGNED_JWT (a locally-signed short-lived assertion) or
+AZURE_AD (a real Entra ID token, e.g. via a caller's own managed identity)
+against hsm-core-service's own JWT_AUDIENCE/JWT_ISSUER. See
+java/docs/APP_ONBOARDING.md and auth.py.
 
 Dependency: pip install requests
 """
@@ -71,6 +74,8 @@ from typing import Any
 
 import requests
 
+from auth import TokenProvider
+
 DEFAULT_CHUNK_SIZE_BYTES = 8 * 1024 * 1024
 DEFAULT_BATCH_MAX_ITEMS = 100
 
@@ -84,21 +89,26 @@ class HsmCoreClient:
     """
     Thin wrapper around the two batch endpoints this module needs. Not a
     general hsm-core-service client -- just enough to drive file
-    encrypt/decrypt via chunking. token/app_id/base_url are exactly what
-    SvcClient.java's Java equivalent takes for hsm-bulk-service, applied
-    here to hsm-core-service instead.
+    encrypt/decrypt via chunking. token_provider/app_id/base_url are exactly
+    what SvcClient.java's Java equivalent takes for hsm-bulk-service, applied
+    here to hsm-core-service instead -- see auth.py for the TokenProvider
+    implementations (STATIC/SELF_SIGNED_JWT/AZURE_AD) this expects.
+    get_bearer_token() is called fresh on every request, not cached here --
+    each TokenProvider does its own caching/refresh, since only it knows its
+    own token's real expiry (a fixed STATIC string never expires; a signed
+    JWT or an Azure AD token does).
     """
 
     base_url: str
     api_v1_prefix: str
     app_id: str
-    token: str
+    token_provider: TokenProvider
     batch_max_items: int = DEFAULT_BATCH_MAX_ITEMS
     session: requests.Session = field(default_factory=requests.Session)
 
     def _headers(self) -> dict[str, str]:
         return {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {self.token_provider.get_bearer_token()}",
             "X-App-ID": self.app_id,
             "X-Response-Detail": "minimal",  # this module only ever needs ciphertext/plaintext + encoding
             "Content-Type": "application/json",
@@ -239,12 +249,14 @@ if __name__ == "__main__":
     import sys
     import tempfile
 
+    from auth import build_token_provider_from_env
+
     base_url = os.environ.get("HSM_CORE_BASE_URL", "http://localhost:3105")
     api_v1_prefix = os.environ.get("HSM_CORE_API_V1_PREFIX", "/api/sensec/hsm/v1")
     app_id = os.environ.get("HSM_CORE_APP_ID", "payments-svc")
-    token = os.environ.get("HSM_CORE_TOKEN", "demo-token-payments-svc")
+    token_provider = build_token_provider_from_env(app_id)  # HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD
 
-    client = HsmCoreClient(base_url=base_url, api_v1_prefix=api_v1_prefix, app_id=app_id, token=token)
+    client = HsmCoreClient(base_url=base_url, api_v1_prefix=api_v1_prefix, app_id=app_id, token_provider=token_provider)
 
     demo_plaintext = os.urandom(37_000)  # forces multiple chunks at the small chunk size below
     with tempfile.TemporaryDirectory() as tmp:
