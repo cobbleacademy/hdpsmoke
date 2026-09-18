@@ -1,13 +1,13 @@
-<svg viewBox="0 0 1530 1980" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 1530 2140" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>HSM Core Service - Sequence Diagram</title>
   <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
-  <rect width="1530" height="1980" fill="#0f1117"/>
+  <rect width="1530" height="2140" fill="#0f1117"/>
           <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service's own
                DemoIndexGenerator (com.hsm.core.build.DemoIndexGenerator), which
                extracts everything from here to LIVE_DEMO_HEADER_END as the live demo's
                fixed participant header (viewBox 0 0 1530 80), and everything inside the
                <g transform="translate(0,80)"> below (the file's sole top-level group) as
-               the scrollable body (viewBox 0 0 1530 1900). Do not remove these markers or
+               the scrollable body (viewBox 0 0 1530 2060). Do not remove these markers or
                restructure that group without updating that class's extraction logic. -->
           <rect width="1530" height="80" fill="#0f1117"/>
           <!-- subscription boundary divider — Auditor SPN is to the right -->
@@ -83,7 +83,7 @@
           <line x1="1350" y1="60" x2="1350" y2="80" stroke="#f87171" stroke-width="0.8" stroke-dasharray="6,4"/>
           <!-- LIVE_DEMO_HEADER_END -->
   <g transform="translate(0,80)">
-          <rect width="1530" height="1900" fill="#0f1117"/>
+          <rect width="1530" height="2060" fill="#0f1117"/>
 
           <!-- lifelines through STARTUP section (y=0..120) -->
           <line x1="60"   y1="0" x2="60"   y2="120" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
@@ -320,6 +320,20 @@
           <text x="26" y="1669" fill="#10b981" font-size="8" font-family="monospace">NOT SUPPORTED: MTLS — authenticates at the TLS transport layer (client cert/key), not via a bearer token, so it doesn't fit TokenProvider's shape</text>
           <text x="26" y="1683" fill="#555b7a" font-size="7" font-family="monospace">Same 3-of-4 AuthMode subset hsm-databricks-udf already supports (SELF_SIGNED_JWT verified there too) — AZURE_AD is new, ported from hsm-crypto-client's SvcConfig.AuthMode</text>
           <text x="26" y="1696" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (grants / classification / reservation denial paths) — only wire-format/interop verified live so far, see examples/python's README</text>
+
+          <!-- SECTION 9 — .NET REFERENCE CLIENTS (examples/dotnet) — same shape as Section 8, C# instead of Python. -->
+          <rect x="10" y="1734" width="1500" height="140" rx="5" fill="#050a1f" stroke="#3b82f6" stroke-width="0.6"/>
+          <text x="18" y="1747" fill="#3b82f6" font-size="9" font-family="monospace" letter-spacing="1">.NET REFERENCE CLIENTS  (examples/dotnet — same wire format as steps 3-11 / 12-20 above, not a separate flow)</text>
+
+          <text x="18" y="1765" fill="#cdd2f0" font-size="8" font-family="monospace">HsmCoreClient (HsmCoreBatchFile.cs): Tier 1 /encrypt · /decrypt/batch, chunk + JSON manifest — same wire format as steps 3-20</text>
+          <text x="18" y="1778" fill="#cdd2f0" font-size="8" font-family="monospace">HsmBulkFileReader.DecryptBulkFileAsync (HsmBulkFileReader.cs): reads a REAL FileBulkJob file, decrypts via /decrypt/batch alone — hsm-bulk-service never contacted</text>
+          <text x="18" y="1791" fill="#555b7a" font-size="7" font-family="monospace">Same 3 auth modes as the Python reference clients above, for a .NET-hosted decrypt-validation path (e.g. a .NET Azure Function) instead of a Python one</text>
+
+          <rect x="18" y="1802" width="1484" height="58" rx="3" fill="#0a1f1e"/>
+          <text x="26" y="1816" fill="#10b981" font-size="8" font-family="monospace">Auth.cs ITokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256, hand-rolled via System.Security.Cryptography.RSA, no JWT NuGet package)</text>
+          <text x="26" y="1829" fill="#10b981" font-size="8" font-family="monospace">· AZURE_AD (same credential cascade as hsm-crypto-client's AzureAdTokenProvider.java)  ·  NOT SUPPORTED: MTLS — TLS-layer, doesn't fit ITokenProvider</text>
+          <text x="26" y="1843" fill="#555b7a" font-size="7" font-family="monospace">Direct ports of SelfSignedJwtTokenProvider.java / AzureAdTokenProvider.java (com.hsm.client.svc) — same claims shape, same TTL, same credential cascade</text>
+          <text x="26" y="1856" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (same caveat as Python) — JWT signing verified real (signature checked against the public key), wire format/interop verified live</text>
 
           </g><!-- /translate(0,40) -->
 

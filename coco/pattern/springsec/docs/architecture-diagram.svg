@@ -1,7 +1,7 @@
-<svg viewBox="0 0 1320 1830" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 1320 2060" xmlns="http://www.w3.org/2000/svg" role="img">
           <title>HSM Core Service Architecture</title>
-          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt (guarded by CoreBulkFileInteropTest), admission control (classification governance + kek_registry dek_name reservation, both shadow-mode-then-enforce), and the Python reference clients (examples/python) with their 3 supported auth modes</desc>
-          <rect width="1320" height="1830" fill="#0f1117"/>
+          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt (guarded by CoreBulkFileInteropTest), admission control (classification governance + kek_registry dek_name reservation, both shadow-mode-then-enforce), and the Python and .NET reference clients (examples/python, examples/dotnet) with their 3 supported auth modes each</desc>
+          <rect width="1320" height="2060" fill="#0f1117"/>
 
           <!-- ── AZURE SUBSCRIPTION BOUNDARY ────────────────────────────────── -->
           <rect x="5" y="165" width="895" height="1155" rx="10" fill="none" stroke="#374151" stroke-width="1.5" stroke-dasharray="8,4"/>
@@ -345,6 +345,29 @@
           <text x="34" y="1750" fill="#555b7a" font-size="7" font-family="monospace">ported from hsm-crypto-client's own SvcConfig.AuthMode (the Java reference for all 4 modes, used by the hsm-bulk-client (CLNT) box above)</text>
           <text x="34" y="1768" fill="#555b7a" font-size="7" font-family="monospace">Drives the same wire format as ENCRYPT/DECRYPT PAYLOAD FLOW (left) and hsm-bulk-client's own FileBulkJob output — zero adapter, zero re-encryption</text>
           <text x="34" y="1786" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (grants/classification/reservation denial paths) — only wire-format/interop verified live, see this directory's README</text>
+
+          <!-- ── .NET REFERENCE CLIENTS — examples/dotnet — auth support ── -->
+          <rect x="15" y="1836" width="300" height="16" rx="3" fill="#0f1117"/>
+          <text x="22" y="1848" fill="#4b5563" font-size="9" font-family="monospace" letter-spacing="1">.NET REFERENCE CLIENTS · examples/dotnet</text>
+
+          <rect x="20" y="1860" width="1280" height="180" rx="8" fill="#0a0f1f" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="34" y="1880" fill="#3b82f6" font-size="10" letter-spacing="1" font-family="monospace">HsmCoreBatchFile.cs · HsmBulkFileReader.cs — same wire format as the Python reference clients above, not a separate flow</text>
+
+          <rect x="34" y="1890" width="610" height="56" rx="5" fill="#161a2e"/>
+          <text x="48" y="1905" fill="#cdd2f0" font-size="8" font-family="monospace">HsmCoreClient: Tier 1 /encrypt·/decrypt/batch, chunk + JSON manifest</text>
+          <text x="48" y="1919" fill="#cdd2f0" font-size="8" font-family="monospace">HsmBulkFileReader.DecryptBulkFileAsync: reads a REAL FileBulkJob file,</text>
+          <text x="48" y="1932" fill="#cdd2f0" font-size="8" font-family="monospace">decrypts via /decrypt/batch alone — no hsm-bulk-service contact</text>
+
+          <rect x="660" y="1890" width="616" height="56" rx="5" fill="#161a2e" stroke="#10b981" stroke-width="1"/>
+          <text x="674" y="1905" fill="#10b981" font-size="8" font-family="monospace">Auth.cs ITokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256,</text>
+          <text x="674" y="1918" fill="#10b981" font-size="8" font-family="monospace">hand-rolled via System.Security.Cryptography.RSA) · AZURE_AD (same</text>
+          <text x="674" y="1931" fill="#10b981" font-size="8" font-family="monospace">credential cascade as SvcConfig's Java provider) — MTLS not supported</text>
+
+          <text x="34" y="1964" fill="#555b7a" font-size="7" font-family="monospace">Direct ports of hsm-crypto-client's own SelfSignedJwtTokenProvider.java / AzureAdTokenProvider.java (com.hsm.client.svc) — same claims shape,</text>
+          <text x="34" y="1976" fill="#555b7a" font-size="7" font-family="monospace">same TTL, same credential cascade (Workload Identity → AZURE_CLIENT_SECRET → user-assigned MI → CLI/PowerShell/system-assigned MI)</text>
+          <text x="34" y="1994" fill="#555b7a" font-size="7" font-family="monospace">Needs Azure.Identity NuGet package for AZURE_AD only — STATIC/SELF_SIGNED_JWT stay BCL-only, same "no external dependency" stance as before</text>
+          <text x="34" y="2012" fill="#555b7a" font-size="7" font-family="monospace">JWT signing verified: real RS256 token minted, signature checked against the public key, claims match SelfSignedAppKeyJwtValidator's contract</text>
+          <text x="34" y="2030" fill="#f59e0b" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet, same caveat as the Python reference clients above — only wire-format/interop + signing verified so far</text>
 
           <defs>
             <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/></marker>
