@@ -1,13 +1,13 @@
-<svg viewBox="0 0 1530 1540" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 1530 1980" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>HSM Core Service - Sequence Diagram</title>
   <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
-  <rect width="1530" height="1540" fill="#0f1117"/>
+  <rect width="1530" height="1980" fill="#0f1117"/>
           <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service's own
                DemoIndexGenerator (com.hsm.core.build.DemoIndexGenerator), which
                extracts everything from here to LIVE_DEMO_HEADER_END as the live demo's
                fixed participant header (viewBox 0 0 1530 80), and everything inside the
                <g transform="translate(0,80)"> below (the file's sole top-level group) as
-               the scrollable body (viewBox 0 0 1530 1460). Do not remove these markers or
+               the scrollable body (viewBox 0 0 1530 1900). Do not remove these markers or
                restructure that group without updating that class's extraction logic. -->
           <rect width="1530" height="80" fill="#0f1117"/>
           <!-- subscription boundary divider — Auditor SPN is to the right -->
@@ -83,7 +83,7 @@
           <line x1="1350" y1="60" x2="1350" y2="80" stroke="#f87171" stroke-width="0.8" stroke-dasharray="6,4"/>
           <!-- LIVE_DEMO_HEADER_END -->
   <g transform="translate(0,80)">
-          <rect width="1530" height="1460" fill="#0f1117"/>
+          <rect width="1530" height="1900" fill="#0f1117"/>
 
           <!-- lifelines through STARTUP section (y=0..120) -->
           <line x1="60"   y1="0" x2="60"   y2="120" stroke="#2d3148" stroke-width="1" stroke-dasharray="6,4"/>
@@ -282,6 +282,44 @@
           <text x="18" y="1315" fill="#10b981" font-size="8" font-family="monospace">Optional compress-before-encrypt: each chunk gzipped, then a 1-byte raw/gzip marker prepended inside the base64 — decrypt always reads it, encrypt-side-only config</text>
           <text x="18" y="1328" fill="#555b7a" font-size="8" font-family="monospace">CoreBulkFileInteropTest (hsm-bulk-client, real hsm-core-service process) — encrypts via /dek/issue, decrypts via HSM Service's real /decrypt, both directions + compression, every build</text>
           <text x="18" y="1341" fill="#a78bfa" font-size="8" font-family="monospace">31. hsm-spark-adapter shares this exact flow via hsm-crypto-client's SvcClient/DekManager — same /dek/issue, /dek/unwrap, and RSA-OAEP-256→AES-256-GCM steps above, driven from Spark UDFs (hsm_encrypt/hsm_decrypt) instead of a batch job</text>
+
+          <!-- SECTION 7 — ADMISSION CONTROL (kek_registry reservation + classification governance) — Security Hardening round.
+               Deliberately its own self-contained section, same convention Section 6 used, rather than renumbering/shifting
+               Section 2's ENCRYPT FLOW steps: these two checks really run between that section's steps 4 and 5, in
+               EncryptionService.resolveDek's fresh-mint branch (and DekIssueService.issueOne's): see the note below. -->
+          <rect x="10" y="1358" width="1500" height="196" rx="5" fill="#031a10" stroke="#10b981" stroke-width="0.6"/>
+          <text x="18" y="1371" fill="#10b981" font-size="9" font-family="monospace" letter-spacing="1">ADMISSION CONTROL  (fresh-mint /encrypt &amp; /dek/issue only — runs between step 4 and step 5 above / the 26c mint branch)</text>
+
+          <text x="18" y="1389" fill="#10b981" font-size="8" font-family="monospace">4a2. classificationGovernance.checkFirstMintClassification(app_id, dek_name, data_classification) → app_classification_grants  [hsm_access, V15]</text>
+          <text x="18" y="1401" fill="#555b7a" font-size="7" font-family="monospace">shadow-mode (hsm.classification-governance.enforce=false, default): logs + audits only · enforce=true: 403 if app_id has no grant for the declared classification</text>
+
+          <text x="18" y="1419" fill="#10b981" font-size="8" font-family="monospace">4a3. dekNameReservation.checkReservation(app_id, dek_name) → kek_registry tier-1 row  [hsm_crypto, exact dek_name AND data_classification=UNSET only]</text>
+          <text x="18" y="1431" fill="#555b7a" font-size="7" font-family="monospace">shadow-mode (hsm.dek-name-reservation.enforce=false, default): logs + audits only · enforce=true: 403 if dek_name is reserved for a DIFFERENT app_id</text>
+
+          <text x="18" y="1449" fill="#555b7a" font-size="7" font-family="monospace">Both flags independent — same phased shadow-mode → enforce rollout as each other, no relationship between the two. Neither ever runs on REUSE (step 4a) or on /decrypt — fresh-mint-only.</text>
+          <text x="18" y="1461" fill="#555b7a" font-size="7" font-family="monospace">kek_registry existed since V11 as KEK-selection only (no admission role); an exact-dek_name row now ALSO reserves that name, once enforce=true — see KekRegistryEntry's javadoc.</text>
+
+          <rect x="18" y="1472" width="1484" height="72" rx="3" fill="#0a1f1e"/>
+          <text x="26" y="1485" fill="#14b8a6" font-size="8" font-family="monospace">New admin endpoints (Security Hardening round):</text>
+          <text x="26" y="1499" fill="#94a3b8" font-size="7" font-family="monospace">GET /admin/edek/{edekId} — read-only ownership/metadata lookup, for resolving cross-app decrypt denials  [authority: manage_apps]</text>
+          <text x="26" y="1512" fill="#94a3b8" font-size="7" font-family="monospace">POST · DELETE · GET /admin/apps/classifications — app_classification_grants CRUD  [authority: manage_classifications]</text>
+          <text x="26" y="1525" fill="#94a3b8" font-size="7" font-family="monospace">POST · DELETE · GET /admin/kek-registry — kek_registry CRUD, incl. tier-1 dek_name reservations  [authority: manage_kek_registry]</text>
+          <text x="26" y="1538" fill="#555b7a" font-size="7" font-family="monospace">kek_registry previously had no admin API at all — direct DB/seed access only, disruptive to running services</text>
+
+          <!-- SECTION 8 — PYTHON REFERENCE CLIENTS (examples/python) — not a new flow, drives the SAME wire format as
+               sections 2/3 above (or 12-20 alone for the file-reader) — documents auth support only. -->
+          <rect x="10" y="1574" width="1500" height="140" rx="5" fill="#050a1f" stroke="#3b82f6" stroke-width="0.6"/>
+          <text x="18" y="1587" fill="#3b82f6" font-size="9" font-family="monospace" letter-spacing="1">PYTHON REFERENCE CLIENTS  (examples/python — no separate flow, drives the SAME steps 3-11 / 12-20 above)</text>
+
+          <text x="18" y="1605" fill="#cdd2f0" font-size="8" font-family="monospace">HsmCoreClient (hsm_core_batch_file.py): Tier 1 /encrypt · /decrypt/batch, chunk + JSON manifest — same wire format as steps 3-20</text>
+          <text x="18" y="1618" fill="#cdd2f0" font-size="8" font-family="monospace">decrypt_bulk_file (hsm_bulk_file_reader.py): reads a REAL FileBulkJob file, decrypts via /decrypt/batch alone — zero JVM, replaces a subprocess `java -jar` call</text>
+          <text x="18" y="1631" fill="#555b7a" font-size="7" font-family="monospace">Built for an Azure Function decrypt-validation path where no JVM is available</text>
+
+          <rect x="18" y="1642" width="1484" height="58" rx="3" fill="#0a1f1e"/>
+          <text x="26" y="1656" fill="#10b981" font-size="8" font-family="monospace">auth.py TokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256, matches SelfSignedAppKeyJwtValidator) · AZURE_AD (DefaultAzureCredential)</text>
+          <text x="26" y="1669" fill="#10b981" font-size="8" font-family="monospace">NOT SUPPORTED: MTLS — authenticates at the TLS transport layer (client cert/key), not via a bearer token, so it doesn't fit TokenProvider's shape</text>
+          <text x="26" y="1683" fill="#555b7a" font-size="7" font-family="monospace">Same 3-of-4 AuthMode subset hsm-databricks-udf already supports (SELF_SIGNED_JWT verified there too) — AZURE_AD is new, ported from hsm-crypto-client's SvcConfig.AuthMode</text>
+          <text x="26" y="1696" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (grants / classification / reservation denial paths) — only wire-format/interop verified live so far, see examples/python's README</text>
 
           </g><!-- /translate(0,40) -->
 
