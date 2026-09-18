@@ -139,11 +139,11 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 1320 1330" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 1320 1830" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
         <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations, the coarse app_grants table, and the fine-grained per-dek_name app_dek_grants table) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
 
-        <rect width="1320" height="1330" fill="#0f1117" />
+        <rect width="1320" height="1830" fill="#0f1117" />
 
         {/* ── AZURE SUBSCRIPTION BOUNDARY — everything below/left of this
             dashed rect is inside the HSM Service's own Azure subscription;
@@ -432,6 +432,61 @@ function ArchitectureDiagram() {
         <text x="860" y="1269" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">FileBulkJob.reconstructCoreServiceToken(edek_id, iv, tag, ciphertext) — same token format CORE SERVICE itself produces, now true for files too</text>
         <text x="860" y="1282" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">Optional compress-before-encrypt: gzip + 1-byte marker inside the AEAD payload, before base64 — decrypt always reads it, no config to coordinate</text>
         <text x="860" y="1295" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">CoreBulkFileInteropTest (hsm-bulk-client) — real CORE SERVICE process, both endpoint shapes + compression, every build</text>
+
+        {/* ── ADMISSION CONTROL — classification governance + kek_registry dek_name reservation — Security Hardening round ── */}
+        <rect x="15" y="1338" width="280" height="16" rx="3" fill="#0f1117" />
+        <text x="22" y="1350" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">ADMISSION CONTROL · Security Hardening round</text>
+
+        <rect x="20" y="1362" width="1280" height="228" rx="8" fill="#031a10" stroke="#10b981" strokeWidth="1.5" />
+        <text x="660" y="1382" textAnchor="middle" fill="#10b981" fontSize="10" letterSpacing="1" fontFamily="monospace">Two independent, phased (shadow-mode → enforce) checks — both fresh-mint-only, both never run on reuse or /decrypt</text>
+
+        <rect x="36" y="1394" width="610" height="82" rx="5" fill="#0a1f1e" stroke="#14b8a6" strokeWidth="1" />
+        <text x="50" y="1409" fill="#14b8a6" fontSize="9" fontFamily="monospace">Classification governance</text>
+        <text x="50" y="1423" fill="#cdd2f0" fontSize="8" fontFamily="monospace">app_classification_grants · schema: hsm_access · V15 migration</text>
+        <text x="50" y="1436" fill="#555b7a" fontSize="8" fontFamily="monospace">Checked at first-mint (declaring app) AND cross-app reuse (grantee app) —</text>
+        <text x="50" y="1449" fill="#555b7a" fontSize="8" fontFamily="monospace">a dek_name grant answers WHICH key; this answers WHAT classification label</text>
+        <text x="50" y="1462" fill="#eab308" fontSize="8" fontFamily="monospace">gated by hsm.classification-governance.enforce (default false)</text>
+        <text x="50" y="1472" fill="#555b7a" fontSize="7" fontFamily="monospace">EncryptionService.resolveDek / DekIssueService.issueOne · ClassificationGovernanceService</text>
+
+        <rect x="662" y="1394" width="614" height="82" rx="5" fill="#0a1f1e" stroke="#e879f9" strokeWidth="1" />
+        <text x="676" y="1409" fill="#e879f9" fontSize="9" fontFamily="monospace">dek_name reservation via kek_registry</text>
+        <text x="676" y="1423" fill="#cdd2f0" fontSize="8" fontFamily="monospace">kek_registry · schema: hsm_crypto · same table as KEK selection (V11)</text>
+        <text x="676" y="1436" fill="#555b7a" fontSize="8" fontFamily="monospace">Only exact-dek_name rows (data_classification=UNSET) carry reservation intent</text>
+        <text x="676" y="1449" fill="#555b7a" fontSize="8" fontFamily="monospace">— classification-tier / per-app-default rows never do (no specific name)</text>
+        <text x="676" y="1462" fill="#eab308" fontSize="8" fontFamily="monospace">gated by hsm.dek-name-reservation.enforce (default false)</text>
+        <text x="676" y="1472" fill="#555b7a" fontSize="7" fontFamily="monospace">DekNameReservationService · kek_registry was KEK-selection-only, V11-V14, before this round</text>
+
+        <rect x="36" y="1484" width="1240" height="96" rx="5" fill="#22263a" />
+        <text x="50" y="1499" fill="#94a3b8" fontSize="9" fontFamily="monospace">New admin endpoints (this table/mechanism previously had NO admin API — direct DB/seed access only):</text>
+        <text x="50" y="1516" fill="#38bdf8" fontSize="8" fontFamily="monospace">GET /admin/edek/{'{'}edekId{'}'}</text>
+        <text x="230" y="1516" fill="#555b7a" fontSize="8" fontFamily="monospace">read-only ownership/metadata lookup — resolves cross-app decrypt denials [manage_apps]</text>
+        <text x="50" y="1534" fill="#14b8a6" fontSize="8" fontFamily="monospace">POST · DELETE · GET /admin/apps/classifications</text>
+        <text x="410" y="1534" fill="#555b7a" fontSize="8" fontFamily="monospace">app_classification_grants CRUD [manage_classifications]</text>
+        <text x="50" y="1552" fill="#e879f9" fontSize="8" fontFamily="monospace">POST · DELETE · GET /admin/kek-registry</text>
+        <text x="350" y="1552" fill="#555b7a" fontSize="8" fontFamily="monospace">kek_registry CRUD, incl. tier-1 dek_name reservations [manage_kek_registry]</text>
+        <text x="50" y="1570" fill="#f59e0b" fontSize="7" fontFamily="monospace">Both checks always executed on a fresh mint regardless of enforce — the flag only gates throw-vs-log; audit event either way (status=denied or conflict_shadow_mode)</text>
+
+        {/* ── PYTHON REFERENCE CLIENTS — examples/python — auth support ── */}
+        <rect x="15" y="1610" width="330" height="16" rx="3" fill="#0f1117" />
+        <text x="22" y="1622" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">PYTHON REFERENCE CLIENTS · examples/python</text>
+
+        <rect x="20" y="1634" width="1280" height="180" rx="8" fill="#0a0f1f" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="34" y="1654" fill="#3b82f6" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm_core_batch_file.py · hsm_bulk_file_reader.py — no JVM required, built for an Azure Function decrypt-validation path</text>
+
+        <rect x="34" y="1664" width="610" height="56" rx="5" fill="#161a2e" />
+        <text x="48" y="1679" fill="#cdd2f0" fontSize="8" fontFamily="monospace">HsmCoreClient: Tier 1 /encrypt·/decrypt/batch, chunk + JSON manifest</text>
+        <text x="48" y="1693" fill="#cdd2f0" fontSize="8" fontFamily="monospace">decrypt_bulk_file: reads a REAL FileBulkJob file, decrypts via</text>
+        <text x="48" y="1706" fill="#cdd2f0" fontSize="8" fontFamily="monospace">/decrypt/batch alone — replaces a subprocess `java -jar` call</text>
+
+        <rect x="660" y="1664" width="616" height="56" rx="5" fill="#161a2e" stroke="#10b981" strokeWidth="1" />
+        <text x="674" y="1679" fill="#10b981" fontSize="8" fontFamily="monospace">auth.py TokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256,</text>
+        <text x="674" y="1692" fill="#10b981" fontSize="8" fontFamily="monospace">matches SelfSignedAppKeyJwtValidator) · AZURE_AD (DefaultAzureCredential,</text>
+        <text x="674" y="1705" fill="#10b981" fontSize="8" fontFamily="monospace">e.g. a Function's own managed identity) — MTLS not supported (TLS-layer)</text>
+
+        <text x="34" y="1738" fill="#555b7a" fontSize="7" fontFamily="monospace">Same 3-of-4 AuthMode subset hsm-databricks-udf already supports (SELF_SIGNED_JWT verified there too, tests/test_live_interop.py) — AZURE_AD is new here,</text>
+        <text x="34" y="1750" fill="#555b7a" fontSize="7" fontFamily="monospace">ported from hsm-crypto-client's own SvcConfig.AuthMode (the Java reference for all 4 modes, used by the hsm-bulk-client (CLNT) box above)</text>
+        <text x="34" y="1768" fill="#555b7a" fontSize="7" fontFamily="monospace">Drives the same wire format as ENCRYPT/DECRYPT PAYLOAD FLOW (left) and hsm-bulk-client's own FileBulkJob output — zero adapter, zero re-encryption</text>
+        <text x="34" y="1786" fill="#555b7a" fontSize="7" fontFamily="monospace">No AUTHZ-specific test coverage yet (grants/classification/reservation denial paths) — only wire-format/interop verified live, see this directory's README</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
