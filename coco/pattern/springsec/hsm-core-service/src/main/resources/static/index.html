@@ -128,20 +128,25 @@ python scripts/provision_dek_cache_key.py \
     </div>
 
     <section class="panel grants-panel">
-      <h2>5. Cross-App Decrypt Grants (Admin Only)</h2>
-      <p class="hint">Requires the <code>grant</code> scope. By default an app can only decrypt data it encrypted itself — a grant authorizes one app to read another app's data.</p>
+      <h2>5. Cross-App Grants (Admin Only)</h2>
+      <p class="hint">Requires the <code>grant</code> scope. By default an app can only encrypt/decrypt its own data — a grant authorizes one app to act on another app's data for a specific scope. This is the coarse grant (any <code>dek_name</code>/EDEK the owner has, for that scope); a separate, finer-grained grant can instead name one specific <code>dek_name</code> via <code>/admin/dek-grants</code>.</p>
       <div class="grid">
         <div>
-          <label for="grantGrantee">Grantee (app that gets read access)</label>
+          <label for="grantGrantee">Grantee (app that gets access)</label>
           <select id="grantGrantee"></select>
-          <label for="grantOwner">Owner (app whose data becomes readable)</label>
+          <label for="grantOwner">Owner (app whose data becomes accessible)</label>
           <select id="grantOwner"></select>
+          <label for="grantScope">Scope</label>
+          <select id="grantScope">
+            <option value="decrypt">decrypt</option>
+            <option value="encrypt">encrypt</option>
+          </select>
           <button id="addGrantBtn">Add Grant →</button>
         </div>
         <div>
           <label>Active Grants</label>
           <table id="grantsTable">
-            <thead><tr><th>Grantee</th><th>Owner</th><th>Created</th><th></th></tr></thead>
+            <thead><tr><th>Grantee</th><th>Owner</th><th>Scope</th><th>Created</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -264,8 +269,10 @@ python scripts/provision_dek_cache_key.py \
         <code>current_key</code>. Pods poll every 30 s (Service SPN, read-only), call
         <code>rotate(new_cek, slot, kv_version)</code> on change, and fall back to the previous
         slot during the ~30 s convergence window.
-        The <strong>Grants + Rotation</strong> box covers cross-app decrypt grants and KEK rotation
-        under separate scopes (<code>grant</code> vs <code>rotate</code>).
+        The <strong>Grants + Rotation</strong> box covers cross-app grants (encrypt and decrypt,
+        each coarse or fine-grained by <code>dek_name</code> — see <code>app_grants</code> /
+        <code>app_dek_grants</code> in the Access Store) and KEK rotation, under separate scopes
+        (<code>grant</code> vs <code>rotate</code>).
       </p>
     </section>
   </div>
@@ -292,7 +299,7 @@ python scripts/provision_dek_cache_key.py \
 
         <!-- ── SCROLLABLE SEQUENCE BODY ──────────────────────────────────── -->
         <div style="flex:1;overflow-y:auto;">
-        <svg viewBox="0 0 1530 1460" xmlns="http://www.w3.org/2000/svg"
+        <svg viewBox="0 0 1530 2060" xmlns="http://www.w3.org/2000/svg"
              role="img" style="width:100%;display:block;height:auto;"
              preserveAspectRatio="xMidYMin meet">@@SEQUENCE_DIAGRAM_BODY@@</svg>
         </div><!-- /body scroll -->
@@ -343,6 +350,6 @@ python scripts/provision_dek_cache_key.py \
 
   <footer>Centralized Core Service · Demo UI · Not for production use</footer>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
