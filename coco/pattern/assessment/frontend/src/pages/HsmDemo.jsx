@@ -139,11 +139,11 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 1320 1830" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 1320 2060" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
         <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations, the coarse app_grants table, and the fine-grained per-dek_name app_dek_grants table) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
 
-        <rect width="1320" height="1830" fill="#0f1117" />
+        <rect width="1320" height="2060" fill="#0f1117" />
 
         {/* ── AZURE SUBSCRIPTION BOUNDARY — everything below/left of this
             dashed rect is inside the HSM Service's own Azure subscription;
@@ -487,6 +487,29 @@ function ArchitectureDiagram() {
         <text x="34" y="1750" fill="#555b7a" fontSize="7" fontFamily="monospace">ported from hsm-crypto-client's own SvcConfig.AuthMode (the Java reference for all 4 modes, used by the hsm-bulk-client (CLNT) box above)</text>
         <text x="34" y="1768" fill="#555b7a" fontSize="7" fontFamily="monospace">Drives the same wire format as ENCRYPT/DECRYPT PAYLOAD FLOW (left) and hsm-bulk-client's own FileBulkJob output — zero adapter, zero re-encryption</text>
         <text x="34" y="1786" fill="#555b7a" fontSize="7" fontFamily="monospace">No AUTHZ-specific test coverage yet (grants/classification/reservation denial paths) — only wire-format/interop verified live, see this directory's README</text>
+
+        {/* ── .NET REFERENCE CLIENTS — examples/dotnet — auth support ── */}
+        <rect x="15" y="1836" width="300" height="16" rx="3" fill="#0f1117" />
+        <text x="22" y="1848" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">.NET REFERENCE CLIENTS · examples/dotnet</text>
+
+        <rect x="20" y="1860" width="1280" height="180" rx="8" fill="#0a0f1f" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="34" y="1880" fill="#3b82f6" fontSize="10" letterSpacing="1" fontFamily="monospace">HsmCoreBatchFile.cs · HsmBulkFileReader.cs — same wire format as the Python reference clients above, not a separate flow</text>
+
+        <rect x="34" y="1890" width="610" height="56" rx="5" fill="#161a2e" />
+        <text x="48" y="1905" fill="#cdd2f0" fontSize="8" fontFamily="monospace">HsmCoreClient: Tier 1 /encrypt·/decrypt/batch, chunk + JSON manifest</text>
+        <text x="48" y="1919" fill="#cdd2f0" fontSize="8" fontFamily="monospace">HsmBulkFileReader.DecryptBulkFileAsync: reads a REAL FileBulkJob file,</text>
+        <text x="48" y="1932" fill="#cdd2f0" fontSize="8" fontFamily="monospace">decrypts via /decrypt/batch alone — no hsm-bulk-service contact</text>
+
+        <rect x="660" y="1890" width="616" height="56" rx="5" fill="#161a2e" stroke="#10b981" strokeWidth="1" />
+        <text x="674" y="1905" fill="#10b981" fontSize="8" fontFamily="monospace">Auth.cs ITokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256,</text>
+        <text x="674" y="1918" fill="#10b981" fontSize="8" fontFamily="monospace">hand-rolled via System.Security.Cryptography.RSA) · AZURE_AD (same</text>
+        <text x="674" y="1931" fill="#10b981" fontSize="8" fontFamily="monospace">credential cascade as SvcConfig's Java provider) — MTLS not supported</text>
+
+        <text x="34" y="1964" fill="#555b7a" fontSize="7" fontFamily="monospace">Direct ports of hsm-crypto-client's own SelfSignedJwtTokenProvider.java / AzureAdTokenProvider.java (com.hsm.client.svc) — same claims shape,</text>
+        <text x="34" y="1976" fill="#555b7a" fontSize="7" fontFamily="monospace">same TTL, same credential cascade (Workload Identity → AZURE_CLIENT_SECRET → user-assigned MI → CLI/PowerShell/system-assigned MI)</text>
+        <text x="34" y="1994" fill="#555b7a" fontSize="7" fontFamily="monospace">Needs Azure.Identity NuGet package for AZURE_AD only — STATIC/SELF_SIGNED_JWT stay BCL-only, same "no external dependency" stance as before</text>
+        <text x="34" y="2012" fill="#555b7a" fontSize="7" fontFamily="monospace">JWT signing verified: real RS256 token minted, signature checked against the public key, claims match SelfSignedAppKeyJwtValidator's contract</text>
+        <text x="34" y="2030" fill="#f59e0b" fontSize="7" fontFamily="monospace">No AUTHZ-specific test coverage yet, same caveat as the Python reference clients above — only wire-format/interop + signing verified so far</text>
 
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
