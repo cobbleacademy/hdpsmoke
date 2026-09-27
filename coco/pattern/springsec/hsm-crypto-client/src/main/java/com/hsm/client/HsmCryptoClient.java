@@ -4,10 +4,14 @@ import com.hsm.client.config.FipsBootstrap;
 import com.hsm.client.crypto.DekCache;
 import com.hsm.client.crypto.DekManager;
 import com.hsm.client.crypto.TransportWrapper;
+import com.hsm.client.fileformat.EncryptedFileReader;
+import com.hsm.client.fileformat.EncryptedFileWriter;
 import com.hsm.client.svc.SvcClient;
 import com.hsm.client.svc.SvcConfig;
 
 import javax.crypto.AEADBadTagException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.time.Duration;
@@ -17,6 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * Stateful, embeddable client for hsm-core-service's bulk DEK endpoints
@@ -209,6 +214,76 @@ public class HsmCryptoClient implements AutoCloseable {
         }
         byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
         return new CachedUnwrappedDek(result.ownerAppId(), dek);
+    }
+
+    // ---- files (chunked layout, see EncryptedFileFormat / java/docs/FILE_FORMAT.md) ----
+
+    /**
+     * Encrypts a whole stream into the chunked file layout. dekName null/blank mints a
+     * DEK for this file alone; set it to share one DEK across a data set (see
+     * BULK_OPERATIONS.md "Key scope for high-volume file sets").
+     */
+    public EncryptedFileWriter.Result encryptFile(InputStream plaintext, OutputStream out, String dekName,
+                                                  EncryptedFileWriter.Options options) {
+        checkOpen();
+        boolean named = dekName != null && !dekName.isBlank();
+        CachedDek cached = named
+                ? encryptCacheByName.getOrLoad(dekName, name -> issueOne(name, null))
+                : issueOne(null, null);
+        byte[] dek = named ? stableCopy(cached.dek(), () -> encryptCacheByName.getOrLoad(dekName, name -> issueOne(name, null)).dek()) : cached.dek();
+        try {
+            return EncryptedFileWriter.write(plaintext, out, cached.edekId(), dek, cached.ownerAppId(), options);
+        } finally {
+            DekManager.zeroDek(dek);
+        }
+    }
+
+    /** Reads only the header -- lets a caller inspect file_id/version before any key is resolved or chunk decrypted. */
+    public EncryptedFileReader.Session openEncryptedFile(InputStream in, EncryptedFileReader.Limits limits) {
+        checkOpen();
+        return EncryptedFileReader.open(in, limits);
+    }
+
+    /**
+     * Decrypts the rest of an opened file into out. The DEK comes from this client's
+     * decrypt cache (one /dek/unwrap per edek_id per TTL), copied for the duration of
+     * the read so a cache eviction mid-file can't zero the key under a long stream.
+     */
+    public EncryptedFileReader.ReadResult decryptFile(EncryptedFileReader.Session session, OutputStream out) {
+        checkOpen();
+        UUID edekId = session.header().edekId();
+        CachedUnwrappedDek cached = decryptCacheByEdekId.getOrLoad(edekId, this::unwrapOne);
+        byte[] dek = stableCopy(cached.dek(), () -> decryptCacheByEdekId.getOrLoad(edekId, this::unwrapOne).dek());
+        try {
+            return session.decryptTo(out, dek, cached.ownerAppId());
+        } finally {
+            DekManager.zeroDek(dek);
+        }
+    }
+
+    public EncryptedFileReader.ReadResult decryptFile(InputStream in, OutputStream out) {
+        return decryptFile(openEncryptedFile(in, EncryptedFileReader.Limits.DEFAULT), out);
+    }
+
+    /**
+     * Private copy of a cached DEK. If the cache zeroed the entry between lookup and
+     * copy (TTL sweep racing this call), reload once instead of decrypting with an
+     * all-zero key -- which would surface as a false "tampered" failure.
+     */
+    private static byte[] stableCopy(byte[] cachedDek, Supplier<byte[]> reload) {
+        byte[] copy = cachedDek.clone();
+        if (isAllZero(copy)) {
+            copy = reload.get().clone();
+        }
+        return copy;
+    }
+
+    private static boolean isAllZero(byte[] b) {
+        int acc = 0;
+        for (byte x : b) {
+            acc |= x;
+        }
+        return acc == 0;
     }
 
     // ---- lifecycle ----
