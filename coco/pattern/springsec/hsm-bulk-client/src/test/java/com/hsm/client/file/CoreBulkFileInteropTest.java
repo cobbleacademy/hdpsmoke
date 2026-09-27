@@ -50,32 +50,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * Cross-service, end-to-end regression guard for the interoperability
- * guarantee established this session: a file hsm-bulk-service's /dek/issue
- * + FileBulkJob's local encrypt produces must be directly decryptable via
- * hsm-core-service's own, unchanged /decrypt -- and the reverse, a value
- * hsm-core-service's own /encrypt produces must be resolvable via
- * hsm-bulk-service's /dek/unwrap for local decrypt. Fails loudly (a plain
- * assertion failure) if either direction ever breaks -- e.g. if
- * FileBulkJob.reconstructCoreServiceToken() or its base64 plaintext-safety
- * encoding regresses.
+ * End-to-end regression guard for the interoperability guarantee between
+ * hsm-core-service's two DEK-issuance API shapes -- both now on the SAME
+ * service (formerly hsm-bulk-service's /dek/issue and hsm-core-service's
+ * /encrypt were separate codebases; they were merged into one hsm-core-service):
+ * a value produced via /dek/issue + FileBulkJob's local encrypt must be
+ * directly decryptable via /decrypt -- and the reverse, a value /encrypt
+ * produces must be resolvable via /dek/unwrap for local decrypt. Fails
+ * loudly (a plain assertion failure) if either direction ever breaks -- e.g.
+ * if FileBulkJob.reconstructCoreServiceToken() or its base64
+ * plaintext-safety encoding regresses.
  *
- * <p>Spawns the REAL, already-built hsm-core-service.jar and
- * hsm-bulk-service.jar as OS subprocesses -- not Testcontainers/Docker
- * (unlike CheckpointStoreTest), since Docker isn't available in every
- * environment this needs to run in, and building two Spring Boot images
- * just for this test would be slow even where it is. Both share one
- * isolated, per-run temp H2 file (AUTO_SERVER=TRUE, matching the manual
- * live verification this class automates) and dynamically-chosen free
- * ports, so this never collides with a developer's own long-running demo
- * instance.
+ * <p>Spawns the REAL, already-built hsm-core-service.jar as an OS subprocess
+ * -- not Testcontainers/Docker (unlike CheckpointStoreTest), since Docker
+ * isn't available in every environment this needs to run in, and building a
+ * Spring Boot image just for this test would be slow even where it is. Uses
+ * an isolated, per-run temp H2 file and a dynamically-chosen free port, so
+ * this never collides with a developer's own long-running demo instance.
  *
  * <p>Skips gracefully (Assumptions, same spirit as CheckpointStoreTest's
- * {@code @EnabledIfDockerAvailable}) if the sibling modules' jars aren't
- * built -- hsm-bulk-client doesn't Maven-depend on either, so a bare
- * {@code mvn test} here alone can't guarantee they exist. Runs for real,
- * and actually guards against regressions, whenever the full reactor has
- * been built ({@code mvn -am package} first, or a full CI build).
+ * {@code @EnabledIfDockerAvailable}) if the sibling module's jar isn't built
+ * -- hsm-bulk-client doesn't Maven-depend on it, so a bare {@code mvn test}
+ * here alone can't guarantee it exists. Runs for real, and actually guards
+ * against regressions, whenever the full reactor has been built
+ * ({@code mvn -am package} first, or a full CI build).
  *
  * <p>Mirrors FileBulkJob.encryptOneFile's literal per-chunk logic directly
  * rather than reflecting into that private method -- same reasoning as
@@ -98,18 +96,15 @@ class CoreBulkFileInteropTest {
     static Path tempDir;
 
     private static Process coreProcess;
-    private static Process bulkProcess;
     private static int corePort;
-    private static int bulkPort;
     private static PrivateKey testPrivateKey;
 
     @BeforeAll
     static void startServices() throws Exception {
         Path coreJar = Path.of("..", "hsm-core-service", "target", "hsm-core-service.jar").toAbsolutePath().normalize();
-        Path bulkJar = Path.of("..", "hsm-bulk-service", "target", "hsm-bulk-service.jar").toAbsolutePath().normalize();
-        Assumptions.assumeTrue(Files.exists(coreJar) && Files.exists(bulkJar),
-                "Sibling service jars not built -- run `mvn -am package` from java/ first to exercise this test. "
-                        + "Skipping (not failing): " + coreJar + " / " + bulkJar);
+        Assumptions.assumeTrue(Files.exists(coreJar),
+                "Sibling service jar not built -- run `mvn -am package` from java/ first to exercise this test. "
+                        + "Skipping (not failing): " + coreJar);
 
         FipsBootstrap.register();
 
@@ -117,7 +112,6 @@ class CoreBulkFileInteropTest {
                 + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;AUTO_SERVER=TRUE";
 
         corePort = findFreePort();
-        bulkPort = findFreePort();
 
         coreProcess = startJar(coreJar, tempDir.resolve("core-service.log"), Map.of(
                 "DEMO_MODE", "true",
@@ -125,15 +119,6 @@ class CoreBulkFileInteropTest {
                 "DEMO_DATABASE_URL", dbUrl
         ));
         waitForPort(corePort, START_TIMEOUT);
-
-        bulkProcess = startJar(bulkJar, tempDir.resolve("bulk-service.log"), Map.of(
-                "DEMO_MODE", "true",
-                "SERVER_PORT", String.valueOf(bulkPort),
-                "DATABASE_URL", dbUrl,
-                "DATABASE_USERNAME", "sa",
-                "DATABASE_PASSWORD", ""
-        ));
-        waitForPort(bulkPort, START_TIMEOUT);
 
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
@@ -146,8 +131,8 @@ class CoreBulkFileInteropTest {
         // payments-svc's row already exists by now -- DemoSeedInitializer's
         // @PostConstruct runs during hsm-core-service's context refresh,
         // which completes before Tomcat (and therefore waitForPort above)
-        // ever opens the port. Test-side provisioning only -- neither
-        // service's own code changes for this test to exist.
+        // ever opens the port. Test-side provisioning only -- the service's
+        // own code doesn't change for this test to exist.
         try (Connection conn = DriverManager.getConnection(dbUrl, "sa", "");
              PreparedStatement ps = conn.prepareStatement(
                      "UPDATE app_registrations SET allowed_scopes = ?, public_key_pem = ? WHERE app_id = ?")) {
@@ -164,9 +149,6 @@ class CoreBulkFileInteropTest {
 
     @AfterAll
     static void stopServices() {
-        if (bulkProcess != null) {
-            bulkProcess.destroyForcibly();
-        }
         if (coreProcess != null) {
             coreProcess.destroyForcibly();
         }
@@ -183,7 +165,7 @@ class CoreBulkFileInteropTest {
         new Random(20260822).nextBytes(originalPlaintext);
         int chunkSize = 4096;
 
-        JsonNode issueItem = postJson(bulkUrl("/dek/issue"), authHeaders(),
+        JsonNode issueItem = postJson(coreUrl("/dek/issue"), authHeaders(),
                 itemsBody(obj().put("key", "test"))).get("items").get(0);
         assertSuccess(issueItem, "dek/issue");
         UUID edekId = UUID.fromString(issueItem.get("edek_id").asText());
@@ -233,7 +215,7 @@ class CoreBulkFileInteropTest {
         }
 
         assertArrayEquals(originalPlaintext, reassembled.toByteArray(),
-                "hsm-core-service /decrypt did not reproduce the original bytes for a hsm-bulk-service-encrypted "
+                "hsm-core-service /decrypt did not reproduce the original bytes for a /dek/issue-encrypted "
                         + "chunk set -- interoperability regression");
     }
 
@@ -251,7 +233,7 @@ class CoreBulkFileInteropTest {
         UUID edekId = UUID.fromString(encryptItem.get("result").get("edek_id").asText());
         String token = encryptItem.get("result").get("ciphertext").asText();
 
-        JsonNode unwrapItem = postJson(bulkUrl("/dek/unwrap"), authHeaders(),
+        JsonNode unwrapItem = postJson(coreUrl("/dek/unwrap"), authHeaders(),
                 itemsBody(obj().put("key", "test").put("edek_id", edekId.toString()))).get("items").get(0);
         assertSuccess(unwrapItem, "dek/unwrap");
         byte[] dek = TransportWrapper.unwrap(
@@ -262,8 +244,8 @@ class CoreBulkFileInteropTest {
         byte[] decoded = Base64.getDecoder().decode(new String(decrypted, StandardCharsets.UTF_8));
 
         assertArrayEquals(originalPlaintext, decoded,
-                "local decrypt (via hsm-bulk-service's /dek/unwrap) did not reproduce the original bytes for a "
-                        + "hsm-core-service-encrypted value -- interoperability regression");
+                "local decrypt (via /dek/unwrap) did not reproduce the original bytes for a "
+                        + "/encrypt-produced value -- interoperability regression");
     }
 
     @Test
@@ -271,7 +253,7 @@ class CoreBulkFileInteropTest {
         byte[] chunk = "authenticity, not just format, must survive reconstruction".getBytes(StandardCharsets.UTF_8);
         String base64Plaintext = Base64.getEncoder().encodeToString(chunk);
 
-        JsonNode issueItem = postJson(bulkUrl("/dek/issue"), authHeaders(),
+        JsonNode issueItem = postJson(coreUrl("/dek/issue"), authHeaders(),
                 itemsBody(obj().put("key", "test"))).get("items").get(0);
         assertSuccess(issueItem, "dek/issue");
         UUID edekId = UUID.fromString(issueItem.get("edek_id").asText());
@@ -301,7 +283,7 @@ class CoreBulkFileInteropTest {
                 .getBytes(StandardCharsets.UTF_8);
         int chunkSize = 4096;
 
-        JsonNode issueItem = postJson(bulkUrl("/dek/issue"), authHeaders(),
+        JsonNode issueItem = postJson(coreUrl("/dek/issue"), authHeaders(),
                 itemsBody(obj().put("key", "test"))).get("items").get(0);
         assertSuccess(issueItem, "dek/issue");
         UUID edekId = UUID.fromString(issueItem.get("edek_id").asText());
@@ -373,6 +355,65 @@ class CoreBulkFileInteropTest {
                         + "compression + interoperability regression");
     }
 
+    /**
+     * The v2 rescue path, against the real hsm-core-service: a v2 file written by the
+     * shared codec is decrypted chunk by chunk through core's unchanged /decrypt (not
+     * locally), and the reader still enforces every v2 rule -- here, a dropped final
+     * chunk must fail even though core happily decrypts each remaining chunk.
+     */
+    @Test
+    void v2File_rescuedChunkByChunkViaCoreDecrypt_keepsIntegrityChecks() throws Exception {
+        byte[] originalPlaintext = new byte[37_000];
+        new Random(20260926).nextBytes(originalPlaintext);
+
+        JsonNode issueItem = postJson(coreUrl("/dek/issue"), authHeaders(),
+                itemsBody(obj().put("key", "v2"))).get("items").get(0);
+        assertSuccess(issueItem, "dek/issue");
+        UUID edekId = UUID.fromString(issueItem.get("edek_id").asText());
+        byte[] dek = TransportWrapper.unwrap(
+                Base64.getDecoder().decode(issueItem.get("wrapped_dek_b64").asText()), testPrivateKey);
+
+        ByteArrayOutputStream file = new ByteArrayOutputStream();
+        com.hsm.client.fileformat.EncryptedFileWriter.write(new ByteArrayInputStream(originalPlaintext), file, edekId, dek,
+                issueItem.get("owner_app_id").asText(), com.hsm.client.fileformat.EncryptedFileWriter.Options.v2(4096, true));
+
+        com.hsm.client.fileformat.EncryptedFileReader.ChunkDecryptor viaCore = (header, frame) -> {
+            try {
+                String token = com.hsm.client.fileformat.EncryptedFileReader.toCoreServiceToken(header, frame);
+                JsonNode item = postJson(coreUrl("/decrypt/batch"), authHeaders(),
+                        itemsBody(obj().put("key", "c").put("ciphertext", token))).get("items").get(0);
+                assertSuccess(item, "decrypt/batch");
+                return item.get("result").get("plaintext").asText().getBytes(StandardCharsets.US_ASCII);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        };
+
+        ByteArrayOutputStream rescued = new ByteArrayOutputStream();
+        com.hsm.client.fileformat.EncryptedFileReader.open(new ByteArrayInputStream(file.toByteArray()))
+                .decryptTo(rescued, viaCore);
+        assertArrayEquals(originalPlaintext, rescued.toByteArray(), "v2 rescue via core /decrypt must reproduce the file");
+
+        // Drop the final frame: every remaining chunk is still individually valid for core.
+        byte[] bytes = file.toByteArray();
+        java.io.DataInputStream in = new java.io.DataInputStream(new ByteArrayInputStream(bytes));
+        in.skipNBytes(com.hsm.client.fileformat.EncryptedFileFormat.V2_HEADER_BYTES);
+        int lastFrameStart = com.hsm.client.fileformat.EncryptedFileFormat.V2_HEADER_BYTES;
+        int pos = lastFrameStart;
+        while (in.available() > 0) {
+            lastFrameStart = pos;
+            int len = in.readInt();
+            in.skipNBytes(len);
+            pos += 4 + len;
+        }
+        byte[] truncated = Arrays.copyOf(bytes, lastFrameStart);
+        com.hsm.client.fileformat.EncryptedFileException e = org.junit.jupiter.api.Assertions.assertThrows(
+                com.hsm.client.fileformat.EncryptedFileException.class,
+                () -> com.hsm.client.fileformat.EncryptedFileReader.open(new ByteArrayInputStream(truncated))
+                        .decryptTo(new ByteArrayOutputStream(), viaCore));
+        assertEquals(com.hsm.client.fileformat.EncryptedFileException.Reason.TRUNCATED, e.reason());
+    }
+
     // --- helpers ---
 
     private static byte[] gzip(byte[] data) throws IOException {
@@ -405,10 +446,6 @@ class CoreBulkFileInteropTest {
 
     private static String coreUrl(String path) {
         return "http://localhost:" + corePort + API_V1_PREFIX + path;
-    }
-
-    private static String bulkUrl(String path) {
-        return "http://localhost:" + bulkPort + API_V1_PREFIX + path;
     }
 
     private static Map<String, String> authHeaders() {
