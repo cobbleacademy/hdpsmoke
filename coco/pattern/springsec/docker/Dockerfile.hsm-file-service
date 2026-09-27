@@ -1,0 +1,41 @@
+# Build from the java/ directory (the Maven reactor root):
+#   docker build -f docker/Dockerfile.hsm-file-service -t hsm-file-service:1.0.0 .
+#
+# hsm-file-service -- the image consumers receive (with helm/hsm-file-service), never
+# the source. Same build/runtime pattern as Dockerfile.hsm-core-service (distroless,
+# digest-pinned bases, nonroot uid 65532); see there for the rationale. Release
+# builds are signed and ship an SBOM -- see java/docs/FILE_SERVICE.md "Release and
+# supply chain".
+FROM maven:3.9.9-eclipse-temurin-21@sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e AS build
+WORKDIR /workspace
+COPY pom.xml .
+# Every reactor module's pom.xml must be present for the parent's <modules> list to
+# resolve, even though -pl/-am only builds hsm-file-service and what it depends on.
+COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
+COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
+COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
+COPY hsm-crypto-client/src hsm-crypto-client/src
+COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
+COPY hsm-file-store/src hsm-file-store/src
+COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
+COPY hsm-file-service/src hsm-file-service/src
+RUN mvn -q -pl hsm-file-service -am package -DskipTests
+
+# uid/gid 65532 (distroless :nonroot) must match securityContext in
+# helm/hsm-file-service/values.yaml.
+FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
+WORKDIR /app
+COPY --from=build --chown=65532:65532 /workspace/hsm-file-service/target/hsm-file-service.jar app.jar
+
+# 8080: file API (BFF only). 8081: actuator probes + Prometheus (kubelet/monitoring only).
+EXPOSE 8080 8081
+
+# This process holds unwrapped DEKs (bounded cache, 15 min TTL) and plaintext chunks
+# in memory, so heap dumps are off and the JVM attach API is disabled -- same flags
+# and reasoning as Dockerfile.hsm-bulk-client. MaxRAMPercentage sizes the heap from
+# the container memory limit set in the chart. -Djava.io.tmpdir points at the
+# chart's small emptyDir: the root filesystem is read-only, and nothing here ever
+# writes plaintext to disk.
+ENTRYPOINT ["java", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:+DisableAttachMechanism", "-XX:MaxRAMPercentage=75", "-Djava.io.tmpdir=/tmp", "-jar", "app.jar"]

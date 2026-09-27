@@ -21,6 +21,10 @@ COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-crypto-client/src hsm-crypto-client/src
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
+COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
+COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
+COPY hsm-file-store/src hsm-file-store/src
 COPY hsm-bulk-client/src hsm-bulk-client/src
 RUN mvn -q -pl hsm-bulk-client -am package -DskipTests
 
