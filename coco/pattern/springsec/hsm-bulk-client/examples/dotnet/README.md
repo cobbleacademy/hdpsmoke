@@ -32,6 +32,21 @@ this class is a straight port of that same logic — deliberately never
 constructing a `System.Guid` (see the file's own header comment for why
 that matters here).
 
+### Format v2 and integrity checks
+
+`HsmBulkFileReader` reads **both** file formats (spec: `java/docs/FILE_FORMAT.md`)
+and, for v2, enforces the same rules as the Java reader (file_id, position,
+chunk size, exactly one final chunk, nothing after it), rejecting a v2 chunk
+inside a v1-looking file. Violations throw `FileIntegrityException`; the target
+is written only after every check passes. It is a line-by-line port of the
+Python reader, which is verified against the Java golden files -- the .NET port
+itself has not been compiled in CI yet (no .NET SDK in the current build
+environment); build and run it against
+`hsm-crypto-client/src/test/resources/golden/` before relying on it.
+
+**Readers first:** upgrade any copy of this class *before* a producing job
+switches to `file.format-version: 2`.
+
 ## Requirements
 
 .NET 6 or later. No external NuGet package for STATIC or SELF_SIGNED_JWT

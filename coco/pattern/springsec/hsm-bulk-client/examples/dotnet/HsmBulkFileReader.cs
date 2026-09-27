@@ -1,121 +1,105 @@
 // Reference implementation, in C#/.NET, of reading a REAL hsm-bulk-client
-// FileBulkJob-produced file (Tier 3 -- the file hsm-bulk-service's local
-// encrypt path writes) and decrypting it via hsm-core-service's own
-// POST /decrypt directly. Zero contact with hsm-bulk-service on this side.
+// FileBulkJob-produced file -- format v1 or v2 -- and decrypting it via
+// hsm-core-service's own POST /decrypt/batch directly. This is also the
+// "rescue" path: any encrypted file can be recovered through core alone.
 //
-// Complements HsmCoreBatchFile.cs (the Tier 1 pattern: chunk and encrypt
-// directly against hsm-core-service, with its own JSON manifest). This
-// class instead reads a file that already went through hsm-bulk-service's
-// Tier 3 pipeline, and decrypts it purely via hsm-core-service, with no
-// adapter beyond parsing the file's own binary layout -- proving the two
-// services' ciphertext is genuinely, mutually interoperable, not just
-// similar.
+// Normative spec: java/docs/FILE_FORMAT.md. Reference implementation:
+// hsm-crypto-client's EncryptedFileFormat / ChunkPayload / EncryptedFileReader.
+// If this class and the Java code disagree, the Java code and the golden files
+// in hsm-crypto-client/src/test/resources/golden/ win.
 //
-// FileBulkJob.java's class javadoc and reconstructCoreServiceToken() are
-// the canonical source of truth this class ports.
+//     v1 header (16 B):  edek_id
+//     v2 header (41 B):  "HSMF" | 0x02 | edek_id(16) | file_id(16) | chunk_size(int32 BE)
+//     frames (both):     repeat { length(int32 BE) | iv(12) | tag(16) | ciphertext }
 //
-// File layout (FileBulkJob.java):
+// Token for core's /decrypt (DekManager.packToken):
+//     "v1." + base64url(0x01 + edek_id(16) + iv(12) + tag(16) + ciphertext)
 //
-//     [8 bytes: edek_id most-significant bits, big-endian signed long]
-//     [8 bytes: edek_id least-significant bits, big-endian signed long]
-//     repeated until EOF:
-//         [4 bytes: frame length N, big-endian signed int]
-//         [12 bytes: AES-GCM IV/nonce]
-//         [16 bytes: AES-GCM authentication tag]
-//         [N - 28 bytes: ciphertext]
+// Decrypted chunk plaintext (base64 text of):
+//     v1: marker(0x00 raw | 0x01 gzip) | payload
+//     v2: marker(0x02 raw | 0x03 gzip) | file_id(16) | chunk_index(int64 BE)
+//         | is_final(0x00|0x01) | chunk_size(int32 BE) | payload
 //
-// hsm-core-service's ciphertext token format (DekManager.packToken):
+// For v2 this class enforces the same rules as the Java reader (file_id,
+// position, chunk size, exactly one final chunk, nothing after it) and rejects
+// a v2 chunk inside a v1-looking file (header stripped: downgrade attempt).
+// edek_id and file_id stay raw byte[16] throughout -- never System.Guid, so
+// there's no Java-UUID-vs-.NET-Guid byte-order pitfall.
 //
-//     "v1." + base64url(0x01 [version byte] + edek_id(16, big-endian) +
-//                        iv(12) + tag(16) + ciphertext)
-//
-// Deliberately never constructs a System.Guid anywhere in this class --
-// edek_id is carried as raw byte[16] throughout, exactly the file's own
-// layout. This directory's earlier, now-superseded Tier 3 reference needed
-// the Guid<->UUID byte-order conversion because its own API surface took/
-// returned Guid; this class has no such need, since all it ever does with
-// edek_id is concatenate its bytes into a reconstructed token -- so
-// there's no Java-UUID-vs-.NET-Guid pitfall here at all.
-//
-// Reuses HsmCoreClient from HsmCoreBatchFile.cs (same project, same
-// namespace) for the actual /decrypt/batch call, rather than duplicating
-// an HTTP client.
-//
-// The first byte after base64-decoding a chunk's decrypted plaintext is a
-// compressed/raw marker -- 0x01 means FileBulkJob gzipped it before
-// encryption (compress-before-encrypt: true on that job, see
-// ClientProperties.File's javadoc), 0x00 means it didn't. Always checked
-// here regardless of any config of this class's own -- every chunk is
-// self-describing, so there's nothing to configure to match whatever job
-// produced the file.
+// Reuses HsmCoreClient from HsmCoreBatchFile.cs for the /decrypt/batch call.
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Hsm.BulkClient.Examples
 {
+    public sealed class FileIntegrityException : InvalidDataException
+    {
+        public FileIntegrityException(string message) : base(message) { }
+    }
+
     public static class HsmBulkFileReader
     {
         private const int IvLength = 12;
         private const int TagLength = 16;
+        private const int FrameOverhead = IvLength + TagLength;
+        private const int V1HeaderBytes = 16;
+        private const int V2HeaderBytes = 41;
+        private const int V2BindingBytes = 16 + 8 + 1 + 4;
+        private static readonly byte[] V2Magic = { (byte)'H', (byte)'S', (byte)'M', (byte)'F', 0x02 };
         private static readonly byte[] TokenVersion = { 0x01 };
         private const string TokenPrefix = "v1.";
 
+        // Same defaults as hsm-file-service: hard caps whatever a header claims.
+        public static int MaxFrameBytes { get; set; } = 16 * 1024 * 1024;
+        public static int MaxChunkBytes { get; set; } = 12 * 1024 * 1024;
+
+        public sealed record FileHeader(int Version, byte[] EdekId, byte[]? FileId, int ChunkSize);
+
         private sealed record Frame(byte[] Iv, byte[] Tag, byte[] Ciphertext);
 
-        private static int ReadFully(Stream stream, byte[] buffer)
+        public static FileHeader ReadHeader(byte[] data)
         {
-            int total = 0;
-            while (total < buffer.Length)
+            if (data.Length >= V2Magic.Length && data.AsSpan(0, V2Magic.Length).SequenceEqual(V2Magic))
             {
-                int n = stream.Read(buffer, total, buffer.Length - total);
-                if (n <= 0) break;
-                total += n;
+                if (data.Length < V2HeaderBytes) throw new FileIntegrityException("truncated v2 header");
+                int chunkSize = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(37, 4));
+                if (chunkSize <= 0 || chunkSize > MaxChunkBytes)
+                    throw new FileIntegrityException($"v2 header chunk_size {chunkSize} out of range");
+                return new FileHeader(2, data[5..21], data[21..37], chunkSize);
             }
-            return total;
+            if (data.Length < V1HeaderBytes) throw new FileIntegrityException("too short to contain a 16-byte edek_id header");
+            return new FileHeader(1, data[..16], null, 0);
         }
 
-        private static (byte[] EdekId, List<Frame> Frames) ReadEdekIdAndFrames(string sourcePath)
+        private static List<Frame> ReadFrames(byte[] data, FileHeader header)
         {
-            using FileStream source = File.OpenRead(sourcePath);
-            byte[] edekId = new byte[16];
-            if (ReadFully(source, edekId) != 16)
-                throw new InvalidDataException($"{sourcePath}: too short to contain a 16-byte edek_id header");
-
+            int pos = header.Version == 2 ? V2HeaderBytes : V1HeaderBytes;
             var frames = new List<Frame>();
-            byte[] lenBuf = new byte[4];
-            while (true)
+            while (pos < data.Length)
             {
-                int lenRead = ReadFully(source, lenBuf);
-                if (lenRead == 0) break; // clean end of frames
-                if (lenRead != 4)
-                    throw new InvalidDataException($"{sourcePath}: truncated frame-length field near end of file");
-                byte[] lenBufBE = (byte[])lenBuf.Clone();
-                if (BitConverter.IsLittleEndian) Array.Reverse(lenBufBE); // matches DataInputStream.readInt
-                int frameLen = BitConverter.ToInt32(lenBufBE, 0);
-
-                byte[] frame = new byte[frameLen];
-                if (ReadFully(source, frame) != frameLen)
-                    throw new InvalidDataException($"{sourcePath}: truncated frame body near end of file");
-
-                byte[] iv = frame[..IvLength];
-                byte[] tag = frame[IvLength..(IvLength + TagLength)];
-                byte[] ciphertext = frame[(IvLength + TagLength)..];
-                frames.Add(new Frame(iv, tag, ciphertext));
+                if (pos + 4 > data.Length) throw new FileIntegrityException($"truncated frame-length field at frame {frames.Count}");
+                int frameLen = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(pos, 4)); // matches DataInputStream.readInt
+                pos += 4;
+                if (frameLen <= FrameOverhead || frameLen > MaxFrameBytes)
+                    throw new FileIntegrityException($"frame {frames.Count} has invalid length {frameLen}");
+                if (pos + frameLen > data.Length) throw new FileIntegrityException($"truncated frame body at frame {frames.Count}");
+                frames.Add(new Frame(data[pos..(pos + IvLength)], data[(pos + IvLength)..(pos + FrameOverhead)],
+                    data[(pos + FrameOverhead)..(pos + frameLen)]));
+                pos += frameLen;
             }
-            return (edekId, frames);
+            return frames;
         }
 
         /// <summary>
-        /// Ports FileBulkJob.reconstructCoreServiceToken() exactly: rebuilds
-        /// the same "v1.&lt;base64url(...)&gt;" string hsm-core-service's own
-        /// /encrypt produces, from one frame's raw bytes plus the file's
-        /// 16-byte edek_id. URL-safe base64 WITH padding -- matches Java's
-        /// Base64.getUrlEncoder() default (no .withoutPadding()) exactly.
+        /// Ports EncryptedFileReader.toCoreServiceToken() exactly. URL-safe base64 WITH
+        /// padding -- matches Java's Base64.getUrlEncoder() default.
         /// </summary>
         public static string ReconstructCoreServiceToken(byte[] edekId, byte[] iv, byte[] tag, byte[] ciphertext)
         {
@@ -126,52 +110,122 @@ namespace Hsm.BulkClient.Examples
             Buffer.BlockCopy(iv, 0, payload, offset, iv.Length); offset += iv.Length;
             Buffer.BlockCopy(tag, 0, payload, offset, tag.Length); offset += tag.Length;
             Buffer.BlockCopy(ciphertext, 0, payload, offset, ciphertext.Length);
+            return TokenPrefix + Convert.ToBase64String(payload).Replace('+', '-').Replace('/', '_');
+        }
 
-            string base64Url = Convert.ToBase64String(payload).Replace('+', '-').Replace('/', '_');
-            return TokenPrefix + base64Url;
+        /// <summary>Decodes one decrypted chunk and applies the per-chunk rules for the header's version.</summary>
+        public static (byte[] Payload, bool IsFinal) DecodeChunk(FileHeader header, long index, string base64Plaintext)
+        {
+            byte[] marked;
+            try { marked = Convert.FromBase64String(base64Plaintext); }
+            catch (FormatException) { throw new FileIntegrityException($"chunk {index} is not valid base64"); }
+            if (marked.Length == 0) throw new FileIntegrityException($"chunk {index} is empty");
+
+            byte marker = marked[0];
+            bool v2Marker = marker == 0x02 || marker == 0x03;
+            bool v1Marker = marker == 0x00 || marker == 0x01;
+            if (!v1Marker && !v2Marker) throw new FileIntegrityException($"chunk {index} has unknown marker 0x{marker:x2}");
+            if (header.Version == 1 && v2Marker)
+                throw new FileIntegrityException($"chunk {index} is a v2 chunk in a v1-looking file (header stripped / downgrade)");
+            if (header.Version == 2 && v1Marker) throw new FileIntegrityException($"chunk {index} is a v1 chunk in a v2 file");
+            bool gz = marker == 0x01 || marker == 0x03;
+
+            if (header.Version == 1)
+            {
+                byte[] body1 = marked[1..];
+                return (gz ? Gunzip(body1, MaxChunkBytes, index) : body1, false);
+            }
+
+            if (marked.Length < 1 + V2BindingBytes) throw new FileIntegrityException($"chunk {index} too short for v2 binding fields");
+            byte[] fileId = marked[1..17];
+            long chunkIndex = BinaryPrimitives.ReadInt64BigEndian(marked.AsSpan(17, 8));
+            byte finalFlag = marked[25];
+            int chunkSize = BinaryPrimitives.ReadInt32BigEndian(marked.AsSpan(26, 4));
+            if (!fileId.AsSpan().SequenceEqual(header.FileId)) throw new FileIntegrityException($"chunk {index} belongs to a different file (spliced)");
+            if (chunkIndex != index) throw new FileIntegrityException($"chunk at position {index} carries index {chunkIndex} (reordered/duplicated/dropped)");
+            if (finalFlag > 1) throw new FileIntegrityException($"chunk {index} has invalid is_final flag");
+            if (chunkSize != header.ChunkSize) throw new FileIntegrityException($"chunk {index} chunk_size {chunkSize} != header {header.ChunkSize}");
+
+            byte[] body = marked[(1 + V2BindingBytes)..];
+            byte[] payload = gz ? Gunzip(body, header.ChunkSize, index) : body;
+            if (payload.Length > header.ChunkSize) throw new FileIntegrityException($"chunk {index} payload exceeds chunk_size");
+            bool isFinal = finalFlag == 1;
+            if (!isFinal && payload.Length != header.ChunkSize)
+                throw new FileIntegrityException($"non-final chunk {index} holds {payload.Length} bytes, expected {header.ChunkSize}");
+            return (payload, isFinal);
         }
 
         /// <summary>
-        /// Reads a real FileBulkJob-produced file and decrypts it purely via
-        /// hsm-core-service's /decrypt/batch -- zero contact with
-        /// hsm-bulk-service on this side. Chunks are already in file order
-        /// (frames appear in the exact order they were written), so no
-        /// separate ordering key is needed the way HsmCoreBatchFile's own
-        /// manifest needs one -- the file itself is already an ordered
-        /// record.
+        /// Decrypts a whole file held in memory. decryptTokens maps core tokens to their
+        /// decrypted base64 plaintexts, in order -- normally core's /decrypt/batch.
+        /// </summary>
+        public static async Task<byte[]> DecryptBytesAsync(byte[] data, Func<List<string>, Task<List<string>>> decryptTokens)
+        {
+            FileHeader header = ReadHeader(data);
+            List<Frame> frames = ReadFrames(data, header);
+            var tokens = frames.Select(f => ReconstructCoreServiceToken(header.EdekId, f.Iv, f.Tag, f.Ciphertext)).ToList();
+            List<string> plaintexts = tokens.Count == 0 ? new List<string>() : await decryptTokens(tokens);
+
+            using var output = new MemoryStream();
+            bool finalSeen = false;
+            for (int i = 0; i < plaintexts.Count; i++)
+            {
+                if (finalSeen) throw new FileIntegrityException($"data follows the final chunk (chunk {i})");
+                (byte[] payload, bool isFinal) = DecodeChunk(header, i, plaintexts[i]);
+                output.Write(payload, 0, payload.Length);
+                finalSeen = isFinal;
+            }
+            if (header.Version == 2 && !finalSeen)
+                throw new FileIntegrityException($"file ended after {frames.Count} chunk(s) without a final chunk (truncated)");
+            return output.ToArray();
+        }
+
+        /// <summary>
+        /// Reads a FileBulkJob-produced file (v1 or v2) and decrypts it purely via
+        /// hsm-core-service's /decrypt/batch. The target is written only after every
+        /// check has passed (temp file + move), so a failed rescue never leaves a
+        /// plausible-looking partial file behind.
         /// </summary>
         public static async Task DecryptBulkFileAsync(HsmCoreClient client, string sourcePath, string targetPath)
         {
-            (byte[] edekId, List<Frame> frames) = ReadEdekIdAndFrames(sourcePath);
-
-            var items = new List<Dictionary<string, object?>>(frames.Count);
-            for (int i = 0; i < frames.Count; i++)
+            byte[] data = await File.ReadAllBytesAsync(sourcePath);
+            byte[] plaintext = await DecryptBytesAsync(data, async tokens =>
             {
-                string token = ReconstructCoreServiceToken(edekId, frames[i].Iv, frames[i].Tag, frames[i].Ciphertext);
-                items.Add(new Dictionary<string, object?> { ["key"] = i.ToString(), ["ciphertext"] = token });
-            }
-
-            Dictionary<string, JsonElement> results = await client.DecryptItemsAsync(items);
-
-            using FileStream outStream = File.Create(targetPath);
-            for (int i = 0; i < frames.Count; i++)
-            {
-                string base64Plaintext = results[i.ToString()].GetProperty("plaintext").GetString()!;
-                byte[] marked = Convert.FromBase64String(base64Plaintext);
-                byte flag = marked[0];
-                byte[] payload = marked[1..];
-                byte[] chunk = flag == 0x01 ? Gunzip(payload) : payload;
-                outStream.Write(chunk, 0, chunk.Length);
-            }
+                var items = new List<Dictionary<string, object?>>(tokens.Count);
+                for (int i = 0; i < tokens.Count; i++)
+                    items.Add(new Dictionary<string, object?> { ["key"] = i.ToString(), ["ciphertext"] = tokens[i] });
+                Dictionary<string, JsonElement> results = await client.DecryptItemsAsync(items);
+                var ordered = new List<string>(tokens.Count);
+                for (int i = 0; i < tokens.Count; i++)
+                    ordered.Add(results[i.ToString()].GetProperty("plaintext").GetString()!);
+                return ordered;
+            });
+            string partial = targetPath + ".partial";
+            await File.WriteAllBytesAsync(partial, plaintext);
+            File.Move(partial, targetPath, overwrite: true);
         }
 
-        private static byte[] Gunzip(byte[] data)
+        /// <summary>Bounded decompression: stops at limit bytes so a crafted chunk can't exhaust memory.</summary>
+        private static byte[] Gunzip(byte[] data, int limit, long index)
         {
-            using var input = new MemoryStream(data);
-            using var gzip = new GZipStream(input, CompressionMode.Decompress);
-            using var output = new MemoryStream();
-            gzip.CopyTo(output);
-            return output.ToArray();
+            try
+            {
+                using var input = new MemoryStream(data);
+                using var gzip = new GZipStream(input, CompressionMode.Decompress);
+                using var output = new MemoryStream();
+                byte[] buffer = new byte[64 * 1024];
+                int n;
+                while ((n = gzip.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (output.Length + n > limit) throw new FileIntegrityException($"chunk {index} decompresses beyond limit {limit}");
+                    output.Write(buffer, 0, n);
+                }
+                return output.ToArray();
+            }
+            catch (InvalidDataException e) when (e is not FileIntegrityException)
+            {
+                throw new FileIntegrityException($"chunk {index} has invalid gzip data");
+            }
         }
     }
 }
