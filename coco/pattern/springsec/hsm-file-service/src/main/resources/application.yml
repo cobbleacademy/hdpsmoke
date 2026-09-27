@@ -1,0 +1,83 @@
+# hsm-file-service configuration. Every value is overridable by environment variable;
+# the Helm chart (helm/hsm-file-service) sets these from values.yaml. The full
+# reference, with what each setting is for, is java/docs/FILE_SERVICE.md
+# "Configuration reference".
+
+server:
+  port: ${SERVER_PORT:8080}
+  # Finish in-flight downloads on SIGTERM instead of cutting them off mid-file.
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: hsm-file-service
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_GRACE:30s}
+  web:
+    resources:
+      add-mappings: false
+
+# Probes and metrics on their own port, so the chart's NetworkPolicy and Istio
+# AuthorizationPolicy can let only the BFF reach 8080 and only monitoring reach 8081.
+management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"
+
+hsm:
+  file-service:
+    core:
+      base-url: ${HSM_CORE_BASE_URL:}
+      api-v1-prefix: ${HSM_CORE_API_V1_PREFIX:/api/sensec/hsm/v1}
+      # This service's own app_id in hsm-core-service -- NOT the app that encrypted the
+      # files. It needs dek_unwrap on that app's keys via a cross-app grant
+      # (APP_ONBOARDING.md "hsm-file-service").
+      app-id: ${HSM_CORE_APP_ID:}
+      auth-mode: ${HSM_CORE_AUTH_MODE:AZURE_AD}           # STATIC | AZURE_AD | SELF_SIGNED_JWT | MTLS
+      private-key-pem-file: ${HSM_PRIVATE_KEY_PEM_FILE:/mnt/secrets/hsm/app-private-key.pem}
+      static-token: ${HSM_CORE_STATIC_TOKEN:}             # demo/dev only
+      azure-token-scope: ${HSM_CORE_AZURE_TOKEN_SCOPE:}
+      signing-key-pem-file: ${HSM_SIGNING_KEY_PEM_FILE:}
+      jwt-audience: ${HSM_JWT_AUDIENCE:}
+      mtls-cert-pem-file: ${HSM_MTLS_CERT_PEM_FILE:}
+      mtls-key-pem-file: ${HSM_MTLS_KEY_PEM_FILE:}
+    store:
+      type: ${FILE_STORE_TYPE:AZURE_BLOB}                 # LOCAL | ADLS | AZURE_BLOB
+      root: ${FILE_STORE_ROOT:}
+      account-key: ${FILE_STORE_ACCOUNT_KEY:}             # dev-only escape hatch; unset in real deployments
+    access:
+      # Required. Comma-separated path prefixes that may be served; "*" allows all.
+      allowed-path-prefixes: ${ACCESS_ALLOWED_PATH_PREFIXES:}
+      require-expected-file-id: ${ACCESS_REQUIRE_EXPECTED_FILE_ID:false}
+      # Optional in-process check of the Istio peer identity (mesh only).
+      trusted-caller-spiffe-ids: ${ACCESS_TRUSTED_CALLER_SPIFFE_IDS:}
+    delivery:
+      # 21.5 MiB stored ~= 16 MiB original (base64 adds a third).
+      buffer-threshold-bytes: ${DELIVERY_BUFFER_THRESHOLD_BYTES:22544384}
+      max-buffered-requests: ${DELIVERY_MAX_BUFFERED_REQUESTS:32}
+      buffer-acquire-timeout: ${DELIVERY_BUFFER_ACQUIRE_TIMEOUT:100ms}
+      content-disposition: ${DELIVERY_CONTENT_DISPOSITION:inline}
+    limits:
+      # Hard caps whatever a file's header claims. 16 MiB frames fit chunks up to ~11.9 MiB
+      # (so bulk-client's 8 MiB default is accepted); 12 MiB bounds one decoded chunk.
+      max-frame-bytes: ${LIMITS_MAX_FRAME_BYTES:16777216}
+      max-chunk-plaintext-bytes: ${LIMITS_MAX_CHUNK_PLAINTEXT_BYTES:12582912}
+    dek-cache:
+      # Also the revocation lag: a revoked/shredded key keeps serving for up to ttl + 60 s.
+      ttl: ${DEK_CACHE_TTL:15m}
+      max-size: ${DEK_CACHE_MAX_SIZE:200}
