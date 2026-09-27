@@ -36,6 +36,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- OpenAPI 3.1 spec + Swagger UI, generated from the controllers. Disabled by
+             default (application.yml) and switched on only by the demo profile or
+             SPRINGDOC_ENABLED=true in dev; production never serves either. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
         <!-- Proxy-based AOP for ComponentTimingAspect: spring-aop itself already ships
              transitively via spring-context (part of every spring-boot-starter-*), so
              the only piece actually missing is aspectjweaver, which Spring Boot's
