@@ -31,3 +31,10 @@ hsm:
     enabled: ${SPLUNK_ENABLED:false}
   kek-rotation:
     enabled: ${KEK_ROTATION_ENABLED:false}
+
+# Swagger UI + OpenAPI spec on in demo mode (off in the base profile).
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:true}
