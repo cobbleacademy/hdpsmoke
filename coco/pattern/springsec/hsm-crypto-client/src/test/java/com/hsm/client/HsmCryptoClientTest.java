@@ -155,4 +155,54 @@ class HsmCryptoClientTest {
 
         assertEquals(1, issueCalls.get());
     }
+
+    @Test
+    void fileRoundTrip_usesOwnerAad_cachesUnwrap_andNeverZeroesTheCachedKey() throws Exception {
+        KeyPair keyPair = generateKeyPair();
+        String thisClientsOwnAppId = "file-service-app";
+        String trueOwner = "ingest-app"; // cross-app grant: the service reads files another app wrote
+        byte[] rawDek = DekManager.generateDek();
+        String wrappedB64 = Base64.getEncoder().encodeToString(TransportWrapper.wrap(rawDek, keyPair.getPublic()));
+        UUID edekId = UUID.randomUUID();
+
+        java.util.concurrent.atomic.AtomicInteger unwrapCalls = new java.util.concurrent.atomic.AtomicInteger();
+        FakeSvcClient fake = new FakeSvcClient(dummyConfig(thisClientsOwnAppId),
+                List.of(new SvcClient.IssueResult("f", "success", edekId, wrappedB64, trueOwner, null, true)),
+                List.of(new SvcClient.UnwrapResult("f", "success", edekId, wrappedB64, trueOwner, null))) {
+            @Override
+            public List<SvcClient.UnwrapResult> unwrap(List<SvcClient.UnwrapItem> items) {
+                unwrapCalls.incrementAndGet();
+                return super.unwrap(items);
+            }
+        };
+
+        byte[] plaintext = new byte[10_000];
+        new java.util.Random(7).nextBytes(plaintext);
+        try (HsmCryptoClient client = new HsmCryptoClient(fake, keyPair.getPrivate(), thisClientsOwnAppId, 10, Duration.ofMinutes(15))) {
+            com.hsm.client.fileformat.EncryptedFileWriter.Options v2 =
+                    com.hsm.client.fileformat.EncryptedFileWriter.Options.v2(4096, false);
+            java.io.ByteArrayOutputStream first = new java.io.ByteArrayOutputStream();
+            java.io.ByteArrayOutputStream second = new java.io.ByteArrayOutputStream();
+            // Two files under one named DEK: the second only works if the first didn't zero the cached key.
+            client.encryptFile(new java.io.ByteArrayInputStream(plaintext), first, "dataset.2026", v2);
+            client.encryptFile(new java.io.ByteArrayInputStream(plaintext), second, "dataset.2026", v2);
+
+            for (byte[] file : List.of(first.toByteArray(), second.toByteArray())) {
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                client.decryptFile(new java.io.ByteArrayInputStream(file), out);
+                org.junit.jupiter.api.Assertions.assertArrayEquals(plaintext, out.toByteArray());
+            }
+
+            // Encrypted under the true owner's AAD, so a read with the true owner succeeds directly...
+            java.io.ByteArrayOutputStream direct = new java.io.ByteArrayOutputStream();
+            com.hsm.client.fileformat.EncryptedFileReader.open(new java.io.ByteArrayInputStream(first.toByteArray()))
+                    .decryptTo(direct, rawDek, trueOwner);
+            org.junit.jupiter.api.Assertions.assertArrayEquals(plaintext, direct.toByteArray());
+            // ...and with this client's own app_id it fails.
+            assertThrows(com.hsm.client.fileformat.EncryptedFileException.class, () ->
+                    com.hsm.client.fileformat.EncryptedFileReader.open(new java.io.ByteArrayInputStream(first.toByteArray()))
+                            .decryptTo(new java.io.ByteArrayOutputStream(), rawDek, thisClientsOwnAppId));
+        }
+        assertEquals(1, unwrapCalls.get(), "one /dek/unwrap for both files sharing an edek_id");
+    }
 }
