@@ -19,6 +19,12 @@ data:
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
   BATCH_EXECUTOR_POOL_SIZE: {{ .Values.config.batchExecutorPoolSize | quote }}
   DEMO_DATABASE_URL: {{ .Values.config.demoDatabaseUrl | quote }}
+  {{- if .Values.config.openApiEnabled }}
+  {{- if and (eq (.Values.config.openApiEnabled | toString) "true") (eq .Values.config.serviceEnv "production") }}
+  {{- fail "config.openApiEnabled=true is not allowed with config.serviceEnv=production -- the spec and Swagger UI are dev/test only" }}
+  {{- end }}
+  SPRINGDOC_ENABLED: {{ .Values.config.openApiEnabled | quote }}
+  {{- end }}
 
   AZURE_CLIENT_ID: {{ .Values.config.azureClientId | quote }}
   AZURE_TENANT_ID: {{ .Values.config.azureTenantId | quote }}

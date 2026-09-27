@@ -172,6 +172,10 @@ networkPolicy:
 # `secrets` below) — never put a credential-shaped value here.
 config:
   demoMode: "false"
+  # OpenAPI spec (<apiV1Prefix>/openapi) + Swagger UI (<apiV1Prefix>/swagger-ui.html).
+  # "" (default) = follow the profile: off normally, on in demo mode. "true" turns
+  # both on for a dev/test environment; refused when serviceEnv is production.
+  openApiEnabled: ""
   skipAkv: "false"      # true = mock KEK + real Postgres/JWT; temporary AKV bypass only
   dbSslEnabled: "false" # true = connect to Postgres over SSL (required by most managed PG)
   dbSslCaCert: ""       # path to CA cert; if corporateCa.enabled use /etc/ssl/corporate/ca.crt
