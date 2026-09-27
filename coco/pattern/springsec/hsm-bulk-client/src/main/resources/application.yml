@@ -134,7 +134,12 @@ client:
       account-key: ${FILE_TARGET_ACCOUNT_KEY:}   # same temporary escape hatch as source.account-key above -- see that comment
     # Example: file-types: [".png", ".txt", ".pdf"] -- empty list means all files.
     file-types: []
-    chunk-size-bytes: ${FILE_CHUNK_SIZE_BYTES:8388608}   # 8 MiB default
+    # 8 MiB default -- right for bulk throughput. For files a UI will open through
+    # hsm-file-service, use 1 MiB (1048576): the service verifies a whole chunk before
+    # sending any of it, so smaller chunks mean a faster first byte and ~4 MB instead
+    # of ~30 MB of heap per download. With a named DEK, stay >= 64 KiB (AES-GCM
+    # random-IV budget per key; see java/docs/FILE_FORMAT.md "Chunk size").
+    chunk-size-bytes: ${FILE_CHUNK_SIZE_BYTES:8388608}
     files-per-batch: ${FILE_FILES_PER_BATCH:10}
     # false (default) -- today's exact behavior, unchanged. true -- gzips each chunk
     # before the mandatory base64 plaintext-safety encoding (see FileBulkJob's class
@@ -145,3 +150,12 @@ client:
     # compressed/raw marker, self-describing regardless of what this was set to at
     # encrypt time.
     compress-before-encrypt: ${FILE_COMPRESS_BEFORE_ENCRYPT:false}
+    # 1 (default) -- v1 layout, readable by every existing reader. 2 -- v2 (see
+    # java/docs/FILE_FORMAT.md): file_id + chunk binding, so truncated/reordered/
+    # spliced/downgraded files fail loudly. Encrypt-side only; decrypt auto-detects.
+    # Readers first: switch to 2 only once every reader of this job's output is
+    # upgraded (hsm-file-service, the example readers, any consumer copies).
+    format-version: ${FILE_FORMAT_VERSION:1}
+    # Per-batch JSON-lines result files (path, file_id, edek_id, sizes) under
+    # <target>/.hsm_bulk_results/. Unset = on for format-version 2, off for 1.
+    write-results: ${FILE_WRITE_RESULTS:}
