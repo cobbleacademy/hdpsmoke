@@ -1,0 +1,215 @@
+# GENERATED from hsm-file-service by OpenApiContractTest -- do not edit by hand.
+# This is the published contract shipped with the chart; see FILE_SERVICE.md "API".
+openapi: 3.1.0
+info:
+  title: hsm-file-service
+  description: |-
+    Read-only service, deployed in a consumer's namespace, that serves decrypted files to that
+    consumer's BFF. Authentication is the mesh: Istio STRICT mTLS plus an AuthorizationPolicy
+    allowing only the BFF's service account, so there is no token or API key. The response body
+    is the original file's bytes; JSON appears only for errors. Full guide: FILE_SERVICE.md.
+  version: 1.0.0
+servers:
+- url: http://hsm-file-service:8080
+  description: In-cluster Service, file port. Reachable only from the BFF.
+tags:
+- name: Files
+  description: Decrypt-and-serve. The service's only data endpoint.
+paths:
+  /v1/files/{path}:
+    get:
+      tags:
+      - Files
+      summary: Download one decrypted file
+      description: |-
+        Reads the encrypted file at {path} (relative to store.root), verifies every chunk and returns the
+        original bytes. Read-only; only the consumer's BFF may call it (Istio AuthorizationPolicy).
+
+        Delivery: stored size <= delivery.buffer-threshold-bytes (default 21.5 MiB ~= 16 MiB original) is
+        verified completely before the first byte and sent with Content-Length. Larger files stream with
+        chunked transfer; a verification failure after the first byte ABORTS THE CONNECTION instead of
+        returning an error body -- the caller must treat an incomplete transfer as a failure.
+
+        Every failure before the first byte is an ErrorResponse. A caller that is not the BFF is refused by
+        the Istio sidecar with a plain-text "403 RBAC: access denied" before reaching the service.
+      operationId: getFile
+      parameters:
+      - name: X-Expected-File-Id
+        in: header
+        description: file_id recorded when the file was written (bulk-client result files). Mismatch -> 412. Required when
+          access.require-expected-file-id=true (428 if missing).
+        schema:
+          type: string
+          format: uuid
+      - name: X-End-User
+        in: header
+        description: Who the BFF is serving. Recorded in the audit line only, never used for access decisions. Truncated to
+          256 chars.
+        schema:
+          type: string
+          maxLength: 256
+      - name: X-Request-Id
+        in: header
+        description: Correlation id, echoed back. Replaced by a generated UUID unless it matches the pattern.
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9._:-]{1,128}$
+      - name: path
+        in: path
+        description: File path below store.root; may contain '/'. Must fall under access.allowed-path-prefixes. Max 1024 chars;
+          no empty, '.' or '..' segments, backslashes or control characters; percent-decoded as a URI path ('+' stays '+').
+        required: true
+        schema:
+          type: string
+          maxLength: 1024
+        example: tenant-a/2026/report.pdf
+      responses:
+        '200':
+          description: The original file bytes.
+          headers:
+            Cache-Control:
+              description: Always no-store
+              style: simple
+              schema:
+                type: string
+            X-Request-Id:
+              description: Correlation id
+              style: simple
+              schema:
+                type: string
+            X-Content-Type-Options:
+              description: Always nosniff
+              style: simple
+              schema:
+                type: string
+            Content-Disposition:
+              description: inline (default) or attachment, filename = last path segment (RFC 5987)
+              style: simple
+              schema:
+                type: string
+            X-HSM-Format-Version:
+              description: 1 or 2
+              style: simple
+              schema:
+                type: string
+                enum:
+                - '1'
+                - '2'
+            X-HSM-Delivery:
+              description: buffered or streaming
+              style: simple
+              schema:
+                type: string
+                enum:
+                - buffered
+                - streaming
+            Content-Length:
+              description: Buffered delivery only; absent when streaming (chunked)
+              style: simple
+              schema:
+                type: integer
+                format: int64
+            X-HSM-File-Id:
+              description: v2 files only
+              style: simple
+              schema:
+                type: string
+                format: uuid
+            Content-Type:
+              description: From the file extension, else application/octet-stream
+              style: simple
+              schema:
+                type: string
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: FS-400-BAD-PATH, FS-400-BAD-FILE-ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FS-403-CALLER-NOT-TRUSTED (access.trusted-caller-spiffe-ids)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 'FS-404-NOT-FOUND: missing, outside allowed-path-prefixes, or bulk bookkeeping'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '412':
+          description: FS-412-FILE-ID-MISMATCH, FS-412-NO-FILE-ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: FS-422-INTEGRITY (tampered/truncated/reordered/spliced), FS-422-LIMIT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '428':
+          description: FS-428-FILE-ID-REQUIRED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: FS-500-INTERNAL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: FS-502-KEY-UNAVAILABLE (grant missing / key shredded), FS-502-STORAGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: FS-503-CORE-UNAVAILABLE -- safe to retry with backoff
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      description: Failure before any file bytes were sent. message is fixed per code; details are in the service log under
+        request_id.
+      properties:
+        error_code:
+          type: string
+          enum:
+          - FS-400-BAD-PATH
+          - FS-400-BAD-FILE-ID
+          - FS-403-CALLER-NOT-TRUSTED
+          - FS-404-NOT-FOUND
+          - FS-412-FILE-ID-MISMATCH
+          - FS-412-NO-FILE-ID
+          - FS-428-FILE-ID-REQUIRED
+          - FS-422-INTEGRITY
+          - FS-422-LIMIT
+          - FS-502-KEY-UNAVAILABLE
+          - FS-502-STORAGE
+          - FS-503-CORE-UNAVAILABLE
+          - FS-500-INTERNAL
+          example: FS-412-FILE-ID-MISMATCH
+        message:
+          type: string
+          example: Stored file does not have the expected file id
+        request_id:
+          type: string
+          example: req-7f3a91
+      required:
+      - error_code
+      - message
+      - request_id

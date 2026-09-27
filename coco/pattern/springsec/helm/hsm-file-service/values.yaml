@@ -73,6 +73,11 @@ config:
     ttl: 15m
     maxSize: 200
   shutdownGrace: 30s
+  # OpenAPI spec is always served on the management port (8081) at /actuator/openapi
+  # (.yaml variant: /actuator/openapi.yaml); the same contract ships in this chart as
+  # openapi.yaml. Swagger UI (/actuator/swagger-ui) is off by default -- turn on for
+  # dev and reach it with `kubectl port-forward <pod> 8081`.
+  swaggerUi: false
 
 # ── Secrets ────────────────────────────────────────────────────────────────────
 # The app's RSA private key (always), plus the JWT signing key or mTLS cert/key for

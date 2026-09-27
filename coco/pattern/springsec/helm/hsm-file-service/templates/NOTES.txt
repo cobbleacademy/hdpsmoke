@@ -15,3 +15,7 @@ Smoke test from the BFF pod:
     http://{{ include "hsmfs.fullname" . }}:{{ .Values.service.port }}/v1/files/<known-path>
 
 Every failure returns {"error_code": "FS-..."}; look the code up in RUNBOOK.md "hsm-file-service".
+
+API contract (OpenAPI 3.1): openapi.yaml in this chart, or live from a pod:
+  kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "hsmfs.fullname" . }} {{ .Values.service.managementPort }}
+  curl -s http://localhost:{{ .Values.service.managementPort }}/actuator/openapi.yaml

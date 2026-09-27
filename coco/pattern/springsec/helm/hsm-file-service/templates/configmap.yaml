@@ -37,3 +37,4 @@ data:
   LIMITS_MAX_CHUNK_PLAINTEXT_BYTES: {{ .Values.config.limits.maxChunkPlaintextBytes | int64 | quote }}
   DEK_CACHE_TTL: {{ .Values.config.dekCache.ttl | quote }}
   DEK_CACHE_MAX_SIZE: {{ .Values.config.dekCache.maxSize | quote }}
+  SWAGGER_UI_ENABLED: {{ .Values.config.swaggerUi | quote }}
