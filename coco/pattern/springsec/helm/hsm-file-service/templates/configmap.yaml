@@ -1,0 +1,39 @@
+{{- include "hsmfs.validate" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hsmfs.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsmfs.labels" . | nindent 4 }}
+data:
+  SERVER_PORT: {{ .Values.service.port | quote }}
+  MANAGEMENT_PORT: {{ .Values.service.managementPort | quote }}
+  SHUTDOWN_GRACE: {{ .Values.config.shutdownGrace | quote }}
+  HSM_CORE_BASE_URL: {{ .Values.config.core.baseUrl | quote }}
+  HSM_CORE_API_V1_PREFIX: {{ .Values.config.core.apiV1Prefix | quote }}
+  HSM_CORE_APP_ID: {{ .Values.config.core.appId | quote }}
+  HSM_CORE_AUTH_MODE: {{ .Values.config.core.authMode | quote }}
+  HSM_CORE_AZURE_TOKEN_SCOPE: {{ .Values.config.core.azureTokenScope | quote }}
+  HSM_JWT_AUDIENCE: {{ .Values.config.core.jwtAudience | quote }}
+  HSM_PRIVATE_KEY_PEM_FILE: /mnt/secrets/hsm/app-private-key.pem
+  {{- if eq .Values.config.core.authMode "SELF_SIGNED_JWT" }}
+  HSM_SIGNING_KEY_PEM_FILE: /mnt/secrets/hsm/signing-key.pem
+  {{- end }}
+  {{- if eq .Values.config.core.authMode "MTLS" }}
+  HSM_MTLS_CERT_PEM_FILE: /mnt/secrets/hsm/mtls-cert.pem
+  HSM_MTLS_KEY_PEM_FILE: /mnt/secrets/hsm/mtls-key.pem
+  {{- end }}
+  FILE_STORE_TYPE: {{ .Values.config.store.type | quote }}
+  FILE_STORE_ROOT: {{ .Values.config.store.root | quote }}
+  ACCESS_ALLOWED_PATH_PREFIXES: {{ join "," .Values.config.access.allowedPathPrefixes | quote }}
+  ACCESS_REQUIRE_EXPECTED_FILE_ID: {{ .Values.config.access.requireExpectedFileId | quote }}
+  ACCESS_TRUSTED_CALLER_SPIFFE_IDS: {{ join "," .Values.config.access.trustedCallerSpiffeIds | quote }}
+  DELIVERY_BUFFER_THRESHOLD_BYTES: {{ .Values.config.delivery.bufferThresholdBytes | int64 | quote }}
+  DELIVERY_MAX_BUFFERED_REQUESTS: {{ .Values.config.delivery.maxBufferedRequests | quote }}
+  DELIVERY_BUFFER_ACQUIRE_TIMEOUT: {{ .Values.config.delivery.bufferAcquireTimeout | quote }}
+  DELIVERY_CONTENT_DISPOSITION: {{ .Values.config.delivery.contentDisposition | quote }}
+  LIMITS_MAX_FRAME_BYTES: {{ .Values.config.limits.maxFrameBytes | int64 | quote }}
+  LIMITS_MAX_CHUNK_PLAINTEXT_BYTES: {{ .Values.config.limits.maxChunkPlaintextBytes | int64 | quote }}
+  DEK_CACHE_TTL: {{ .Values.config.dekCache.ttl | quote }}
+  DEK_CACHE_MAX_SIZE: {{ .Values.config.dekCache.maxSize | quote }}

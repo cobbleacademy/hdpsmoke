@@ -1,0 +1,181 @@
+# hsm-file-service -- values a consumer sets to operate the service in their own
+# namespace. Every key under `config` maps 1:1 to a documented setting in
+# java/docs/FILE_SERVICE.md "Configuration reference". Keys marked REQUIRED make
+# `helm install` fail if left empty.
+
+# ── Image ──────────────────────────────────────────────────────────────────────
+# Published and signed by the core HSM team (java/docker/Dockerfile.hsm-file-service).
+# Prefer pinning `digest` to the exact signed artifact from the release notes.
+image:
+  repository: your-registry.azurecr.io/hsm-file-service
+  tag: ""          # defaults to the chart's appVersion
+  digest: ""       # e.g. sha256:...; wins over tag when set
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 2
+
+# ── Identity ───────────────────────────────────────────────────────────────────
+# Workload Identity federation anchor: the pod gets an Entra ID token for this
+# identity (to call hsm-core-service in AZURE_AD mode, read Key Vault through the CSI
+# driver, and read storage). The ServiceAccount has no Kubernetes RBAC at all.
+serviceAccount:
+  create: true
+  name: ""
+  annotations:
+    azure.workload.identity/client-id: "<AZURE_CLIENT_ID>"
+  labels: {}
+workloadIdentity:
+  enabled: true
+
+config:
+  core:
+    baseUrl: ""                     # REQUIRED, e.g. https://hsm-core-service.hsm.svc.cluster.local:3005
+    apiV1Prefix: /api/sensec/hsm/v1
+    # REQUIRED. This service's OWN app_id -- register it in hsm-core-service and grant
+    # it dek_unwrap on the keys of the app that encrypted the files (cross-app grant).
+    # See APP_ONBOARDING.md "hsm-file-service".
+    appId: ""
+    authMode: AZURE_AD              # AZURE_AD | SELF_SIGNED_JWT | MTLS | STATIC (dev only)
+    azureTokenScope: ""             # REQUIRED for AZURE_AD, e.g. api://hsm-core-service/.default
+    jwtAudience: ""                 # SELF_SIGNED_JWT only; empty = hsm-core-service
+  store:
+    type: AZURE_BLOB                # AZURE_BLOB | ADLS | LOCAL
+    # REQUIRED. AZURE_BLOB: https://<account>.blob.core.windows.net/<container>/<path>
+    #           ADLS:       abfss://<container>@<account>.dfs.core.windows.net/<path>
+    root: ""
+  access:
+    # REQUIRED. Path prefixes (below store.root) this deployment may serve. Anything
+    # else is 404. ["*"] allows every path -- only when the whole store belongs to
+    # this consumer.
+    allowedPathPrefixes: []
+    # true: every request must carry X-Expected-File-Id (the file_id the BFF recorded
+    # from hsm-bulk-client's result files); only format-v2 files can then be served.
+    # Strongly recommended wherever files belong to specific users.
+    requireExpectedFileId: false
+    # Optional in-process check of the Istio peer identity, on top of the
+    # AuthorizationPolicy below. SPIFFE ids, e.g. spiffe://cluster.local/ns/<ns>/sa/<bff-sa>.
+    trustedCallerSpiffeIds: []
+  delivery:
+    # Files whose STORED size is at or below this are verified completely before the
+    # first byte is sent (21.5 MiB stored ~= 16 MiB original). Larger files stream,
+    # and a failure mid-stream aborts the connection -- the BFF must treat an
+    # incomplete download as a failure.
+    bufferThresholdBytes: 22544384
+    maxBufferedRequests: 32         # beyond this, small files stream too (bounds heap use)
+    bufferAcquireTimeout: 100ms
+    contentDisposition: inline      # inline | attachment
+  limits:
+    maxFrameBytes: 16777216         # 16 MiB: accepts chunks up to ~11.9 MiB
+    maxChunkPlaintextBytes: 12582912
+  dekCache:
+    # Also the revocation lag: a revoked or shredded key keeps working for up to ttl + 60 s.
+    ttl: 15m
+    maxSize: 200
+  shutdownGrace: 30s
+
+# ── Secrets ────────────────────────────────────────────────────────────────────
+# The app's RSA private key (always), plus the JWT signing key or mTLS cert/key for
+# those auth modes. Mounted as files under /mnt/secrets/hsm -- never env vars.
+secrets:
+  # Recommended: Azure Key Vault via the Secrets Store CSI driver + Workload Identity.
+  keyVault:
+    enabled: true
+    keyVaultName: ""
+    tenantId: ""
+    # Key Vault secret names -> mounted file names.
+    privateKeySecretName: hsm-file-service-private-key       # -> app-private-key.pem
+    signingKeySecretName: ""                                  # -> signing-key.pem (SELF_SIGNED_JWT)
+    mtlsCertSecretName: ""                                    # -> mtls-cert.pem (MTLS)
+    mtlsKeySecretName: ""                                     # -> mtls-key.pem (MTLS)
+  # Alternative: an existing Kubernetes Secret whose keys are the file names above.
+  existingSecretName: ""
+  # STATIC auth mode only (dev/demo): Secret + key holding the bearer token.
+  staticTokenSecret:
+    name: ""
+    key: token
+
+service:
+  type: ClusterIP
+  port: 8080
+  managementPort: 8081
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    # Heap is 75% of this. Budget: maxBufferedRequests x ~16 MiB (verified files) plus
+    # ~4 MB per concurrent streamed download at 1 MiB chunks. 2Gi fits the defaults.
+    memory: 2Gi
+
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+# Small writable /tmp for the JVM. Nothing writes plaintext to disk.
+tmpVolume:
+  sizeLimit: 64Mi
+
+# terminationGracePeriodSeconds must exceed config.shutdownGrace so in-flight
+# downloads finish and the key cache is zeroed on the way out.
+terminationGracePeriodSeconds: 45
+
+probes:
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Istio (option A trust model: only the BFF may call this service) ───────────
+istio:
+  rewriteAppHTTPProbers: true
+  # STRICT mTLS for this workload, so every caller has a mesh identity.
+  peerAuthentication:
+    enabled: true
+  authorizationPolicy:
+    enabled: true
+    # REQUIRED when enabled: principals allowed to call GET /v1/files/*, e.g.
+    # cluster.local/ns/<consumer-ns>/sa/<bff-service-account>
+    bffPrincipals: []
+    # Namespaces allowed to scrape the management port (Prometheus).
+    monitoringNamespaces: []
+
+# ── NetworkPolicy (defence in depth under the AuthorizationPolicy) ─────────────
+networkPolicy:
+  enabled: true
+  # Pods allowed to reach port 8080: the BFF.
+  bffPodSelector: {}                # e.g. {app.kubernetes.io/name: my-bff}
+  bffNamespace: ""                  # empty = this release's namespace
+  monitoringNamespaces: []          # allowed to reach port 8081
+  # Egress beyond DNS. hsm-core-service (in-cluster) and the storage account
+  # (private endpoint CIDR) at minimum; plus Entra ID / Key Vault if not via proxy.
+  coreServiceNamespace: ""          # allows egress to this namespace on coreServicePort
+  coreServicePort: 3005
+  egressCIDRs: []                   # e.g. storage private endpoint, Entra ID ranges (TCP 443)
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,57 @@
+{{- if .Values.istio.peerAuthentication.enabled }}
+# Every caller must present a mesh identity -- the basis of the option-A trust model.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: {{ include "hsmfs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsmfs.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hsmfs.selectorLabels" . | nindent 6 }}
+  mtls:
+    mode: STRICT
+---
+{{- end }}
+{{- if .Values.istio.authorizationPolicy.enabled }}
+# ALLOW-list: anything not matched below is denied by the sidecar before it reaches the JVM.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "hsmfs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsmfs.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "hsmfs.selectorLabels" . | nindent 6 }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              {{- range .Values.istio.authorizationPolicy.bffPrincipals }}
+              - {{ . | quote }}
+              {{- end }}
+      to:
+        - operation:
+            ports: [{{ .Values.service.port | quote }}]
+            methods: ["GET"]
+            paths: ["/v1/files/*"]
+    {{- if .Values.istio.authorizationPolicy.monitoringNamespaces }}
+    - from:
+        - source:
+            namespaces:
+              {{- range .Values.istio.authorizationPolicy.monitoringNamespaces }}
+              - {{ . | quote }}
+              {{- end }}
+      to:
+        - operation:
+            ports: [{{ .Values.service.managementPort | quote }}]
+            methods: ["GET"]
+            paths: ["/actuator/prometheus", "/actuator/health/*"]
+    {{- end }}
+{{- end }}

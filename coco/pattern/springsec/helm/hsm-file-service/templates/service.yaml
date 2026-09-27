@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hsmfs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsmfs.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "hsmfs.selectorLabels" . | nindent 4 }}
+  ports:
+    # "http-" prefix: Istio protocol selection, so the AuthorizationPolicy can match on method/path.
+    - name: http-files
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+    - name: http-management
+      port: {{ .Values.service.managementPort }}
+      targetPort: management
+      protocol: TCP

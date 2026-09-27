@@ -1,0 +1,14 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "hsmfs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hsmfs.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "hsmfs.selectorLabels" . | nindent 6 }}
+{{- end }}

@@ -1,0 +1,17 @@
+hsm-file-service {{ .Chart.AppVersion }} installed as {{ include "hsmfs.fullname" . }} in {{ .Release.Namespace }}.
+
+The BFF calls:
+  GET http://{{ include "hsmfs.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/v1/files/<path>
+  Optional headers: X-Expected-File-Id, X-End-User, X-Request-Id
+
+Before first use (APP_ONBOARDING.md "hsm-file-service"):
+  1. app_id "{{ .Values.config.core.appId }}" is registered in hsm-core-service with scope dek_unwrap
+     and its public key, and holds a cross-app grant on the encrypting app's keys.
+  2. The private key is in Key Vault / the Secret the chart mounts.
+  3. The pod identity can read {{ .Values.config.store.root }} (Storage Blob Data Reader).
+
+Smoke test from the BFF pod:
+  curl -sS -o /dev/null -w '%{http_code} %header{x-hsm-delivery}\n' \
+    http://{{ include "hsmfs.fullname" . }}:{{ .Values.service.port }}/v1/files/<known-path>
+
+Every failure returns {"error_code": "FS-..."}; look the code up in RUNBOOK.md "hsm-file-service".

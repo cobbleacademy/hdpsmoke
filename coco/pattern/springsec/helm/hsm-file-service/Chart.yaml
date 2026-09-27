@@ -1,0 +1,16 @@
+apiVersion: v2
+name: hsm-file-service
+description: Read-only service, deployed in a consumer's namespace, that serves decrypted files from encrypted storage to that consumer's BFF. Owned and released by the core HSM team; consumers configure it through this chart and never fork it.
+type: application
+# Chart and app versions move together. Minor: new optional values. Major: a value
+# renamed/removed or a behaviour change a consumer must act on. See
+# java/docs/FILE_SERVICE.md "Versioning and compatibility".
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - encryption
+  - hsm
+  - files
+home: https://example.internal/hsm-file-service
+maintainers:
+  - name: Platform Security
