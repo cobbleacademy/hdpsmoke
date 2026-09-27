@@ -15,7 +15,9 @@
         <module>hsm-core-service</module>
         <module>cek-rotation-service</module>
         <module>hsm-crypto-client</module>
+        <module>hsm-file-store</module>
         <module>hsm-bulk-client</module>
+        <module>hsm-file-service</module>
         <module>hsm-spark-adapter</module>
     </modules>
 
