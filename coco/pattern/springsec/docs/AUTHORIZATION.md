@@ -251,12 +251,14 @@ or a Spark executor running `hsm-spark-adapter`) is compromised and its heap
 dumped to extract cached plaintext DEKs. Worth recording explicitly, since
 mTLS (§1b above) sounds like it might be relevant and isn't.
 
-**Why it's real.** `HsmCryptoClient` keeps two unbounded, no-TTL
-`ConcurrentHashMap` caches of plaintext DEK bytes — one keyed by `dekName`
-(encrypt side), one by `edek_id` (decrypt side) — for as long as the
-process runs, by design (that's what avoids a fresh `/dek/issue` round trip
-per row). `close()` zeroes both, but only at graceful shutdown; a live
-`jmap`/core dump captures whatever's currently cached, in the clear.
+**Why it's real.** `HsmCryptoClient` keeps two caches of plaintext DEK
+bytes — one keyed by `dekName` (encrypt side), one by `edek_id` (decrypt
+side) — by design (that's what avoids a fresh `/dek/issue` round trip per
+row). They are now bounded (`DekCache`: max size, TTL — default 1000 / 30
+min; `hsm-file-service` runs 200 / 15 min — swept every 60 s, zeroed on
+eviction and on `close()`), which shrinks the window but doesn't close it: a
+live `jmap`/core dump still captures whatever is resident at that moment, in
+the clear.
 
 **Why mTLS doesn't help.** mTLS authenticates a *network connection* —
 it's a control over who's allowed to open a TLS session to hsm-core-service.
@@ -295,11 +297,10 @@ for this threat, and not counted as one below.
 1. **Already built, partial:** `HsmCryptoClient.close()` zeros both caches
    — closes the window only at clean shutdown, not while the process is
    live and serving.
-2. **Client-side hardening, not yet built — shrink the window and make it
-   harder to open:** bound `encryptCacheByName`/`decryptCacheByEdekId`
-   with a max-size/TTL eviction instead of unbounded process-lifetime
-   caching, so less plaintext DEK material is resident at any one instant;
-   pair that with host/container hardening on whatever runs these JVMs —
+2. **Client-side hardening — cache bounding now built, host hardening per
+   deployment:** `encryptCacheByName`/`decryptCacheByEdekId` are bounded by
+   max-size/TTL eviction (`DekCache`), so less plaintext DEK material is
+   resident at any one instant; pair that with host/container hardening on whatever runs these JVMs —
    disable core dumps and `-XX:-HeapDumpOnOutOfMemoryError`, disable or
    encrypt swap so a DEK never gets paged to disk in the clear, drop
    `CAP_SYS_PTRACE`/apply a seccomp profile so dumping memory needs a
@@ -437,6 +438,26 @@ apply at different points in the request lifecycle (before vs. after an
 classification-level or per-app-default `kek_registry` row (`dek_name`
 unset) names no specific `dek_name` and is never treated as a reservation,
 regardless of who registered it.
+
+## 1f. `hsm-file-service`: trust the BFF (option A)
+
+`hsm-file-service` (`FILE_SERVICE.md`) serves decrypted files to a
+consumer's UI. It authenticates to core as **its own** `app_id`. It holds
+only `dek_unwrap`, plus a `decrypt` grant (§1d) on the encrypting app's keys;
+it never encrypts or issues. End-user authorization stays with the
+consumer's BFF, the only caller allowed, which is enforced by Istio STRICT
+mTLS plus an `AuthorizationPolicy` naming the BFF's principal, a
+NetworkPolicy, and a required path-prefix allow-list. `X-End-User` is logged
+for audit and never used to decide access. Consequences:
+
+- Core's audit shows the service's app_id per unwrap, not the end user. The
+  end user is only in the service's own `file_access` audit line.
+- The cache TTL (15 min) is the revocation lag for a removed grant or a
+  shredded key.
+- The §1c memory-exposure analysis applies unchanged: this is a caller-side
+  JVM holding DEKs. The chart applies the container hardening listed there,
+  and the image sets `-XX:-HeapDumpOnOutOfMemoryError` and
+  `-XX:+DisableAttachMechanism`.
 
 ## 2. Recommended correlation mechanism: Entra ID App Roles, not Security Groups
 

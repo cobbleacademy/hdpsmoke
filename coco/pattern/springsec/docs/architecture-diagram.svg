@@ -1,7 +1,7 @@
-<svg viewBox="0 0 1320 2060" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 1320 2490" xmlns="http://www.w3.org/2000/svg" role="img">
           <title>HSM Core Service Architecture</title>
-          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt (guarded by CoreBulkFileInteropTest), admission control (classification governance + kek_registry dek_name reservation, both shadow-mode-then-enforce), and the Python and .NET reference clients (examples/python, examples/dotnet) with their 3 supported auth modes each</desc>
-          <rect width="1320" height="2060" fill="#0f1117"/>
+          <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt (guarded by CoreBulkFileInteropTest), admission control (classification governance + kek_registry dek_name reservation, both shadow-mode-then-enforce), the Python and .NET reference clients (examples/python, examples/dotnet) with their 3 supported auth modes each, and hsm-file-service: a read-only, core-team-owned decrypt-and-serve service deployed in a consumer namespace behind the consumer BFF, reading file format v1/v2 through the shared hsm-crypto-client codec and hsm-file-store adapters</desc>
+          <rect width="1320" height="2490" fill="#0f1117"/>
 
           <!-- ── AZURE SUBSCRIPTION BOUNDARY ────────────────────────────────── -->
           <rect x="5" y="165" width="895" height="1155" rx="10" fill="none" stroke="#374151" stroke-width="1.5" stroke-dasharray="8,4"/>
@@ -368,6 +368,116 @@
           <text x="34" y="1994" fill="#555b7a" font-size="7" font-family="monospace">Needs Azure.Identity NuGet package for AZURE_AD only — STATIC/SELF_SIGNED_JWT stay BCL-only, same "no external dependency" stance as before</text>
           <text x="34" y="2012" fill="#555b7a" font-size="7" font-family="monospace">JWT signing verified: real RS256 token minted, signature checked against the public key, claims match SelfSignedAppKeyJwtValidator's contract</text>
           <text x="34" y="2030" fill="#f59e0b" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet, same caveat as the Python reference clients above — only wire-format/interop + signing verified so far</text>
+
+
+          <!-- ── hsm-file-service · CONSUMER NAMESPACE — continuous decrypt-and-serve (FILE_SERVICE.md) ── -->
+          <rect x="15" y="2062" width="330" height="16" rx="3" fill="#0f1117"/>
+          <text x="22" y="2074" fill="#4b5563" font-size="9" font-family="monospace" letter-spacing="1">hsm-file-service · CONSUMER NAMESPACE</text>
+
+          <!-- consumer namespace boundary -->
+          <rect x="15" y="2088" width="885" height="300" rx="10" fill="none" stroke="#14b8a6" stroke-width="1.5" stroke-dasharray="8,4"/>
+          <rect x="25" y="2080" width="250" height="16" rx="3" fill="#0f1117"/>
+          <text x="32" y="2092" fill="#14b8a6" font-size="9" font-family="monospace" letter-spacing="1">CONSUMER K8s NAMESPACE (Istio STRICT)</text>
+
+          <!-- UI -->
+          <rect x="30" y="2108" width="140" height="44" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="100" y="2127" text-anchor="middle" fill="#3b82f6" font-size="10" font-family="monospace">Consumer UI</text>
+          <text x="100" y="2142" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">never calls the service directly</text>
+
+          <!-- BFF -->
+          <rect x="30" y="2178" width="140" height="98" rx="6" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="100" y="2196" text-anchor="middle" fill="#3b82f6" font-size="10" font-family="monospace">BFF</text>
+          <text x="100" y="2211" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">decides which user may</text>
+          <text x="100" y="2222" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">see which file (option A)</text>
+          <text x="100" y="2238" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">sends X-Expected-File-Id</text>
+          <text x="100" y="2249" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">X-End-User (audit only)</text>
+          <text x="100" y="2264" text-anchor="middle" fill="#f59e0b" font-size="7" font-family="monospace">aborted download = failure</text>
+          <line x1="100" y1="2152" x2="100" y2="2176" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#arr-blue)"/>
+
+          <!-- consumer DB (file_id records) -->
+          <rect x="30" y="2300" width="140" height="70" rx="6" fill="#1a1d27" stroke="#64748b" stroke-width="1"/>
+          <text x="100" y="2318" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">Consumer DB</text>
+          <text x="100" y="2333" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">path → expected file_id</text>
+          <text x="100" y="2344" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">(loaded from bulk</text>
+          <text x="100" y="2355" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">result .jsonl files)</text>
+          <line x1="100" y1="2298" x2="100" y2="2278" stroke="#64748b" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr-teal)"/>
+
+          <!-- hsm-file-service -->
+          <rect x="200" y="2108" width="430" height="262" rx="8" fill="#1a1d27" stroke="#14b8a6" stroke-width="2"/>
+          <text x="415" y="2127" text-anchor="middle" fill="#14b8a6" font-size="11" letter-spacing="1" font-family="monospace">hsm-file-service</text>
+          <text x="415" y="2140" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">core team owns the code · consumer gets signed image + Helm chart</text>
+          <rect x="215" y="2148" width="400" height="22" rx="4" fill="#22263a" stroke="#14b8a6" stroke-width="1"/>
+          <text x="415" y="2163" text-anchor="middle" fill="#14b8a6" font-size="9" font-family="monospace">GET /v1/files/{path} · read-only (no upload/list/delete)</text>
+          <rect x="215" y="2174" width="400" height="32" rx="4" fill="#22263a"/>
+          <text x="415" y="2187" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">AuthorizationPolicy: BFF principal only · NetworkPolicy · path-prefix allow-list</text>
+          <text x="415" y="2199" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">X-Expected-File-Id mismatch → 412 (whole-file swap)</text>
+          <rect x="215" y="2210" width="400" height="32" rx="4" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
+          <text x="415" y="2223" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">stored ≤ 21.5 MiB: verify whole file, then send (Content-Length)</text>
+          <text x="415" y="2235" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">larger: stream verified chunks · failure after 1st byte aborts connection</text>
+          <rect x="215" y="2248" width="196" height="54" rx="4" fill="#2d1b47" stroke="#a78bfa" stroke-width="1"/>
+          <text x="313" y="2263" text-anchor="middle" fill="#a78bfa" font-size="8" font-family="monospace">hsm-crypto-client</text>
+          <text x="313" y="2276" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">codec v1+v2 (shared w/ bulk)</text>
+          <text x="313" y="2287" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">DEK cache 15 min / 200</text>
+          <text x="313" y="2298" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">= revocation lag</text>
+          <rect x="419" y="2248" width="196" height="54" rx="4" fill="#22263a" stroke="#38bdf8" stroke-width="1"/>
+          <text x="517" y="2263" text-anchor="middle" fill="#38bdf8" font-size="8" font-family="monospace">hsm-file-store</text>
+          <text x="517" y="2276" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">AZURE_BLOB · ADLS · LOCAL</text>
+          <text x="517" y="2287" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">shared w/ bulk-client; keeps</text>
+          <text x="517" y="2298" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">Azure SDKs out of crypto lib</text>
+          <text x="415" y="2320" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">8080 files (BFF) · 8081 probes + Prometheus (monitoring) · audit.json file_access line per request</text>
+          <text x="415" y="2333" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">distroless nonroot · read-only rootfs · no heap dumps · no JVM attach · nothing written to disk</text>
+          <text x="415" y="2350" text-anchor="middle" fill="#f59e0b" font-size="8" font-family="monospace">stable error codes: FS-4xx / FS-5xx → RUNBOOK.md</text>
+
+          <!-- BFF → service -->
+          <line x1="170" y1="2210" x2="198" y2="2210" stroke="#14b8a6" stroke-width="1.5" marker-end="url(#arr-teal)"/>
+          <text x="184" y="2203" text-anchor="middle" fill="#14b8a6" font-size="6" font-family="monospace">mTLS</text>
+
+          <!-- storage -->
+          <rect x="665" y="2108" width="220" height="112" rx="6" fill="#1a1d27" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="775" y="2126" text-anchor="middle" fill="#38bdf8" font-size="10" font-family="monospace">Encrypted storage</text>
+          <text x="775" y="2140" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Azure Blob / ADLS Gen2</text>
+          <text x="775" y="2158" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">v1 + v2 chunked files</text>
+          <text x="775" y="2172" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">.hsm_bulk_results/**.jsonl</text>
+          <text x="775" y="2190" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">service identity: Blob Data Reader</text>
+          <text x="775" y="2202" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">(read-only)</text>
+          <line x1="630" y1="2160" x2="663" y2="2160" stroke="#38bdf8" stroke-width="1.2" marker-end="url(#arr-cyan)"/>
+          <text x="646" y="2153" text-anchor="middle" fill="#38bdf8" font-size="6" font-family="monospace">read</text>
+
+          <!-- consumer key vault -->
+          <rect x="665" y="2240" width="220" height="62" rx="6" fill="#1a1d27" stroke="#eab308" stroke-width="1"/>
+          <text x="775" y="2258" text-anchor="middle" fill="#eab308" font-size="9" font-family="monospace">Consumer Key Vault</text>
+          <text x="775" y="2273" text-anchor="middle" fill="#94a3b8" font-size="7" font-family="monospace">service's RSA private key</text>
+          <text x="775" y="2285" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">mounted by Secrets Store CSI</text>
+          <line x1="663" y1="2272" x2="632" y2="2272" stroke="#eab308" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr-yellow)"/>
+
+          <!-- CORE SERVICE (outside the consumer namespace) -->
+          <rect x="940" y="2108" width="340" height="92" rx="8" fill="#1a1d27" stroke="#a78bfa" stroke-width="2"/>
+          <text x="1110" y="2127" text-anchor="middle" fill="#a78bfa" font-size="10" letter-spacing="1" font-family="monospace">CORE SERVICE</text>
+          <rect x="955" y="2135" width="310" height="22" rx="4" fill="#22263a" stroke="#a78bfa" stroke-width="1"/>
+          <text x="1110" y="2150" text-anchor="middle" fill="#a78bfa" font-size="9" font-family="monospace">POST /dek/unwrap (scope dek_unwrap)</text>
+          <text x="1110" y="2173" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">cross-app grant: service app_id may</text>
+          <text x="1110" y="2185" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">decrypt the encrypting app's keys</text>
+          <path d="M 630 2345 L 925 2345 L 925 2150 L 938 2150" fill="none" stroke="#a78bfa" stroke-width="1.3" marker-end="url(#arr-purple)"/>
+          <text x="775" y="2339" text-anchor="middle" fill="#a78bfa" font-size="7" font-family="monospace">/dek/unwrap by edek_id · cache miss only · own app_id</text>
+
+          <!-- hsm-bulk-client producing v2 -->
+          <rect x="940" y="2225" width="340" height="112" rx="8" fill="#1a1d27" stroke="#3b82f6" stroke-width="1.5"/>
+          <text x="1110" y="2244" text-anchor="middle" fill="#3b82f6" font-size="10" letter-spacing="1" font-family="monospace">hsm-bulk-client</text>
+          <text x="1110" y="2257" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">batch producer · same codec + stores</text>
+          <text x="1110" y="2274" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">file.format-version: 2 (readers first)</text>
+          <text x="1110" y="2287" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">chunk-size-bytes 1 MiB for UI-bound files</text>
+          <text x="1110" y="2300" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">writes result files: path → file_id</text>
+          <text x="1110" y="2317" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">named DEK per dataset at high volume</text>
+          <text x="1110" y="2328" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">(key count, HSM load, shred granularity)</text>
+          <path d="M 940 2250 L 905 2250 L 905 2195 L 887 2195" fill="none" stroke="#3b82f6" stroke-width="1.3" marker-end="url(#arr-blue)"/>
+          <text x="900" y="2190" text-anchor="end" fill="#3b82f6" font-size="6" font-family="monospace">write</text>
+
+          <!-- format v2 note -->
+          <rect x="15" y="2398" width="1265" height="78" rx="6" fill="#0a1f1e" stroke="#10b981" stroke-width="1"/>
+          <text x="647" y="2415" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">File format v2 (FILE_FORMAT.md): header "HSMF" 0x02 · edek_id · file_id · chunk_size — each encrypted chunk carries file_id · chunk_index · is_final · chunk_size</text>
+          <text x="647" y="2429" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">truncation · reorder · duplicate · splice (same named DEK) · header strip (downgrade) · trailing data → all rejected; v1 missed every one of these</text>
+          <text x="647" y="2443" text-anchor="middle" fill="#10b981" font-size="8" font-family="monospace">AAD unchanged ("hsm-svc:app_id=owner") → any v2 chunk still decrypts via CORE SERVICE /decrypt: rescue path, no core change (CoreBulkFileInteropTest)</text>
+          <text x="647" y="2459" text-anchor="middle" fill="#555b7a" font-size="7" font-family="monospace">one codec in hsm-crypto-client · golden files in its test resources · Python reader verified against them · readers upgraded before any writer switches to v2</text>
 
           <defs>
             <marker id="arr-blue"   markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3b82f6"/></marker>

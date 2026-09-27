@@ -1,13 +1,13 @@
-<svg viewBox="0 0 1530 2140" xmlns="http://www.w3.org/2000/svg" role="img">
+<svg viewBox="0 0 1530 2720" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>HSM Core Service - Sequence Diagram</title>
-  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest</desc>
-  <rect width="1530" height="2140" fill="#0f1117"/>
+  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest, plus hsm-file-service serving a decrypted file to a consumer BFF (GET /v1/files/{path}: path allow-list, expected file_id check, cached /dek/unwrap, buffered vs streamed delivery with abort on failure) and the v2 produce and rescue paths</desc>
+  <rect width="1530" height="2720" fill="#0f1117"/>
           <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service's own
                DemoIndexGenerator (com.hsm.core.build.DemoIndexGenerator), which
                extracts everything from here to LIVE_DEMO_HEADER_END as the live demo's
                fixed participant header (viewBox 0 0 1530 80), and everything inside the
                <g transform="translate(0,80)"> below (the file's sole top-level group) as
-               the scrollable body (viewBox 0 0 1530 2060). Do not remove these markers or
+               the scrollable body (viewBox 0 0 1530 2640, set in hsm-core-service static/index.html; keep the two in sync). Do not remove these markers or
                restructure that group without updating that class's extraction logic. -->
           <rect width="1530" height="80" fill="#0f1117"/>
           <!-- subscription boundary divider — Auditor SPN is to the right -->
@@ -334,6 +334,81 @@
           <text x="26" y="1829" fill="#10b981" font-size="8" font-family="monospace">· AZURE_AD (same credential cascade as hsm-crypto-client's AzureAdTokenProvider.java)  ·  NOT SUPPORTED: MTLS — TLS-layer, doesn't fit ITokenProvider</text>
           <text x="26" y="1843" fill="#555b7a" font-size="7" font-family="monospace">Direct ports of SelfSignedJwtTokenProvider.java / AzureAdTokenProvider.java (com.hsm.client.svc) — same claims shape, same TTL, same credential cascade</text>
           <text x="26" y="1856" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (same caveat as Python) — JWT signing verified real (signature checked against the public key), wire format/interop verified live</text>
+
+
+          <!-- ── hsm-file-service: GET /v1/files/{path} (FILE_SERVICE.md) ── -->
+          <rect x="10" y="1890" width="1500" height="592" rx="5" fill="#04121a" stroke="#14b8a6" stroke-width="0.8"/>
+          <text x="18" y="1904" fill="#14b8a6" font-size="9" font-family="monospace" text-anchor="start" letter-spacing="1">hsm-file-service  ·  GET /v1/files/{path}  (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)</text>
+          <rect x="25" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#3b82f6" stroke-width="1"/>
+          <text x="90" y="1930" fill="#3b82f6" font-size="8.5" font-family="monospace" text-anchor="middle">Consumer UI</text>
+          <line x1="90" y1="1938" x2="90" y2="2366" stroke="#3b82f6" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="215" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#3b82f6" stroke-width="1"/>
+          <text x="280" y="1930" fill="#3b82f6" font-size="8.5" font-family="monospace" text-anchor="middle">Consumer BFF</text>
+          <line x1="280" y1="1938" x2="280" y2="2366" stroke="#3b82f6" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="405" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#eab308" stroke-width="1"/>
+          <text x="470" y="1930" fill="#eab308" font-size="8.5" font-family="monospace" text-anchor="middle">Istio sidecar</text>
+          <line x1="470" y1="1938" x2="470" y2="2366" stroke="#eab308" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="635" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#14b8a6" stroke-width="1"/>
+          <text x="700" y="1930" fill="#14b8a6" font-size="8.5" font-family="monospace" text-anchor="middle">hsm-file-service</text>
+          <line x1="700" y1="1938" x2="700" y2="2366" stroke="#14b8a6" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="895" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#38bdf8" stroke-width="1"/>
+          <text x="960" y="1930" fill="#38bdf8" font-size="8.5" font-family="monospace" text-anchor="middle">Blob / ADLS</text>
+          <line x1="960" y1="1938" x2="960" y2="2366" stroke="#38bdf8" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="1155" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#a78bfa" stroke-width="1"/>
+          <text x="1220" y="1930" fill="#a78bfa" font-size="8.5" font-family="monospace" text-anchor="middle">hsm-core-service</text>
+          <line x1="1220" y1="1938" x2="1220" y2="2366" stroke="#a78bfa" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <rect x="1355" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#64748b" stroke-width="1"/>
+          <text x="1420" y="1930" fill="#64748b" font-size="8.5" font-family="monospace" text-anchor="middle">Consumer DB</text>
+          <line x1="1420" y1="1938" x2="1420" y2="2366" stroke="#64748b" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
+          <line x1="90" y1="1962" x2="274" y2="1962" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#sq-blue)"/>
+          <text x="185.0" y="1958" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="middle">F1 open document</text>
+          <rect x="286" y="1978" width="345" height="14" rx="2" fill="#141a2e" stroke="#3b82f6" stroke-width="0.6"/>
+          <text x="293" y="1988" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="start">F2 decide: may this user see this file? (option A: BFF is the authority)</text>
+          <line x1="280" y1="2010" x2="1414" y2="2010" stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#sq-cyan)"/>
+          <text x="850.0" y="2006" fill="#64748b" font-size="7.5" font-family="monospace" text-anchor="middle">F3 expected file_id for path (loaded from bulk result .jsonl)</text>
+          <line x1="280" y1="2036" x2="464" y2="2036" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#sq-blue)"/>
+          <text x="375.0" y="2032" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="middle">F4 GET /v1/files/{path} · X-Expected-File-Id · X-End-User · X-Request-Id (mTLS)</text>
+          <line x1="470" y1="2060" x2="694" y2="2060" stroke="#eab308" stroke-width="1.2" marker-end="url(#sq-amber)"/>
+          <text x="585.0" y="2056" fill="#eab308" font-size="7.5" font-family="monospace" text-anchor="middle">F5 AuthorizationPolicy: BFF principal, GET /v1/files/* only — else 403 RBAC</text>
+          <rect x="706" y="2074" width="290" height="14" rx="2" fill="#141a2e" stroke="#14b8a6" stroke-width="0.6"/>
+          <text x="713" y="2084" fill="#14b8a6" font-size="7.5" font-family="monospace" text-anchor="start">F6 path rules + allowed-path-prefixes → else FS-400 / FS-404</text>
+          <line x1="700" y1="2108" x2="954" y2="2108" stroke="#38bdf8" stroke-width="1.2" marker-end="url(#sq-cyan)"/>
+          <text x="830.0" y="2104" fill="#38bdf8" font-size="7.5" font-family="monospace" text-anchor="middle">F7 size(path) · openRead</text>
+          <line x1="960" y1="2130" x2="706" y2="2130" stroke="#38bdf8" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#sq-cyan)"/>
+          <text x="830.0" y="2126" fill="#38bdf8" font-size="7.5" font-family="monospace" text-anchor="middle">stored bytes · header (v1 | v2: edek_id, file_id, chunk_size)</text>
+          <rect x="706" y="2144" width="313" height="14" rx="2" fill="#141a2e" stroke="#f59e0b" stroke-width="0.6"/>
+          <text x="713" y="2154" fill="#f59e0b" font-size="7.5" font-family="monospace" text-anchor="start">F8 X-Expected-File-Id ≠ header file_id → FS-412 (whole-file swap)</text>
+          <line x1="700" y1="2178" x2="1214" y2="2178" stroke="#a78bfa" stroke-width="1.2" marker-end="url(#sq-purple)"/>
+          <text x="960.0" y="2174" fill="#a78bfa" font-size="7.5" font-family="monospace" text-anchor="middle">F9 POST /dek/unwrap(edek_id) — only on cache miss · as its own app_id</text>
+          <line x1="1220" y1="2200" x2="706" y2="2200" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#sq-purple)"/>
+          <text x="960.0" y="2196" fill="#a78bfa" font-size="7.5" font-family="monospace" text-anchor="middle">wrapped DEK + owner_app_id (cross-app grant checked) · refused → FS-502 · down → FS-503</text>
+          <rect x="706" y="2214" width="414" height="14" rx="2" fill="#141a2e" stroke="#a78bfa" stroke-width="0.6"/>
+          <text x="713" y="2224" fill="#a78bfa" font-size="7.5" font-family="monospace" text-anchor="start">F10 RSA-OAEP unwrap · DEK cache 15 min / 200 (= revocation lag) · private copy per read</text>
+          <rect x="240" y="2240" width="780" height="74" rx="3" fill="none" stroke="#10b981" stroke-width="0.8" stroke-dasharray="5,3"/>
+          <text x="246" y="2251" fill="#10b981" font-size="8" font-family="monospace" text-anchor="start">alt</text>
+          <text x="270" y="2251" fill="#10b981" font-size="7.5" font-family="monospace" text-anchor="start">[stored ≤ 21.5 MiB and buffer slot free]</text>
+          <line x1="700" y1="2268" x2="286" y2="2268" stroke="#10b981" stroke-width="1.2" marker-end="url(#sq-green)"/>
+          <text x="490.0" y="2261" fill="#10b981" font-size="7.5" font-family="monospace" text-anchor="middle">F11a decrypt + verify EVERY chunk in memory, then 200 + Content-Length · or clean JSON error</text>
+          <line x1="240" y1="2277" x2="1020" y2="2277" stroke="#10b981" stroke-width="0.6" stroke-dasharray="3,3"/>
+          <text x="270" y="2288" fill="#10b981" font-size="7.5" font-family="monospace" text-anchor="start">[else — large file]</text>
+          <line x1="700" y1="2305" x2="286" y2="2305" stroke="#f59e0b" stroke-width="1.2" marker-end="url(#sq-orange)"/>
+          <text x="490.0" y="2298" fill="#f59e0b" font-size="7.5" font-family="monospace" text-anchor="middle">F11b stream each verified chunk (chunked) · failure after 1st byte → connection ABORTED</text>
+          <rect x="706" y="2322" width="515" height="14" rx="2" fill="#141a2e" stroke="#94a3b8" stroke-width="0.6"/>
+          <text x="713" y="2332" fill="#94a3b8" font-size="7.5" font-family="monospace" text-anchor="start">F12 audit.json file_access {request_id, outcome, error_code, mode, path, end_user, caller, file_id} · metrics</text>
+          <line x1="280" y1="2356" x2="96" y2="2356" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#sq-blue)"/>
+          <text x="104" y="2352" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="start">F13 file — or error; an aborted/incomplete download is a failure, never shown</text>
+          <rect x="18" y="2382" width="735" height="80" rx="3" fill="#0a1f1e"/>
+          <text x="26" y="2396" fill="#10b981" font-size="8" font-family="monospace" text-anchor="start">PRODUCE — hsm-bulk-client, file.format-version: 2 (after every reader is upgraded)</text>
+          <text x="26" y="2411" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">/dek/issue (named DEK per dataset at high volume) → shared codec writes v2: "HSMF" 0x02 · edek_id · file_id · chunk_size</text>
+          <text x="26" y="2424" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">each chunk carries file_id · chunk_index · is_final · chunk_size inside the AES-GCM plaintext (AAD unchanged)</text>
+          <text x="26" y="2437" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">result files .hsm_bulk_results/&lt;job&gt;/&lt;run&gt;/batch-NNNNNN.jsonl (path → file_id) → consumer DB (F3)</text>
+          <text x="26" y="2451" fill="#555b7a" font-size="7" font-family="monospace" text-anchor="start">1 MiB chunks for UI-bound files: faster first byte, ~4 MB heap per streamed download</text>
+          <rect x="767" y="2382" width="735" height="80" rx="3" fill="#1a1405"/>
+          <text x="775" y="2396" fill="#f59e0b" font-size="8" font-family="monospace" text-anchor="start">RESCUE — any chunk, v1 or v2, through hsm-core-service alone (no core change)</text>
+          <text x="775" y="2411" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">token = "v1." + b64url(0x01 · edek_id · iv · tag · ciphertext) → POST /decrypt/batch → base64 chunk plaintext</text>
+          <text x="775" y="2424" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">caller applies the v2 rules: file_id · position · chunk_size · exactly one final chunk · nothing after it</text>
+          <text x="775" y="2437" fill="#cdd2f0" font-size="7.5" font-family="monospace" text-anchor="start">EncryptedFileReader.decryptTo(out, ChunkDecryptor) · examples/python hsm_bulk_file_reader.py · examples/dotnet</text>
+          <text x="775" y="2451" fill="#555b7a" font-size="7" font-family="monospace" text-anchor="start">guarded by CoreBulkFileInteropTest.v2File_rescuedChunkByChunkViaCoreDecrypt_keepsIntegrityChecks</text>
 
           </g><!-- /translate(0,40) -->
 

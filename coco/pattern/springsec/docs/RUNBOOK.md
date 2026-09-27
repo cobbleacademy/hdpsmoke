@@ -208,6 +208,31 @@ To trace a specific slow/failing request end to end:
    already always find the correlation ID for a failed call on the
    `X-Correlation-Id` response header regardless.
 
+## hsm-file-service: triage by error code
+
+Consumers run this service from the image and chart only, so triage starts
+from the `error_code` in the response body and the matching `request_id` in
+the pod log (`file_request_failed` / `file_request_rejected` /
+`file_stream_aborted`) and in the `file_access` audit line. The full code
+table is in `FILE_SERVICE.md`, "Error codes".
+
+| Symptom | Likely cause | Action |
+|---|---|---|
+| Every request `FS-502-KEY-UNAVAILABLE` right after install | No cross-app grant, or wrong `app_id` / public key | `GET /admin/grants`; compare `config.core.appId` with `app_registrations` |
+| `FS-502-KEY-UNAVAILABLE` on one file | Key shredded, or the file was written by an app not covered by the grant | `GET /admin/edek/{edek_id}` (edek_id is in the log detail) |
+| `FS-503-CORE-UNAVAILABLE` | hsm-core-service down or unreachable (NetworkPolicy egress, mesh) | Core's own health first; then `networkPolicy.coreServiceNamespace` |
+| `FS-502-STORAGE` | Storage RBAC, private endpoint, throttling | Pod identity role assignment; storage metrics |
+| `FS-422-INTEGRITY` | Stored file altered, truncated by a failed copy, or not written by a real job | **Treat as a security event.** Preserve the blob, check storage write logs, re-run the producing job for that file |
+| `FS-412-FILE-ID-MISMATCH` | File replaced, restored from an old copy, or the BFF's record is stale | **Security-relevant.** Compare the served `X-HSM-File-Id` with the bulk result files |
+| Downloads cut off, `outcome=aborted` in audit | Integrity failure after streaming began (large file) | Same as `FS-422-INTEGRITY`; the log carries the reason |
+| Sidecar `403 RBAC: access denied` | Caller isn't the BFF principal in `istio.authorizationPolicy.bffPrincipals` | Fix the principal (`cluster.local/ns/<ns>/sa/<sa>`) |
+| Pods OOM-killed | Buffered burst above the memory budget | Lower `config.delivery.maxBufferedRequests` or raise `resources.limits.memory`; write UI files with 1 MiB chunks |
+
+**Revoking access urgently.** Remove the grant (`DELETE /admin/grants`) or
+deactivate the service's app_id. Cached keys keep working for up to the
+cache TTL (15 min) plus 60 s. For immediate effect, also restart the
+Deployment (`kubectl rollout restart`); shutdown zeroes the cache.
+
 ## `TODO`: fill in before this is a real on-call doc
 
 - [ ] Escalation path / on-call rotation for each failure mode above

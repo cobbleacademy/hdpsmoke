@@ -279,15 +279,14 @@ memory on your side), and encrypt each chunk as its own item via the batch
 endpoint — the existing, already-reviewed primitive, invoked once per
 chunk instead of once per logical record.
 
-**Chunk identity binding.** If you want a chunk's AEAD tag to fail
-verification when it's decrypted out of position or attributed to the
-wrong file (not just when its bytes are tampered), that requires binding
-`file_id`/`chunk_index`/`chunk_count` into the AAD — today's AAD is fixed
-to `owner_app_id` (`DekManager.encrypt(..., appId)`) and isn't
-caller-configurable. If this level of integrity binding turns out to
-matter for a real onboarding migration, that's a scoped, reviewable
-addition to `DekManager`/`EncryptRequest` — flag it as a real need before
-assuming it, not speculative.
+**Chunk identity binding.** In the Tier 1 pattern above, each chunk is its
+own token and the AAD is fixed to `owner_app_id`, so binding a chunk to its
+position or file is your manifest's job (the whole-file SHA-256 below). The
+Tier 3 file format now does this itself: format **v2** (`FILE_FORMAT.md`)
+carries `file_id`, `chunk_index`, a final flag and `chunk_size` inside every
+encrypted chunk. Truncation, reordering, splicing and header-stripping then
+fail loudly. It does this without changing the AAD, so hsm-core-service's
+`/decrypt` still works on every chunk (the rescue path).
 
 **Manifest — your own record, in your own storage**, not something this
 service creates or stores: `file_id`, original filename, total size, chunk
@@ -304,6 +303,40 @@ at encrypt time before using it. The digest check is what catches a chunk
 being silently dropped or duplicated during your own reassembly — the
 per-chunk AEAD tag alone only proves each chunk's ciphertext wasn't
 tampered with, not that your stitching logic assembled them correctly.
+
+### Tier 3 file format v2, result files, and hsm-file-service
+
+`hsm-bulk-client`'s file jobs now write through the shared codec in
+`hsm-crypto-client` (`com.hsm.client.fileformat`), the same code
+`hsm-file-service` reads with. The two can't drift apart.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `file.format-version` | `1` | `2` writes v2 (`FILE_FORMAT.md`). Decrypt always auto-detects per file. **Readers first**: switch a job to 2 only after every reader of its output is upgraded. |
+| `file.write-results` | on for v2, off for v1 | One JSON-lines file per encrypt batch under `<target>/.hsm_bulk_results/<job-id>/<run>/batch-NNNNNN.jsonl`: `path`, `file_id`, `edek_id`, `format_version`, sizes. Written before the checkpoint flush, so a resumed run never loses a `file_id`. `FileStore.list()` skips the directory. |
+| `file.chunk-size-bytes` | 8 MiB | Use **1 MiB** for files a UI will open through `hsm-file-service`; stay ≥ 64 KiB with a named DEK |
+
+The result files feed the consumer's database. The BFF then sends the
+recorded `file_id` to `hsm-file-service` as `X-Expected-File-Id`, which
+detects a whole file being replaced by another valid one. Per-batch files
+(rather than one manifest) keep this workable at billions of files.
+
+### Key scope for high-volume file sets
+
+The default, one DEK per file, costs one `/dek/issue`, one HSM wrap and one
+key record per file. That is fine at thousands of files and a real capacity
+problem at billions. Set `file.dek-name` to share one DEK across a data set:
+
+| Key mode | Keys per 10⁹ files | Crypto-shred granularity | Load on core and the HSM |
+|---|---|---|---|
+| One key per file (default) | 10⁹ | one file | very heavy |
+| Named key per dataset / tenant / month | thousands | the whole set | light |
+
+Choose the scope by what you'd need to delete together: per tenant, per
+customer or per retention period. That scope is the smallest unit you can
+shred. Rely on named-DEK rotation to bound how much one key protects. With
+v2, chunks from different files under one named key still can't be mixed:
+`file_id` binds them.
 
 ### Bulk crypto-shred (de-boarding) needs no new capability at all
 

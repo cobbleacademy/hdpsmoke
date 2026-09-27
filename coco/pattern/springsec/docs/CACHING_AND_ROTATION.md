@@ -85,3 +85,16 @@ decoupling is deliberate, not an oversight:
   cached-DEK data one leaked CEK could decrypt). It's a security/exposure
   dial, not a performance dial — tuning it to "help under load" would be a
   no-op for throughput and only add operational churn.
+
+## Client-side DEK caches (hsm-crypto-client, hsm-file-service)
+
+Separate from the server-side Redis cache above: every `HsmCryptoClient`
+holds its own in-process, bounded cache of unwrapped DEKs (`DekCache`: max
+size + TTL, swept every 60 s, zeroed on eviction and `close()`). Library
+default 1000 entries / 30 min. `hsm-file-service` runs 200 / **15 min**, and
+that TTL is its revocation lag: after a grant is removed or a key is
+shredded, an already-cached key keeps serving for up to TTL + 60 s (restart
+the Deployment for immediate effect). It deliberately uses no Redis: a shared
+cache would put key material in another component in the consumer's
+namespace, plus a CEK to distribute and rotate there, for little hit-rate
+gain. See `FILE_SERVICE.md` "Key cache".

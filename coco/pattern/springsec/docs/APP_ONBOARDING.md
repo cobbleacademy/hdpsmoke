@@ -103,6 +103,38 @@ curl -X POST "$BASE/admin/rotate-kek" \
 - [ ] Audit log shows the expected events (`encrypt`/`decrypt` success, no
       unexpected `access_denied` entries for expected-allowed calls)
 
+## hsm-file-service (a consumer's in-namespace decrypt-and-serve service)
+
+Each `hsm-file-service` deployment is its own calling app. Onboard it like any
+app, with these specifics (full context: `FILE_SERVICE.md`):
+
+- [ ] **Its own `app_id`** (e.g. `<consumer>-file-service`), never the
+      encrypting app's. Scopes: **`dek_unwrap` only**. It never encrypts,
+      issues or rotates.
+- [ ] **`public_key_pem`** registered from a key pair generated for this
+      deployment. The private half goes into the **consumer's** Key Vault,
+      and the chart mounts it through the CSI driver
+      (`secrets.keyVault.privateKeySecretName`).
+- [ ] **Cross-app grant**: `POST /admin/grants` with
+      `grantee_app_id=<file-service app_id>`, `owner_app_id=<encrypting app_id>`,
+      `scope=decrypt`. Or use `POST /admin/dek-grants` to limit it to one
+      `dek_name`. Without it, every request fails `FS-502-KEY-UNAVAILABLE`.
+      Record the grant in the access review; it is this service's whole
+      blast radius.
+- [ ] **Storage**: *Storage Blob Data Reader* (read-only) for the pod's
+      workload identity on the container or path the chart's
+      `config.store.root` points at.
+- [ ] **Chart values**: `config.core.appId`, `config.core.baseUrl`,
+      `config.access.allowedPathPrefixes`,
+      `istio.authorizationPolicy.bffPrincipals`, and the network policy
+      selectors for the BFF.
+- [ ] **Verify** from the BFF pod: a known file returns `200` with
+      `X-HSM-Delivery`. A path outside the prefixes returns `404`. A call
+      from any other pod is refused by the sidecar (`403 RBAC: access
+      denied`).
+- [ ] If the BFF will send `X-Expected-File-Id`: the producing bulk job runs
+      with `file.format-version: 2`, and the consumer ingests its result files.
+
 ## Deactivating or removing an app later
 
 Deactivate via `/admin/apps/status` (`active: false`) — this is a live API
