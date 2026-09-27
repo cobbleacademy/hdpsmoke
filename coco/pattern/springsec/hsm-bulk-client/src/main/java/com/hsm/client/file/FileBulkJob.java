@@ -3,25 +3,25 @@ package com.hsm.client.file;
 import com.hsm.client.config.ClientProperties;
 import com.hsm.client.crypto.DekManager;
 import com.hsm.client.crypto.TransportWrapper;
+import com.hsm.client.fileformat.EncryptedFileException;
+import com.hsm.client.fileformat.EncryptedFileFormat;
+import com.hsm.client.fileformat.EncryptedFileReader;
+import com.hsm.client.fileformat.EncryptedFileWriter;
 import com.hsm.client.svc.SvcClient;
 import com.hsm.client.svc.SvcConfig;
 import org.slf4j.Logger;
+import com.hsm.filestore.AdlsFileStore;
+import com.hsm.filestore.AzureBlobFileStore;
+import com.hsm.filestore.FileStore;
+import com.hsm.filestore.LocalFileStore;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
-import javax.crypto.AEADBadTagException;
-import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,8 +33,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 /**
  * BULK File job: one DEK per whole file by default, each chunk encrypted separately
@@ -43,38 +41,26 @@ import java.util.zip.GZIPOutputStream;
  * length-prefixed binary framing -- immune to ciphertext content, unlike a newline
  * delimiter.
  *
- * <p>Output file layout: [16 bytes edek_id] then repeated [4-byte chunk length]
- * [iv(12) + tag(16) + ciphertext(N)] until EOF. No explicit chunk-count field (a
- * simplification from the original per-file header sketch): the framing is
- * self-terminating at end-of-stream, which avoids needing to know the chunk count
- * up front -- important for FileStore.openWrite's push-style streaming (in
- * particular AdlsFileStore's pipe-based upload), which can't seek back to fill in a
- * count after the fact. edek_id is stored once, not repeated per chunk -- every
- * chunk of one file always shares the same DEK by construction, so nothing is lost
- * by only writing it once; dek_name is deliberately NOT persisted here at all, since
- * it has no role at decrypt time on either service (it only ever affects encrypt-time
- * DEK-reuse decisions) -- edek_id is the one thing hsm-bulk-service's /dek/unwrap and
- * hsm-core-service's /decrypt both actually key off of.
+ * <p>Wire format: owned by hsm-crypto-client's {@link EncryptedFileWriter}/
+ * {@link EncryptedFileReader} (normative spec: java/docs/FILE_FORMAT.md) -- this class
+ * no longer frames bytes itself, so it can never drift from hsm-file-service, which
+ * reads the same files through the same code. v1 (default): [16-byte edek_id] then
+ * repeated [4-byte length][iv(12) + tag(16) + ciphertext], each chunk's plaintext
+ * base64(marker + chunk) -- the base64 layer keeps any single chunk decryptable via
+ * hsm-core-service's /decrypt, whose response is a UTF-8 string. v2
+ * (config.formatVersion() = 2): a "HSMF" header adding file_id and chunk_size, and
+ * each chunk additionally carries file_id, its index, a final flag and the chunk
+ * size inside the encrypted plaintext -- so truncation, reordering, splicing and
+ * header-stripping are detected, with the AAD (and therefore core's /decrypt)
+ * unchanged. Decrypt detects the version per file; nothing to configure.
  *
- * <p>Each chunk's plaintext is base64-encoded (config.chunkSizeBytes() raw bytes in,
- * an ASCII base64 string out) before it's actually encrypted -- required, not
- * cosmetic: hsm-core-service's own DecryptionService does {@code new String(plaintext,
- * UTF_8)} unconditionally on the way out, which corrupts arbitrary binary content (a
- * real file chunk is essentially never valid UTF-8) but is always lossless for base64
- * text, since base64's alphabet is a strict subset of ASCII/UTF-8. This is the one
- * change needed to make this file's own ciphertext frames decryptable via
- * hsm-core-service, not just this class's own local decrypt path.
+ * <p>config.compressBeforeEncrypt() (default false) gzips each chunk before the base64
+ * step; the marker byte inside the authenticated plaintext records it per chunk, so
+ * decrypt never needs a matching setting.
  *
- * <p>config.compressBeforeEncrypt() (default false, per-job only -- see
- * ClientProperties.File's javadoc) gzips each chunk before the base64 step above.
- * The one byte immediately BEFORE the base64-encoded payload -- itself inside the
- * AES-GCM-protected plaintext, so it's authenticated, not just self-describing --
- * is a marker: {@code 0x00} raw, {@code 0x01} gzip-compressed. Every decrypt path
- * (this class's own decryptOneFile, and the remote path via
- * reconstructCoreServiceToken) always reads this marker and branches accordingly,
- * regardless of what compressBeforeEncrypt was set to on whatever job produced the
- * file, or which service resolves the DEK -- no coordination needed between the
- * encrypt-time config and whatever decrypts later.
+ * <p>config.resultsEnabled() -- after each encrypt batch, a JSON-lines file recording
+ * path, file_id, edek_id and sizes per file (see FileResultsWriter); a consumer loads
+ * these to know each file's expected file_id.
  *
  * <p>Two decrypt paths resolve to the identical plaintext bytes, by design: LOCAL
  * (what this class's own decryptRange/decryptOneFile does) reads edek_id once,
@@ -116,6 +102,8 @@ public class FileBulkJob {
     // means every file's DEK is genuinely one-off by design -- unchanged per-batch
     // behavior, no persistent cache, no benefit to caching a one-off value anyway.
     private final Map<UUID, OwnedFileDek> namedDekCache;
+    private final EncryptedFileWriter.Options writeOptions;
+    private final FileResultsWriter resultsWriter;
 
     public FileBulkJob(ClientProperties.File config, SvcConfig svcConfig, SvcClient svcClient) {
         this.config = config;
@@ -126,6 +114,12 @@ public class FileBulkJob {
         this.targetStore = buildStore(config.target());
         this.checkpointStore = checkpointEnabled(config) ? new FileCheckpointStore() : null;
         this.namedDekCache = isNamed(config) ? new ConcurrentHashMap<>() : null;
+        this.writeOptions = new EncryptedFileWriter.Options(
+                config.formatVersion() == 2 ? EncryptedFileFormat.Version.V2 : EncryptedFileFormat.Version.V1,
+                config.chunkSizeBytes(), config.compressBeforeEncrypt());
+        this.resultsWriter = config.resultsEnabled()
+                ? new FileResultsWriter(targetStore, checkpointEnabled(config) ? config.checkpoint().jobId() : null)
+                : null;
     }
 
     private static boolean checkpointEnabled(ClientProperties.File config) {
@@ -198,7 +192,9 @@ public class FileBulkJob {
 
     public void encrypt() {
         List<String> files = sourceStore.list(config.fileTypes());
-        log.info("file_bulk_encrypt_start file_count={}", files.size());
+        log.info("file_bulk_encrypt_start file_count={} format_version={} chunk_size_bytes={} results_dir={}",
+                files.size(), config.formatVersion(), config.chunkSizeBytes(),
+                resultsWriter == null ? "disabled" : resultsWriter.runDir());
 
         NamedFileDek namedDek = resolveJobDek();
         Set<String> alreadyDone = resolveCheckpointStart();
@@ -315,9 +311,11 @@ public class FileBulkJob {
                 continue;
             }
 
+            List<FileResultsWriter.Entry> batchResults = new ArrayList<>(toProcess.size());
             if (namedDek != null) {
                 for (String path : toProcess) {
-                    encryptOneFile(path, namedDek.edekId(), namedDek.dek(), namedDek.ownerAppId());
+                    batchResults.add(new FileResultsWriter.Entry(path,
+                            encryptOneFile(path, namedDek.edekId(), namedDek.dek(), namedDek.ownerAppId())));
                     onFileDone(path, jobId, doneCounter);
                 }
             } else {
@@ -337,12 +335,18 @@ public class FileBulkJob {
                     }
                     byte[] dek = TransportWrapper.unwrap(Base64.getDecoder().decode(result.wrappedDekB64()), privateKey);
                     try {
-                        encryptOneFile(path, result.edekId(), dek, result.ownerAppId());
+                        batchResults.add(new FileResultsWriter.Entry(path,
+                                encryptOneFile(path, result.edekId(), dek, result.ownerAppId())));
                         onFileDone(path, jobId, doneCounter);
                     } finally {
                         DekManager.zeroDek(dek);
                     }
                 }
+            }
+            // Written before the checkpoint flush below, so a file marked done always
+            // has its result line on storage -- a resumed run never loses a file_id.
+            if (resultsWriter != null) {
+                resultsWriter.writeBatch(batchResults);
             }
             sinceFlush += toProcess.size();
             if (checkpointEnabled() && sinceFlush >= config.checkpoint().flushInterval()) {
@@ -363,37 +367,12 @@ public class FileBulkJob {
         }
     }
 
-    private void encryptOneFile(String relativePath, UUID edekId, byte[] dek, String ownerAppId) {
+    private EncryptedFileWriter.Result encryptOneFile(String relativePath, UUID edekId, byte[] dek, String ownerAppId) {
         try (InputStream in = sourceStore.openRead(relativePath);
-             DataOutputStream out = new DataOutputStream(targetStore.openWrite(relativePath))) {
-            out.writeLong(edekId.getMostSignificantBits());
-            out.writeLong(edekId.getLeastSignificantBits());
-
-            boolean compress = config.compressBeforeEncrypt();
-            byte[] buffer = new byte[config.chunkSizeBytes()];
-            int read;
-            while ((read = readFully(in, buffer)) > 0) {
-                byte[] chunk = read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
-                // Compression marker (see class javadoc) prepended BEFORE base64 --
-                // inside the AES-GCM-protected plaintext, so it's authenticated, not
-                // just self-describing.
-                byte[] payload = compress ? gzip(chunk) : chunk;
-                byte[] marked = new byte[1 + payload.length];
-                marked[0] = compress ? (byte) 0x01 : (byte) 0x00;
-                System.arraycopy(payload, 0, marked, 1, payload.length);
-                // base64-encode before encrypting -- see class javadoc: makes this
-                // frame's ciphertext safe to decrypt via hsm-core-service's own
-                // /decrypt too, not just this class's own local path.
-                String base64Plaintext = Base64.getEncoder().encodeToString(marked);
-                DekManager.EncryptResult encrypted = DekManager.encrypt(
-                        base64Plaintext.getBytes(StandardCharsets.UTF_8), dek, ownerAppId);
-                byte[] frame = new byte[DekManager.IV_LENGTH + DekManager.TAG_LENGTH + encrypted.ciphertext().length];
-                System.arraycopy(encrypted.iv(), 0, frame, 0, DekManager.IV_LENGTH);
-                System.arraycopy(encrypted.tag(), 0, frame, DekManager.IV_LENGTH, DekManager.TAG_LENGTH);
-                System.arraycopy(encrypted.ciphertext(), 0, frame, DekManager.IV_LENGTH + DekManager.TAG_LENGTH, encrypted.ciphertext().length);
-                out.writeInt(frame.length);
-                out.write(frame);
-            }
+             OutputStream out = targetStore.openWrite(relativePath)) {
+            return EncryptedFileWriter.write(in, out, edekId, dek, ownerAppId, writeOptions);
+        } catch (EncryptedFileException e) {
+            throw new IllegalStateException("Failed to encrypt file " + relativePath + ": " + e.getMessage(), e);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to encrypt file " + relativePath, e);
         }
@@ -493,82 +472,28 @@ public class FileBulkJob {
     }
 
     private UUID readEdekIdHeader(String relativePath) {
-        try (DataInputStream in = new DataInputStream(sourceStore.openRead(relativePath))) {
-            long msb = in.readLong();
-            long lsb = in.readLong();
-            return new UUID(msb, lsb);
+        try (InputStream in = sourceStore.openRead(relativePath)) {
+            return EncryptedFileFormat.readHeader(in).edekId();
+        } catch (EncryptedFileException e) {
+            throw new IllegalStateException("Failed to read header of " + relativePath + ": " + e.getMessage(), e);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read edek_id header from " + relativePath, e);
         }
     }
 
     private void decryptOneFile(String relativePath, byte[] dek, String ownerAppId) {
-        try (DataInputStream in = new DataInputStream(sourceStore.openRead(relativePath));
+        try (InputStream in = sourceStore.openRead(relativePath);
              OutputStream out = targetStore.openWrite(relativePath)) {
-            in.readLong(); // edek_id -- already consumed via readEdekIdHeader before the /dek/unwrap call
-            in.readLong();
-
-            while (true) {
-                int frameLength;
-                try {
-                    frameLength = in.readInt();
-                } catch (EOFException eof) {
-                    break;
-                }
-                byte[] frame = new byte[frameLength];
-                in.readFully(frame);
-                byte[] iv = Arrays.copyOfRange(frame, 0, DekManager.IV_LENGTH);
-                byte[] tag = Arrays.copyOfRange(frame, DekManager.IV_LENGTH, DekManager.IV_LENGTH + DekManager.TAG_LENGTH);
-                byte[] ciphertext = Arrays.copyOfRange(frame, DekManager.IV_LENGTH + DekManager.TAG_LENGTH, frame.length);
-                byte[] plaintext;
-                try {
-                    plaintext = DekManager.decrypt(ciphertext, tag, iv, dek, ownerAppId);
-                } catch (AEADBadTagException e) {
-                    throw new IllegalStateException("AEAD tag verification failed decrypting chunk of " + relativePath, e);
-                }
-                // Reverse of encryptOneFile's base64-safety encoding -- plaintext
-                // here is the base64 string's UTF-8 bytes, not the raw chunk yet.
-                String base64Plaintext = new String(plaintext, StandardCharsets.UTF_8);
-                byte[] marked = Base64.getDecoder().decode(base64Plaintext);
-                // Marker byte (see class javadoc) always read regardless of this
-                // job's own compressBeforeEncrypt config -- self-describing per chunk.
-                byte flag = marked[0];
-                byte[] payload = Arrays.copyOfRange(marked, 1, marked.length);
-                out.write(flag == 0x01 ? gunzip(payload) : payload);
-            }
+            EncryptedFileReader.open(in).decryptTo(out, dek, ownerAppId);
+        } catch (EncryptedFileException e) {
+            // Integrity failures (tampered, truncated, reordered, spliced, downgraded) and
+            // limit breaches both stop the job: a bulk decrypt must never leave a
+            // silently wrong file behind. The partially written target is left in place
+            // for inspection; it is not a valid decryption.
+            throw new IllegalStateException("Failed to decrypt " + relativePath + " (" + e.reason() + "): " + e.getMessage(), e);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to decrypt file " + relativePath, e);
         }
-    }
-
-    /** config.compressBeforeEncrypt() support -- see class javadoc for the marker-byte scheme this feeds. */
-    private static byte[] gzip(byte[] data) throws IOException {
-        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
-        try (GZIPOutputStream gzip = new GZIPOutputStream(compressed)) {
-            gzip.write(data);
-        }
-        return compressed.toByteArray();
-    }
-
-    private static byte[] gunzip(byte[] data) throws IOException {
-        ByteArrayOutputStream decompressed = new ByteArrayOutputStream();
-        try (GZIPInputStream gunzip = new GZIPInputStream(new ByteArrayInputStream(data))) {
-            gunzip.transferTo(decompressed);
-        }
-        return decompressed.toByteArray();
-    }
-
-    /** Reads up to buffer.length bytes, filling the buffer as much as possible before returning (unlike InputStream.read, which may return short reads) -- so chunk sizes are consistent except for the final chunk. Returns 0 at EOF. */
-    private static int readFully(InputStream in, byte[] buffer) throws IOException {
-        int total = 0;
-        while (total < buffer.length) {
-            int n = in.read(buffer, total, buffer.length - total);
-            if (n < 0) {
-                break;
-            }
-            total += n;
-        }
-        return total;
     }
 
     private static List<List<String>> partition(List<String> items, int size) {
@@ -596,7 +521,11 @@ public class FileBulkJob {
      * <p>Not called anywhere in this class -- decryptRange/decryptOneFile always
      * take the local path via SVC's /dek/unwrap. This exists purely as a public
      * capability for a consumer that wants to decrypt via hsm-core-service
-     * directly instead, without ever talking to hsm-bulk-service.
+     * directly instead, without ever talking to hsm-bulk-service. Works for v1 and
+     * v2 alike (the AAD is identical); for v2, run each decrypted chunk through
+     * {@code ChunkPayload.decode} -- or use
+     * {@code EncryptedFileReader.Session.decryptTo(out, ChunkDecryptor)}, which also
+     * enforces the final-chunk rules -- so the rescue path keeps v2's integrity checks.
      */
     public static String reconstructCoreServiceToken(UUID edekId, byte[] iv, byte[] tag, byte[] ciphertext) {
         return DekManager.packToken(edekId, iv, tag, ciphertext);

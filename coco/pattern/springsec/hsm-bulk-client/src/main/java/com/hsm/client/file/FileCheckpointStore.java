@@ -1,5 +1,7 @@
 package com.hsm.client.file;
 
+import com.hsm.filestore.FileStore;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;

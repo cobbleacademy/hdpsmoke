@@ -220,12 +220,36 @@ public record ClientProperties(
             // remote hsm-core-service path via reconstructCoreServiceToken) always
             // resolves it correctly regardless of what this flag was set to at
             // encrypt time, or which job/run produced the file.
-            boolean compressBeforeEncrypt
+            boolean compressBeforeEncrypt,
+            // 1 (default, also 0/unset) -- the v1 layout every reader in the field
+            // understands. 2 -- v2 (java/docs/FILE_FORMAT.md): adds file_id, chunk
+            // position/final-flag binding and the chunk size, so truncated, reordered,
+            // spliced or downgraded files fail loudly instead of decrypting to wrong
+            // bytes. Encrypt-side only: decrypt always detects the version per file.
+            // Switch to 2 only after every reader of this job's output (hsm-file-service,
+            // the Python/.NET example readers, consumer copies of them) is upgraded --
+            // an old reader fails on a v2 file (loudly, never silently).
+            int formatVersion,
+            // Per-batch JSON-lines result files (path, file_id, edek_id, sizes) under
+            // <target>/.hsm_bulk_results/ -- see FileResultsWriter. Unset (null) means
+            // "on for format-version 2, off for 1": v2's file_id is only useful to a
+            // consumer that records it.
+            Boolean writeResults
     ) {
         public File {
             if (parallelism <= 0) {
                 parallelism = 1;
             }
+            if (formatVersion == 0) {
+                formatVersion = 1;
+            }
+            if (formatVersion != 1 && formatVersion != 2) {
+                throw new IllegalArgumentException("file.format-version must be 1 or 2, got " + formatVersion);
+            }
+        }
+
+        public boolean resultsEnabled() {
+            return writeResults != null ? writeResults : formatVersion == 2;
         }
 
         // accountKey is null/blank (default) in every real deployment -- ADLS/AZURE_BLOB
