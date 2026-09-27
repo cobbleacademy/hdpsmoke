@@ -27,6 +27,9 @@ COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
+COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
+COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
+COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope
 # (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +
