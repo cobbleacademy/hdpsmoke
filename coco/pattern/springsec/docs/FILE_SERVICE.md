@@ -62,6 +62,19 @@ unwrapped key K". The *end user* appears only in this service's
 
 ## API
 
+**Machine-readable contract (OpenAPI 3.1):** `helm/hsm-file-service/openapi.yaml`,
+shipped inside the chart. Generate a BFF client from it, or mock the service in
+BFF tests. It is produced from the service itself, by springdoc 3.1.x on Spring
+Boot 4.1.0. `OpenApiContractTest` fails the build if the running service and the
+committed file ever differ, so the file can't go stale. A running pod also
+serves it on the management port:
+
+- `/actuator/openapi` (JSON) and `/actuator/openapi.yaml`, always on;
+- `/actuator/swagger-ui`, only with `config.swaggerUi: true`. Reach it through
+  `kubectl port-forward <pod> 8081`.
+
+The spec is never on the BFF-facing port 8080.
+
 `GET /v1/files/{path}`. This is the only data endpoint: no upload, list or
 delete.
 
@@ -147,6 +160,7 @@ each maps to an environment variable and a property under
 | `config.limits.maxChunkPlaintextBytes` | `12582912` | |
 | `config.dekCache.ttl` | `15m` | **Also the revocation lag**: a revoked or shredded key keeps serving for up to TTL + 60 s |
 | `config.dekCache.maxSize` | `200` | |
+| `config.swaggerUi` | `false` | Swagger UI on the management port; the spec itself is always served there |
 | `secrets.keyVault.*` / `secrets.existingSecretName` | Key Vault CSI | Private key (plus signing key or mTLS cert/key) mounted as files under `/mnt/secrets/hsm` |
 
 The chart refuses to render (`helm install` fails) without the required
@@ -165,7 +179,7 @@ file the cache mostly helps re-opens.
 
 | | |
 |---|---|
-| Ports | 8080: file API (BFF only). 8081: `/actuator/health/{liveness,readiness}`, `/actuator/prometheus`, `/actuator/metrics` |
+| Ports | 8080: file API (BFF only). 8081: `/actuator/health/{liveness,readiness}`, `/actuator/prometheus`, `/actuator/metrics`, `/actuator/openapi` (+ `/actuator/swagger-ui` when enabled) |
 | Metrics | `hsm_file_requests_total{outcome,code,mode,format}`, `hsm_file_request_duration_seconds`, `hsm_file_bytes_served` |
 | Audit | One JSON line per request on the `audit.json` logger: `event=file_access`, `request_id`, `outcome` (`ok` / `error` / `aborted` / `client_closed`), `error_code`, `mode`, `path`, `end_user`, `caller`, `file_id`, `format_version`, `bytes`, `duration_ms` |
 | Shutdown | Graceful: in-flight downloads get `config.shutdownGrace` (30 s), then the key cache is zeroed. `terminationGracePeriodSeconds` 45. |

@@ -5,6 +5,28 @@ status via curl instructions in `DEMO.md`), which are gated off entirely by
 `demo-mode=true` and don't exist in a real deployment. This documents what
 exists today, the gap in it, and how to operate it safely in the meantime.
 
+## API reference (OpenAPI / Swagger UI)
+
+hsm-core-service generates an OpenAPI 3.1 spec of its whole API (encrypt,
+decrypt, DEK and admin endpoints) with springdoc 3.1.x, the line built for
+Spring Boot 4.1.0.
+
+- **Off by default. Production never serves either the spec or the UI.**
+- It is on automatically in demo mode, or with `SPRINGDOC_ENABLED=true` in a dev
+  or test environment. Through the chart that's `config.openApiEnabled: "true"`,
+  which the chart refuses when `config.serviceEnv` is `production`.
+- When on, both live under the API prefix, so they're reachable through the
+  same route as the API:
+  - `${API_V1_PREFIX}/openapi`: the spec, JSON (default `/api/sensec/hsm/v1/openapi`);
+  - `${API_V1_PREFIX}/swagger-ui.html`: Swagger UI. Use **Authorize** to enter the
+    bearer token and `X-App-ID`.
+- The spec shows the real wire format: snake_case fields, bearer + `X-App-ID` on
+  every call except `GET /admin/health`, and no demo-only endpoints.
+  `OpenApiSpecTest` pins all three.
+- It is documentation only. Every call made from Swagger UI goes through the
+  normal authentication and `access-rules`, like any other client. mTLS client
+  certificates can be described but not exercised from the UI.
+
 ## What exists
 
 All under `${API_V1_PREFIX}/admin/...` (default `/api/sensec/hsm/v1/admin`),
