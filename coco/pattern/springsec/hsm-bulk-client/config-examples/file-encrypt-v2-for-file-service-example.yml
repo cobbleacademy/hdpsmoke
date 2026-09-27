@@ -1,0 +1,52 @@
+# BULK File encrypt job for files a UI will open through hsm-file-service.
+# Differs from file-encrypt-example.yml in three settings:
+#
+#   format-version: 2    file_id + chunk binding (java/docs/FILE_FORMAT.md), so
+#                        truncated/reordered/spliced files fail loudly, and the
+#                        file-service can check X-Expected-File-Id.
+#   chunk-size-bytes: 1 MiB   hsm-file-service verifies each chunk before sending
+#                        it; 1 MiB gives a fast first byte and ~4 MB heap per download.
+#   write-results        (on by default for v2) per-batch JSON-lines files under
+#                        <target>/.hsm_bulk_results/ mapping path -> file_id, for the
+#                        consumer to load into its own database.
+#
+# READERS FIRST: only run this once every reader of the target location is
+# upgraded (hsm-file-service 1.0+, current example readers, consumer copies).
+#   scripts/run.sh config-examples/file-encrypt-v2-for-file-service-example.yml
+
+client:
+  job:
+    type: FILE
+    mode: ENCRYPT
+  svc:
+    base-url: http://localhost:3005
+    app-id: payments-svc
+    # auth-mode and its keys: see file-encrypt-example.yml.
+    token: "<bearer token for app-id>"
+    dek-batch-max-items: 100
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <your PKCS#8 private key here>
+      -----END PRIVATE KEY-----
+  file:
+    source:
+      type: LOCAL
+      root: /path/to/source
+    target:
+      type: AZURE_BLOB
+      root: https://<account>.blob.core.windows.net/<container>/tenant-a
+    file-types: []
+    chunk-size-bytes: 1048576      # 1 MiB -- stay >= 64 KiB when dek-name is set
+    files-per-batch: 10
+    format-version: 2
+    # write-results: true          # default for format-version 2
+    # One named DEK per data set / tenant keeps /dek/issue and HSM load flat at
+    # high file counts; it is also the unit you can crypto-shred. See
+    # BULK_OPERATIONS.md "Key scope for high-volume file sets".
+    dek-name: tenant-a-documents-2026
+    parallelism: 4
+    checkpoint:
+      enabled: true
+      resume: true
+      job-id: tenant-a-documents     # also names the results directory
+      flush-interval: 1000
