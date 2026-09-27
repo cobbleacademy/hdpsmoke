@@ -69,6 +69,27 @@ describes; you need it to decrypt later. `hsm_bulk_file_reader.py` needs no
 such manifest — `FileBulkJob`'s own file already carries everything needed
 (`edek_id` plus ordered frames).
 
+### Format v2 and integrity checks
+
+`hsm_bulk_file_reader.py` reads **both** file formats (spec:
+`java/docs/FILE_FORMAT.md`). For v2 files it enforces the same rules as the Java
+reader -- every chunk's `file_id`, position and chunk size, exactly one final
+chunk, nothing after it -- and rejects a v2 chunk inside a v1-looking file
+(stripped header). Any violation raises `FileIntegrityError`, and the target
+file is only written (temp file + rename) once every check has passed. This is
+the supported **rescue path**: recover any encrypted file through
+hsm-core-service's `/decrypt/batch` alone.
+
+Verified against the committed golden files
+(`hsm-crypto-client/src/test/resources/golden/`): all five decrypt to the
+expected bytes, and truncated, reordered, trailing-data and header-stripped
+variants are all rejected.
+
+**Readers first:** upgrade any copy of this module you run *before* a
+producing job switches to `file.format-version: 2`. An old copy fails on a v2
+file (it reads the magic bytes as an edek_id and core answers "EDEK not found")
+-- loudly, never with wrong bytes -- but it does fail.
+
 ## Verified against real, running services — both directions
 
 Not just read from the DTO/Java source — both modules were run against real
