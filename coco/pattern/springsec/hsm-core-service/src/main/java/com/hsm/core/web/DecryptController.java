@@ -5,6 +5,7 @@ import com.hsm.core.dto.BatchDecryptResponse;
 import com.hsm.core.dto.DecryptRequest;
 import com.hsm.core.dto.DecryptResponse;
 import com.hsm.core.service.DecryptionService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * business-logic decision inside DecryptionService itself, not a URL rule.
  */
 @RestController
+@Tag(name = "Decrypt", description = "Decrypt v1.* tokens (single or batch). Cross-app tokens need a decrypt grant.")
 public class DecryptController {
 
     private final DecryptionService decryptionService;

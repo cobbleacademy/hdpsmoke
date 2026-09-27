@@ -6,6 +6,7 @@ import com.hsm.core.dto.DekUnwrapRequest;
 import com.hsm.core.dto.DekUnwrapResponse;
 import com.hsm.core.service.DekIssueService;
 import com.hsm.core.service.DekUnwrapService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * as EncryptController/DecryptController.
  */
 @RestController
+@Tag(name = "DEK (Tier 3)", description = "Issue or unwrap DEKs, RSA-OAEP-wrapped to the caller's registered public key, for local encryption (hsm-crypto-client, hsm-bulk-client, hsm-file-service).")
 public class DekController {
 
     private final DekIssueService dekIssueService;

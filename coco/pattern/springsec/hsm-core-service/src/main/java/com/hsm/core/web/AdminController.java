@@ -41,6 +41,8 @@ import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.service.ClassificationGovernanceService;
 import com.hsm.core.service.KekRegistryService;
 import com.hsm.core.service.RotationService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -72,6 +74,7 @@ import java.util.UUID;
  * in the rule set -- it stays public for Kubernetes liveness/readiness probes.
  */
 @RestController
+@Tag(name = "Admin", description = "KEK rotation/rekey, cross-app grants, classifications, kek_registry, app status/keys/mTLS certs, health. See ADMIN_OPERATIONS.md.")
 public class AdminController {
 
     private final AppRegistryService appRegistry;
@@ -135,6 +138,8 @@ public class AdminController {
         return rotationService.revertRekey(body.kekName(), "api:" + caller.sub());
     }
 
+    // Public (no token, no X-App-ID): empty requirement overrides the global one in the spec.
+    @SecurityRequirements
     @GetMapping("${hsm.service.api-v1-prefix}/admin/health")
     public HealthResponse health() {
         boolean vaultOk = false;

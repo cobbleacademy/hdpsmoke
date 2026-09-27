@@ -5,6 +5,7 @@ import com.hsm.core.dto.BatchEncryptResponse;
 import com.hsm.core.dto.EncryptRequest;
 import com.hsm.core.dto.EncryptResponse;
 import com.hsm.core.service.EncryptionService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * reaches this method.
  */
 @RestController
+@Tag(name = "Encrypt", description = "Encrypt one value or a batch; the service does AES-256-GCM server-side and returns v1.* tokens.")
 public class EncryptController {
 
     private final EncryptionService encryptionService;
