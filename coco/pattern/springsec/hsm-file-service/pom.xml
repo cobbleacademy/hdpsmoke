@@ -41,6 +41,14 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- OpenAPI spec (and optional Swagger UI) served on the management port only,
+             never on the BFF-facing file port. The committed contract is
+             helm/hsm-file-service/openapi.yaml; OpenApiContractTest fails the build if
+             the generated spec and that file ever differ. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -4,6 +4,16 @@ import com.hsm.fileservice.audit.AccessAuditLogger;
 import com.hsm.fileservice.config.FileServiceProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -27,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  */
 @RestController
+@Tag(name = "Files", description = "Decrypt-and-serve. The service's only data endpoint.")
 public class FileController {
 
     static final String BASE = "/v1/files/";
@@ -52,8 +63,60 @@ public class FileController {
         }
     }
 
+    @Operation(
+            operationId = "getFile",
+            summary = "Download one decrypted file",
+            description = """
+                    Reads the encrypted file at {path} (relative to store.root), verifies every chunk and returns the
+                    original bytes. Read-only; only the consumer's BFF may call it (Istio AuthorizationPolicy).
+
+                    Delivery: stored size <= delivery.buffer-threshold-bytes (default 21.5 MiB ~= 16 MiB original) is
+                    verified completely before the first byte and sent with Content-Length. Larger files stream with
+                    chunked transfer; a verification failure after the first byte ABORTS THE CONNECTION instead of
+                    returning an error body -- the caller must treat an incomplete transfer as a failure.
+
+                    Every failure before the first byte is an ErrorResponse. A caller that is not the BFF is refused by
+                    the Istio sidecar with a plain-text "403 RBAC: access denied" before reaching the service.""")
+    @Parameters({
+            // The {path} parameter itself is added by FileServiceOpenApiConfig: the real mapping is
+            // /v1/files/** (multi-segment), which springdoc can't turn into a path variable.
+            @Parameter(name = FileDeliveryService.EXPECTED_FILE_ID_HEADER, in = ParameterIn.HEADER,
+                    description = "file_id recorded when the file was written (bulk-client result files). Mismatch -> 412. "
+                            + "Required when access.require-expected-file-id=true (428 if missing).",
+                    schema = @Schema(type = "string", format = "uuid")),
+            @Parameter(name = END_USER_HEADER, in = ParameterIn.HEADER,
+                    description = "Who the BFF is serving. Recorded in the audit line only, never used for access decisions. Truncated to 256 chars.",
+                    schema = @Schema(type = "string", maxLength = 256)),
+            @Parameter(name = RequestIdFilter.HEADER, in = ParameterIn.HEADER,
+                    description = "Correlation id, echoed back. Replaced by a generated UUID unless it matches the pattern.",
+                    schema = @Schema(type = "string", pattern = "^[A-Za-z0-9._:-]{1,128}$"))
+    })
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The original file bytes.",
+                    content = @Content(mediaType = "*/*", schema = @Schema(type = "string", format = "binary")),
+                    headers = {
+                            @Header(name = "Content-Type", description = "From the file extension, else application/octet-stream", schema = @Schema(type = "string")),
+                            @Header(name = "Content-Length", description = "Buffered delivery only; absent when streaming (chunked)", schema = @Schema(type = "integer", format = "int64")),
+                            @Header(name = "Content-Disposition", description = "inline (default) or attachment, filename = last path segment (RFC 5987)", schema = @Schema(type = "string")),
+                            @Header(name = "Cache-Control", description = "Always no-store", schema = @Schema(type = "string")),
+                            @Header(name = "X-Content-Type-Options", description = "Always nosniff", schema = @Schema(type = "string")),
+                            @Header(name = "X-HSM-Format-Version", description = "1 or 2", schema = @Schema(type = "string", allowableValues = {"1", "2"})),
+                            @Header(name = "X-HSM-File-Id", description = "v2 files only", schema = @Schema(type = "string", format = "uuid")),
+                            @Header(name = "X-HSM-Delivery", description = "buffered or streaming", schema = @Schema(type = "string", allowableValues = {"buffered", "streaming"})),
+                            @Header(name = RequestIdFilter.HEADER, description = "Correlation id", schema = @Schema(type = "string"))
+                    }),
+            @ApiResponse(responseCode = "400", description = "FS-400-BAD-PATH, FS-400-BAD-FILE-ID", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "403", description = "FS-403-CALLER-NOT-TRUSTED (access.trusted-caller-spiffe-ids)", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "FS-404-NOT-FOUND: missing, outside allowed-path-prefixes, or bulk bookkeeping", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "412", description = "FS-412-FILE-ID-MISMATCH, FS-412-NO-FILE-ID", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "422", description = "FS-422-INTEGRITY (tampered/truncated/reordered/spliced), FS-422-LIMIT", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "428", description = "FS-428-FILE-ID-REQUIRED", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "500", description = "FS-500-INTERNAL", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "502", description = "FS-502-KEY-UNAVAILABLE (grant missing / key shredded), FS-502-STORAGE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503", description = "FS-503-CORE-UNAVAILABLE -- safe to retry with backoff", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
+    })
     @GetMapping(BASE + "**")
-    public void get(HttpServletRequest request, HttpServletResponse response) {
+    public void get(@Parameter(hidden = true) HttpServletRequest request, @Parameter(hidden = true) HttpServletResponse response) {
         long start = System.nanoTime();
         RequestTrace trace = new RequestTrace();
         trace.endUser = truncate(request.getHeader(END_USER_HEADER));

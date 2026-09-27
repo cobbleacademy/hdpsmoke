@@ -28,12 +28,26 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info,prometheus,metrics,openapi,swagger-ui
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
+
+# OpenAPI spec on the MANAGEMENT port only (http://<pod>:8081/actuator/openapi and
+# .../openapi.yaml), never on the BFF-facing file port. The committed copy that ships
+# with the chart is helm/hsm-file-service/openapi.yaml. Swagger UI
+# (/actuator/swagger-ui) is off unless SWAGGER_UI_ENABLED=true -- handy with
+# `kubectl port-forward` in dev; the spec itself is harmless and stays on.
+springdoc:
+  use-management-port: true
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_UI_ENABLED:false}
+  show-actuator: false
+  paths-to-match: /v1/**
 
 logging:
   pattern:
