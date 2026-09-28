@@ -208,6 +208,65 @@ To trace a specific slow/failing request end to end:
    already always find the correlation ID for a failed call on the
    `X-Correlation-Id` response header regardless.
 
+## HTTP client and Netty stack (all Java services)
+
+**Current setup:**
+- **Azure SDK:** every module that uses it (core, cek-rotation, crypto-client,
+  file-store, and through them bulk-client, file-service and the Spark adapter)
+  uses the **JDK HTTP client** (`azure-core-http-jdk-httpclient`).
+  `azure-core-http-netty` is excluded from every `com.azure` dependency, which
+  keeps reactor-netty off the classpath entirely.
+- **Netty:** present only where Lettuce needs it (core's Redis DEK cache,
+  cek-rotation's Redis operations), at the single version the parent pom's
+  `netty-bom` import sets (4.2.x).
+
+| Symptom | Cause | Action |
+|---|---|---|
+| `NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup` on the first Key Vault, Entra ID, Storage or Redis call | Mixed Netty lines on the classpath: something built for Netty 4.2 (reactor-netty 1.3, Lettuce 7) running on Netty 4.1. This was the state of every service until the Netty 4.2 / JDK-HttpClient change. | Check that the parent pom's `netty-bom` is the 4.2 line and that no module re-added `azure-core-http-netty` |
+
+**Guard:** `HttpStackTest` in core, cek-rotation, crypto-client and file-store
+fails the build if any of these break:
+- the Azure SDK's default client is the JDK one;
+- a real call through it links and fails only to connect;
+- reactor-netty and `azure-core-http-netty` are absent;
+- core and cek-rotation only: Lettuce links, and exactly one Netty version is
+  present.
+
+**Bumping Netty for a CVE:** change the `netty-bom` version in `java/pom.xml`
+only, never a single Netty artifact.
+
+## BC-FIPS native libraries (all Java services)
+
+Applies to `hsm-core-service` (including the `hsm-bulk-service` release),
+`cek-rotation-service`, `hsm-bulk-client` and `hsm-file-service`. The
+`hsm-core-service-loadtest` image doesn't load BC-FIPS.
+
+**How it works:**
+- BC-FIPS 2.x unpacks small native libraries from its jar at startup and loads
+  them: a CPU-feature probe, plus AES, SHA and DRBG acceleration.
+- Every image sets `-Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native`.
+- Every chart has `bcFips.nativeMode`:
+  - `native` (default): the chart mounts a disk-backed `emptyDir` at
+    `/opt/bc-native`, so `/tmp` never needs to be executable;
+  - `java`: pure Java; the chart sets `-Dorg.bouncycastle.native.cpu_variant=java`,
+    and nothing is unpacked or executed from disk.
+
+| Symptom | Cause | Action |
+|---|---|---|
+| Pod exits at startup: `UnsatisfiedLinkError … /tmp/bc-fips-jni_…/libbc-probe.so: failed to map segment` | Pre-fix image. BC-FIPS unpacked into a `noexec` `/tmp` | Upgrade the image |
+| Same error, but the path is `/opt/bc-native/…` | `/opt/bc-native` is writable but `noexec` (policy applied to the volume) | Allow exec on that volume, or set `bcFips.nativeMode: java` |
+| Starts normally, but native acceleration is off | `/opt/bc-native` not writable, e.g. a chart without the `bc-native` volume. BC-FIPS falls back to pure Java; it does **not** fail. | Expected with older charts. Upgrade the chart to get native mode back. |
+
+**Checking the mode:**
+- `hsm-file-service` logs it at startup:
+  `bc_fips_native enabled=true variant=avx aes_gcm_native=true`.
+- The other services don't log it. The behaviour above, verified in
+  containers, is the reference.
+
+`java` mode uses the same approved algorithms, without the native acceleration.
+Confirm with your FIPS compliance owner whether your validated configuration
+requires one mode.
+
 ## hsm-file-service: triage by error code
 
 Consumers run this service from the image and chart only, so triage starts
@@ -226,7 +285,7 @@ table is in `FILE_SERVICE.md`, "Error codes".
 | `FS-412-FILE-ID-MISMATCH` | File replaced, restored from an old copy, or the BFF's record is stale | **Security-relevant.** Compare the served `X-HSM-File-Id` with the bulk result files |
 | Downloads cut off, `outcome=aborted` in audit | Integrity failure after streaming began (large file) | Same as `FS-422-INTEGRITY`; the log carries the reason |
 | Sidecar `403 RBAC: access denied` | Caller isn't the BFF principal in `istio.authorizationPolicy.bffPrincipals` | Fix the principal (`cluster.local/ns/<ns>/sa/<sa>`) |
-| Pod exits at startup: `UnsatisfiedLinkError … libbc-probe.so: failed to map segment` | BC-FIPS could not load its native libraries: the unpack directory is `noexec` or not writable (typically `/opt/bc-native` not mounted, or a policy forcing `noexec` on it) | Keep `bcFips.nativeMode: native` with the chart's `bc-native` emptyDir, or set `bcFips.nativeMode: java` where executable volumes are forbidden (FILE_SERVICE.md "BC-FIPS native libraries") |
+| Pod exits at startup: `UnsatisfiedLinkError … libbc-probe.so: failed to map segment` | BC-FIPS unpack directory is `noexec` | See "BC-FIPS native libraries (all Java services)" above |
 | Pods OOM-killed | Buffered burst above the memory budget | Lower `config.delivery.maxBufferedRequests` or raise `resources.limits.memory`; write UI files with 1 MiB chunks |
 
 **Revoking access urgently.** Remove the grant (`DELETE /admin/grants`) or
