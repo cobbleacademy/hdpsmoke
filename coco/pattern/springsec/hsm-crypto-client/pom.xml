@@ -39,10 +39,10 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- Same azure-identity -> reactor-netty-http HTTP/3 codec + legacy Jackson 2
-             escaped-artifact issue as every other module depending on azure-identity in
-             this project (see hsm-core-service/pom.xml's comments); identical fix. Needed
-             for AzureAdTokenProvider's credential resolution (WorkloadIdentityCredential
+        <!-- Same setup as every module depending on the Azure SDK (see
+             hsm-core-service/pom.xml's comments): azure-core-http-netty excluded in
+             favour of the JDK HTTP client, and the legacy Jackson 2 artifacts
+             excluded and re-declared. Needed for AzureAdTokenProvider's credential resolution (WorkloadIdentityCredential
              -> ManagedIdentityCredential -> DefaultAzureCredential, same chain as
              AzureKeyVaultKekClient). -->
         <dependency>
@@ -50,24 +50,8 @@
             <artifactId>azure-identity</artifactId>
             <exclusions>
                 <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-http3</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-base</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-compression</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-classes-quic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-native-quic</artifactId>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
@@ -87,46 +71,18 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Azure SDK HTTP transport: the JDK's own java.net.http client, not
+             azure-core-http-netty (excluded from every com.azure dependency in this
+             pom). Keeps reactor-netty and its Netty/HTTP-3 subtree off this module's
+             classpath entirely. That subtree was built for a different Netty line
+             than the rest of the build and failed at runtime with
+             NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup.
+             azure-core discovers this provider via ServiceLoader; with the Netty
+             provider absent it is the only one, so no code or config change is
+             needed. Version managed by azure-sdk-bom. -->
         <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-http3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-base</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-compression</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-classes-quic</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>linux-x86_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>linux-aarch_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>osx-x86_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>osx-aarch_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>windows-x86_64</classifier>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
         </dependency>
 
         <dependency>
