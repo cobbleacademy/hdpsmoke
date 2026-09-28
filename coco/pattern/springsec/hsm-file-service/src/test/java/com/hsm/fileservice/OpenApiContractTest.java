@@ -100,6 +100,8 @@ class OpenApiContractTest {
     private Map<String, Object> generated() throws Exception {
         HttpResponse<String> r = get(managementPort, "/actuator/openapi");
         assertEquals(200, r.statusCode(), "spec must be served on the management port");
+        // The YAML variant is documented (FILE_SERVICE.md, chart NOTES.txt) at this exact path.
+        assertEquals(200, get(managementPort, "/actuator/openapi/yaml").statusCode(), "documented YAML URL must work");
         return JSON.readValue(r.body(), Map.class);
     }
 
