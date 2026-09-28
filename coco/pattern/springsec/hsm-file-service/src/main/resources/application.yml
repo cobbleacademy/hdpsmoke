@@ -35,8 +35,8 @@ management:
         enabled: true
       show-details: never
 
-# OpenAPI spec on the MANAGEMENT port only (http://<pod>:8081/actuator/openapi and
-# .../openapi.yaml), never on the BFF-facing file port. The committed copy that ships
+# OpenAPI spec on the MANAGEMENT port only (http://<pod>:8081/actuator/openapi, YAML at
+# /actuator/openapi/yaml), never on the BFF-facing file port. The committed copy that ships
 # with the chart is helm/hsm-file-service/openapi.yaml. Swagger UI
 # (/actuator/swagger-ui) is off unless SWAGGER_UI_ENABLED=true -- handy with
 # `kubectl port-forward` in dev; the spec itself is harmless and stays on.
