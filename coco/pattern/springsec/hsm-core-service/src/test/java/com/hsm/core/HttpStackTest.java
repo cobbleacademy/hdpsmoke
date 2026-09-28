@@ -51,7 +51,7 @@ class HttpStackTest {
 
     @Test
     void lettuceLinks() {
-        // Redis client (core's DEK cache, cek-rotation's RedisOps): Netty-based, so it
+        // Redis client (core's DEK cache, hsm-cache-key-rotator's RedisOps): Netty-based, so it
         // must link against the single Netty version the parent pom pins.
         io.lettuce.core.RedisClient client = io.lettuce.core.RedisClient.create("redis://127.0.0.1:9");
         try {
