@@ -166,7 +166,7 @@
 
           <!-- ── CEK ROTATION SERVICE ───────────────────────────────────────── -->
           <rect x="440" y="650" width="200" height="116" rx="8" fill="#1a1d27" stroke="#eab308" stroke-width="1.5" stroke-dasharray="5,3"/>
-          <text x="540" y="669" text-anchor="middle" fill="#eab308" font-size="10" letter-spacing="1" font-family="monospace">CEK ROTATION SVC</text>
+          <text x="540" y="669" text-anchor="middle" fill="#eab308" font-size="10" letter-spacing="1" font-family="monospace">CACHE KEY ROTATOR</text>
           <text x="540" y="682" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Separate K8S service · HSM Service SPN</text>
           <rect x="455" y="689" width="170" height="20" rx="4" fill="#22263a" stroke="#eab308" stroke-width="1"/>
           <text x="540" y="703" text-anchor="middle" fill="#eab308" font-size="8" font-family="monospace">every 4h · immediate on recovery</text>

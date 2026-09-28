@@ -79,7 +79,7 @@ DB fix has to happen directly against the database, not through the API.
 
 ## CEK rotation service down
 
-`cek-rotation-service` rotates the Redis cache-encryption key every
+`hsm-cache-key-rotator` rotates the Redis cache-encryption key every
 `ROTATION_INTERVAL_HOURS` (default 4h). If it's down:
 
 - **Not an emergency.** Pods hold their current CEK indefinitely with no
@@ -211,25 +211,25 @@ To trace a specific slow/failing request end to end:
 ## HTTP client and Netty stack (all Java services)
 
 **Current setup:**
-- **Azure SDK:** every module that uses it (core, cek-rotation, crypto-client,
+- **Azure SDK:** every module that uses it (core, hsm-cache-key-rotator, crypto-client,
   file-store, and through them bulk-client, file-service and the Spark adapter)
   uses the **JDK HTTP client** (`azure-core-http-jdk-httpclient`).
   `azure-core-http-netty` is excluded from every `com.azure` dependency, which
   keeps reactor-netty off the classpath entirely.
 - **Netty:** present only where Lettuce needs it (core's Redis DEK cache,
-  cek-rotation's Redis operations), at the single version the parent pom's
+  hsm-cache-key-rotator's Redis operations), at the single version the parent pom's
   `netty-bom` import sets (4.2.x).
 
 | Symptom | Cause | Action |
 |---|---|---|
 | `NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup` on the first Key Vault, Entra ID, Storage or Redis call | Mixed Netty lines on the classpath: something built for Netty 4.2 (reactor-netty 1.3, Lettuce 7) running on Netty 4.1. This was the state of every service until the Netty 4.2 / JDK-HttpClient change. | Check that the parent pom's `netty-bom` is the 4.2 line and that no module re-added `azure-core-http-netty` |
 
-**Guard:** `HttpStackTest` in core, cek-rotation, crypto-client and file-store
+**Guard:** `HttpStackTest` in core, hsm-cache-key-rotator, crypto-client and file-store
 fails the build if any of these break:
 - the Azure SDK's default client is the JDK one;
 - a real call through it links and fails only to connect;
 - reactor-netty and `azure-core-http-netty` are absent;
-- core and cek-rotation only: Lettuce links, and exactly one Netty version is
+- core and hsm-cache-key-rotator only: Lettuce links, and exactly one Netty version is
   present.
 
 **Bumping Netty for a CVE:** change the `netty-bom` version in `java/pom.xml`
@@ -238,7 +238,7 @@ only, never a single Netty artifact.
 ## BC-FIPS native libraries (all Java services)
 
 Applies to `hsm-core-service` (including the `hsm-bulk-service` release),
-`cek-rotation-service`, `hsm-bulk-client` and `hsm-file-service`. The
+`hsm-cache-key-rotator`, `hsm-bulk-client` and `hsm-file-service`. The
 `hsm-core-service-loadtest` image doesn't load BC-FIPS.
 
 **How it works:**

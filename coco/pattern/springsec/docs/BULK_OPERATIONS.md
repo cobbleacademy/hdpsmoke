@@ -743,7 +743,7 @@ build ahead of a decision" discipline used for the CLNT-vs-embedded-
 endpoint question earlier in this doc.
 
 **Phase 1 — hsm-bulk-service skeleton + `POST /dek/issue` (encrypt path
-only).** New Maven module, scaffolded the same way `cek-rotation-service`
+only).** New Maven module, scaffolded the same way `hsm-cache-key-rotator`
 was: its own managed identity and direct Key Vault/HSM client wiring (reuse
 the existing `KekClient` interface), reusing `DekManager`'s DEK-generation
 and KEK-wrap/EDEK-persistence logic unmodified, plus the new public-key

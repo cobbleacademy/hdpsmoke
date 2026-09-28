@@ -1,12 +1,36 @@
 # DEK Cache TTL & CEK Rotation Interval
 
+> **Terminology: CEK = Cache Encryption Key.**
+>
+> - **What it is:** the AES-256 key that encrypts DEKs while they sit in the Redis
+>   DEK cache, rotated by `hsm-cache-key-rotator`. It never touches data.
+> - **Not the standard meaning:** in JWE (RFC 7516) and CMS (RFC 5652), "CEK"
+>   means *Content* Encryption Key, the per-message data key. **In this system
+>   that key is the DEK.**
+> - **The full key hierarchy:**
+>   - **KEK:** HSM master key; wraps DEKs.
+>   - **DEK:** data key; encrypts records and files.
+>   - **CEK:** cache key; encrypts cached DEKs in Redis.
+>
+> **The rotator was renamed from `cek-rotation-service`** to
+> `hsm-cache-key-rotator`: Maven module, image, Helm chart, Dockerfile and Java
+> package `com.hsm.cachekeyrotator`. These **kept their old names** on purpose,
+> so no data migration or dashboard change is needed:
+> - Key Vault secret names `cek-alpha`, `cek-beta`, `cek-current-key` (also read
+>   by hsm-core-service);
+> - env vars `CEK_ALPHA_SECRET_NAME`, `CEK_BETA_SECRET_NAME`,
+>   `CURRENT_KEY_SECRET_NAME` and the rest;
+> - log events `cek_rotation_service_started` / `_stopping` / `_stopped`;
+> - the legacy Python package `cek_rotation/`.
+
+
 Two independent knobs govern the Redis DEK-cache layer, and conflating them
 is the most common mistake:
 
 | Knob | Config | Default | What it actually controls |
 |---|---|---|---|
 | **DEK cache TTL** | `DEK_CACHE_TTL_SECONDS` | 60s | How long an already-unwrapped DEK stays in Redis before the next `/decrypt` for that `edek_id` must go back to Azure Managed HSM |
-| **CEK rotation interval** | `ROTATION_INTERVAL_HOURS` (`cek-rotation-service`) | 4h | How often the *key that encrypts the Redis cache entries themselves* (the CEK) gets rotated — a security-hygiene control, not a cache-performance control |
+| **CEK rotation interval** | `ROTATION_INTERVAL_HOURS` (`hsm-cache-key-rotator`) | 4h | How often the *key that encrypts the Redis cache entries themselves* (the CEK) gets rotated — a security-hygiene control, not a cache-performance control |
 
 The key fact that shapes everything below: **the cache is keyed per
 `edek_id`** (`{slot}:{kv_version}:{edek_id}`), not per app_id and not per

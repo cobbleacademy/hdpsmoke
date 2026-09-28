@@ -203,6 +203,9 @@ file the cache mostly helps re-opens.
 - **Checking which mode a pod is in:** look for the
   `bc_fips_native enabled=… variant=… aes_gcm_native=…` line in the startup log.
   Native mode on x86-64 shows `enabled=true variant=avx aes_gcm_native=true`.
+- **Same mechanism in the other images:** core, hsm-cache-key-rotator and bulk-client use
+  the same `bcFips.nativeMode` switch; see RUNBOOK.md, "BC-FIPS native libraries
+  (all Java services)".
 - **Tested in containers:** both modes run with a read-only root filesystem, all
   capabilities dropped, uid 65532 and a `noexec` `/tmp`. Each passed a full
   round trip: bulk-client v2 encrypt, then serve, 412, 422, streamed-abort and

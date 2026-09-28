@@ -60,7 +60,7 @@ more changes since the merge above, all still on `hsm-core-service`/the
 ## What's built
 
 - **New module**: `java/hsm-bulk-service` -- `POST /dek/issue`, `POST /dek/unwrap`.
-  Scaffolded the same way `cek-rotation-service` was (no shared library module in
+  Scaffolded the same way `hsm-cache-key-rotator` was (no shared library module in
   this repo, so the handful of stateless crypto/security/auth classes it needs are
   duplicated from `hsm-core-service`, not imported).
 - **New migration**: `V6__add_public_key_to_app_registrations.sql` -- adds
@@ -182,7 +182,7 @@ default, since SVC has no health endpoint yet (only authenticated
 process without needing an unauthenticated route added just for probing.
 
 Adding `hsm-bulk-service`/`hsm-bulk-client` to the parent POM's `<modules>`
-broke the *existing* `Dockerfile.hsm-core-service`/`Dockerfile.cek-rotation`
+broke the *existing* `Dockerfile.hsm-core-service`/`Dockerfile.hsm-cache-key-rotator`
 builds -- Maven's reactor needs every module's `pom.xml` physically present in
 the build context to resolve the parent, even with `-pl X -am` limiting what
 actually gets compiled. Fixed by adding `COPY` lines for the two new modules'
@@ -545,7 +545,7 @@ slow `file decrypt` job.
    conflict/backfill, and a full rotation round trip via `RotationService`
    directly).
 3. `mvn clean install` across the full reactor (`hsm-core-service`,
-   `cek-rotation-service`, `hsm-bulk-service`, `hsm-bulk-client`) -- exit 0,
+   `hsm-cache-key-rotator`, `hsm-bulk-service`, `hsm-bulk-client`) -- exit 0,
    all 4 module jars built, 69/69 tests passing.
 4. **Token-format compatibility** (the hard requirement): a DEK issued via
    `/dek/issue`, unwrapped and used locally to build a `ciphertext` token via

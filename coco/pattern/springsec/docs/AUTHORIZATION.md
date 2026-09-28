@@ -3,7 +3,7 @@
 This documents how `hsm-core-service` currently decides *what a caller
 is allowed to do*, what role Entra ID (Azure AD) plays in that decision
 today, and the recommended path to correlate resource paths with Entra ID
-group/role membership if that becomes a requirement. `cek-rotation-service`
+group/role membership if that becomes a requirement. `hsm-cache-key-rotator`
 is covered separately in §4 — its authorization model is unrelated.
 
 ## 1. Current model: Entra ID authenticates, the local DB authorizes
@@ -508,13 +508,13 @@ Moving to App Roles centralizes governance in Entra ID and removes a table
 that must be kept in sync with reality, at the cost of losing the immediate
 self-service admin API and moving the audit trail into Entra ID.
 
-## 5. `cek-rotation-service`: not part of this model
+## 5. `hsm-cache-key-rotator`: not part of this model
 
-`cek-rotation-service` has no inbound HTTP API and no `app_id`/JWT/scope
+`hsm-cache-key-rotator` has no inbound HTTP API and no `app_id`/JWT/scope
 model at all — there is no resource path to correlate with Entra ID roles or
 groups for it. It authenticates *outbound* to Azure Key Vault directly, using
 its own managed identity via `DefaultAzureCredentialBuilder`
-([`RotationRunner.java:3,47`](../cek-rotation-service/src/main/java/com/hsm/cekrotation/RotationRunner.java#L47)).
+([`RotationRunner.java:3,47`](../hsm-cache-key-rotator/src/main/java/com/hsm/cachekeyrotator/RotationRunner.java#L47)).
 Its authorization is Azure RBAC scoped directly to that identity (the
 "Rotation SPN" in the architecture diagram): write access to the `cek-alpha`
 / `cek-beta` / `cek-current-key` secrets in Key Vault, and nothing else. This
