@@ -22,12 +22,16 @@ COPY hsm-file-store/src hsm-file-store/src
 COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
 COPY hsm-file-service/src hsm-file-service/src
 RUN mvn -q -pl hsm-file-service -am package -DskipTests
+# Empty directory for BC-FIPS's native libraries (see the ENTRYPOINT comment); copied
+# into the final image owned by the runtime user. distroless has no shell to mkdir with.
+RUN mkdir -p /workspace/bc-native
 
 # uid/gid 65532 (distroless :nonroot) must match securityContext in
 # helm/hsm-file-service/values.yaml.
 FROM gcr.io/distroless/java21-debian13:nonroot@sha256:8ee299a87382317dd56ee4ffdd9c48f0541f1afe33ea2b64f2f880decd82acf6 AS final
 WORKDIR /app
 COPY --from=build --chown=65532:65532 /workspace/hsm-file-service/target/hsm-file-service.jar app.jar
+COPY --from=build --chown=65532:65532 /workspace/bc-native /opt/bc-native
 
 # 8080: file API (BFF only). 8081: actuator probes + Prometheus (kubelet/monitoring only).
 EXPOSE 8080 8081
@@ -38,4 +42,14 @@ EXPOSE 8080 8081
 # the container memory limit set in the chart. -Djava.io.tmpdir points at the
 # chart's small emptyDir: the root filesystem is read-only, and nothing here ever
 # writes plaintext to disk.
-ENTRYPOINT ["java", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:+DisableAttachMechanism", "-XX:MaxRAMPercentage=75", "-Djava.io.tmpdir=/tmp", "-jar", "app.jar"]
+#
+# -Dorg.bouncycastle.native.loader.install_dir: BC-FIPS 2.x unpacks small native
+# libraries (a CPU-feature probe plus AES/SHA/DRBG acceleration) from its own jar at
+# startup and loads them. By default it unpacks into java.io.tmpdir, which fails with
+# "UnsatisfiedLinkError ... failed to map segment" wherever /tmp is mounted noexec
+# (Docker --tmpfs does that by default; hardened clusters often do). A dedicated
+# directory keeps /tmp non-executable: the chart mounts an emptyDir here, and the
+# image ships it empty and owned by the runtime user for plain `docker run`. To run
+# pure Java instead (nothing extracted, no exec needed, slower AES-GCM), set
+# JDK_JAVA_OPTIONS=-Dorg.bouncycastle.native.cpu_variant=java (chart: bcFips.nativeMode: java).
+ENTRYPOINT ["java", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:+DisableAttachMechanism", "-XX:MaxRAMPercentage=75", "-Djava.io.tmpdir=/tmp", "-Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native", "-jar", "app.jar"]
