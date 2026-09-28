@@ -21,7 +21,7 @@ import java.util.UUID;
 /**
  * Duplicated verbatim from com.hsm.bulk.crypto.DekManager (hsm-bulk-service), itself
  * duplicated from com.hsm.core.crypto.DekManager -- this repo has no shared library
- * module between Spring Boot modules (see cek-rotation-service's own FipsBootstrap
+ * module between Spring Boot modules (see hsm-cache-key-rotator's own FipsBootstrap
  * duplication for precedent). CLNT needs this for the single-record (BULK DB column)
  * and per-chunk (BULK File) local AES-GCM encrypt/decrypt, and for packToken/
  * unpackToken so the ciphertext token it produces or consumes is byte-for-byte
