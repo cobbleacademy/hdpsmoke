@@ -91,46 +91,26 @@
             <artifactId>nimbus-jose-jwt</artifactId>
         </dependency>
 
-        <!-- azure-identity -> azure-core-http-netty -> reactor-netty-http:1.3.6 is the
-             only path in this project's whole dependency tree that pulls in the
-             HTTP/3/QUIC codec family (confirmed via `mvn dependency:tree`);
-             azure-security-keyvault-keys/secrets below don't pull azure-core-http-netty
-             independently. Excluded here (not just version-managed in the parent pom)
-             so the vulnerable 4.2.15.Final coordinates are never referenced by this
-             subtree at all, not merely overridden after being resolved; required
-             behind a repository proxy that blocks resolving flagged-vulnerable
-             versions outright, where even a transient reference during graph
-             resolution fails the build. Re-declared explicitly below at the patched
-             version so reactor-netty-http's actual runtime need for these classes is
-             still satisfied. -->
+        <!-- Every com.azure dependency below excludes azure-core-http-netty: the Azure
+             SDK uses the JDK HTTP client instead (azure-core-http-jdk-httpclient, just
+             after this block). That prunes reactor-netty and its whole Netty/HTTP-3/QUIC
+             subtree from resolution, not merely from the runtime classpath, so its
+             coordinates are never referenced, which also matters behind a repository
+             proxy that blocks resolving flagged-vulnerable versions outright. Netty
+             stays on the classpath only for Lettuce (Redis DEK cache), at the single
+             version the parent pom's netty-bom import sets. -->
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
             <exclusions>
                 <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-http3</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-base</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-compression</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-classes-quic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.netty</groupId>
-                    <artifactId>netty-codec-native-quic</artifactId>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
                 </exclusion>
                 <!-- azure-identity -> azure-core:1.58.0 also independently pulls the
                      legacy Jackson 2 line (jackson-core, jackson-annotations,
                      jackson-datatype-jsr310); excluded here for the same reason as the
-                     Netty artifacts above, and re-declared explicitly below alongside
+                     HTTP-client exclusion above, and re-declared explicitly below alongside
                      the logstash-logback-encoder exclusions further down. -->
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
@@ -150,54 +130,38 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!-- Azure SDK HTTP transport: the JDK's own java.net.http client, not
+             azure-core-http-netty (excluded from every com.azure dependency in this
+             pom). Keeps reactor-netty and its Netty/HTTP-3 subtree off this module's
+             classpath entirely. That subtree was built for a different Netty line
+             than the rest of the build and failed at runtime with
+             NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup.
+             azure-core discovers this provider via ServiceLoader; with the Netty
+             provider absent it is the only one, so no code or config change is
+             needed. Version managed by azure-sdk-bom. -->
         <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-http3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-base</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-compression</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-classes-quic</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>linux-x86_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>linux-aarch_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>osx-x86_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>osx-aarch_64</classifier>
-        </dependency>
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-codec-native-quic</artifactId>
-            <classifier>windows-x86_64</classifier>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-security-keyvault-keys</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-security-keyvault-secrets</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- logstash-logback-encoder's own pom.xml declares jackson-databind:2.15.2
