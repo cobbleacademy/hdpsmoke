@@ -74,7 +74,7 @@ config:
     maxSize: 200
   shutdownGrace: 30s
   # OpenAPI spec is always served on the management port (8081) at /actuator/openapi
-  # (.yaml variant: /actuator/openapi.yaml); the same contract ships in this chart as
+  # (.yaml variant: /actuator/openapi/yaml); the same contract ships in this chart as
   # openapi.yaml. Swagger UI (/actuator/swagger-ui) is off by default -- turn on for
   # dev and reach it with `kubectl port-forward <pod> 8081`.
   swaggerUi: false
@@ -131,6 +131,18 @@ securityContext:
 # Small writable /tmp for the JVM. Nothing writes plaintext to disk.
 tmpVolume:
   sizeLimit: 64Mi
+
+# ── BC-FIPS native libraries ───────────────────────────────────────────────────
+# BC-FIPS 2.x can use native (CPU-accelerated) AES-GCM/SHA/DRBG. It unpacks those
+# libraries from its jar at startup and loads them, so the directory must be
+# writable AND executable. native (default): a dedicated emptyDir at /opt/bc-native,
+# so /tmp can stay non-executable. java: pure-Java implementations only; nothing is
+# unpacked or executed from disk -- use this where policy forbids executable
+# volumes (slower AES-GCM on large files). The mode actually in effect is logged at
+# startup as "bc_fips_native enabled=... variant=...".
+bcFips:
+  nativeMode: native        # native | java
+  nativeVolumeSizeLimit: 32Mi
 
 # terminationGracePeriodSeconds must exceed config.shutdownGrace so in-flight
 # downloads finish and the key cache is zeroed on the way out.

@@ -18,4 +18,4 @@ Every failure returns {"error_code": "FS-..."}; look the code up in RUNBOOK.md "
 
 API contract (OpenAPI 3.1): openapi.yaml in this chart, or live from a pod:
   kubectl -n {{ .Release.Namespace }} port-forward deploy/{{ include "hsmfs.fullname" . }} {{ .Values.service.managementPort }}
-  curl -s http://localhost:{{ .Values.service.managementPort }}/actuator/openapi.yaml
+  curl -s http://localhost:{{ .Values.service.managementPort }}/actuator/openapi/yaml

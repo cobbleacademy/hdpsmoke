@@ -59,13 +59,22 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "hsmfs.fullname" . }}-config
-          {{- if and (eq .Values.config.core.authMode "STATIC") .Values.secrets.staticTokenSecret.name }}
+          {{- $staticToken := and (eq .Values.config.core.authMode "STATIC") .Values.secrets.staticTokenSecret.name }}
+          {{- $javaOnly := eq .Values.bcFips.nativeMode "java" }}
+          {{- if or $staticToken $javaOnly }}
           env:
+            {{- if $staticToken }}
             - name: HSM_CORE_STATIC_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.staticTokenSecret.name }}
                   key: {{ .Values.secrets.staticTokenSecret.key }}
+            {{- end }}
+            {{- if $javaOnly }}
+            # Pure-Java BC-FIPS: nothing unpacked or executed from disk.
+            - name: JDK_JAVA_OPTIONS
+              value: "-Dorg.bouncycastle.native.cpu_variant=java"
+            {{- end }}
           {{- end }}
           livenessProbe:
             httpGet:
@@ -91,11 +100,25 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- if eq .Values.bcFips.nativeMode "native" }}
+            # BC-FIPS unpacks and loads its native libraries here (image sets
+            # -Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native), so /tmp
+            # never needs to be executable.
+            - name: bc-native
+              mountPath: /opt/bc-native
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- if eq .Values.bcFips.nativeMode "native" }}
+        # Disk-backed (not medium: Memory) and without noexec: the JVM must be able
+        # to mmap these libraries executable.
+        - name: bc-native
+          emptyDir:
+            sizeLimit: {{ .Values.bcFips.nativeVolumeSizeLimit }}
+        {{- end }}
         - name: hsm-secrets
           {{- if .Values.secrets.keyVault.enabled }}
           csi:

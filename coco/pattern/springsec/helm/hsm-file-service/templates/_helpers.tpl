@@ -56,6 +56,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (eq .Values.config.core.authMode "AZURE_AD") (not .Values.config.core.azureTokenScope) -}}
 {{- fail "config.core.azureTokenScope is required when config.core.authMode is AZURE_AD" -}}
 {{- end -}}
+{{- if not (has .Values.bcFips.nativeMode (list "native" "java")) -}}
+{{- fail "bcFips.nativeMode must be native or java" -}}
+{{- end -}}
 {{- if and (not .Values.secrets.keyVault.enabled) (not .Values.secrets.existingSecretName) -}}
 {{- fail "provide the app private key either via secrets.keyVault (recommended) or secrets.existingSecretName" -}}
 {{- end -}}
