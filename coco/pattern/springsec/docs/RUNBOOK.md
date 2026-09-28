@@ -226,6 +226,7 @@ table is in `FILE_SERVICE.md`, "Error codes".
 | `FS-412-FILE-ID-MISMATCH` | File replaced, restored from an old copy, or the BFF's record is stale | **Security-relevant.** Compare the served `X-HSM-File-Id` with the bulk result files |
 | Downloads cut off, `outcome=aborted` in audit | Integrity failure after streaming began (large file) | Same as `FS-422-INTEGRITY`; the log carries the reason |
 | Sidecar `403 RBAC: access denied` | Caller isn't the BFF principal in `istio.authorizationPolicy.bffPrincipals` | Fix the principal (`cluster.local/ns/<ns>/sa/<sa>`) |
+| Pod exits at startup: `UnsatisfiedLinkError … libbc-probe.so: failed to map segment` | BC-FIPS could not load its native libraries: the unpack directory is `noexec` or not writable (typically `/opt/bc-native` not mounted, or a policy forcing `noexec` on it) | Keep `bcFips.nativeMode: native` with the chart's `bc-native` emptyDir, or set `bcFips.nativeMode: java` where executable volumes are forbidden (FILE_SERVICE.md "BC-FIPS native libraries") |
 | Pods OOM-killed | Buffered burst above the memory budget | Lower `config.delivery.maxBufferedRequests` or raise `resources.limits.memory`; write UI files with 1 MiB chunks |
 
 **Revoking access urgently.** Remove the grant (`DELETE /admin/grants`) or

@@ -69,7 +69,7 @@ Boot 4.1.0. `OpenApiContractTest` fails the build if the running service and the
 committed file ever differ, so the file can't go stale. A running pod also
 serves it on the management port:
 
-- `/actuator/openapi` (JSON) and `/actuator/openapi.yaml`, always on;
+- `/actuator/openapi` (JSON) and `/actuator/openapi/yaml`, always on;
 - `/actuator/swagger-ui`, only with `config.swaggerUi: true`. Reach it through
   `kubectl port-forward <pod> 8081`.
 
@@ -161,6 +161,7 @@ each maps to an environment variable and a property under
 | `config.dekCache.ttl` | `15m` | **Also the revocation lag**: a revoked or shredded key keeps serving for up to TTL + 60 s |
 | `config.dekCache.maxSize` | `200` | |
 | `config.swaggerUi` | `false` | Swagger UI on the management port; the spec itself is always served there |
+| `bcFips.nativeMode` | `native` | `native`: BC-FIPS AES-GCM/SHA/DRBG acceleration, with libraries unpacked into a dedicated `emptyDir` at `/opt/bc-native`. `java`: pure Java, nothing unpacked or executed from disk. See "BC-FIPS native libraries". |
 | `secrets.keyVault.*` / `secrets.existingSecretName` | Key Vault CSI | Private key (plus signing key or mTLS cert/key) mounted as files under `/mnt/secrets/hsm` |
 
 The chart refuses to render (`helm install` fails) without the required
@@ -184,6 +185,28 @@ file the cache mostly helps re-opens.
 | Audit | One JSON line per request on the `audit.json` logger: `event=file_access`, `request_id`, `outcome` (`ok` / `error` / `aborted` / `client_closed`), `error_code`, `mode`, `path`, `end_user`, `caller`, `file_id`, `format_version`, `bytes`, `duration_ms` |
 | Shutdown | Graceful: in-flight downloads get `config.shutdownGrace` (30 s), then the key cache is zeroed. `terminationGracePeriodSeconds` 45. |
 | Hardening | Distroless nonroot (65532), read-only root filesystem, all capabilities dropped, seccomp `RuntimeDefault`, `-XX:-HeapDumpOnOutOfMemoryError`, `-XX:+DisableAttachMechanism`, `/tmp` as a 64 Mi memory `emptyDir`. Nothing writes plaintext to disk. |
+
+**BC-FIPS native libraries.**
+
+- **What BC-FIPS does at startup:** BC-FIPS 2.x unpacks small native libraries
+  from its own jar and loads them: a CPU-feature probe, plus AES, SHA and DRBG
+  acceleration. By default it unpacks them into `java.io.tmpdir`. Anywhere `/tmp`
+  is mounted `noexec` (Docker's `--tmpfs` default, and a common hardening policy),
+  startup then fails with `UnsatisfiedLinkError … libbc-probe.so: failed to map
+  segment`.
+- **What the image does instead:** it sets
+  `-Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native`, and the chart
+  mounts a disk-backed `emptyDir` there. `/tmp` never needs to be executable.
+- **Where executable volumes are forbidden:** set `bcFips.nativeMode: java`. The
+  chart then passes `-Dorg.bouncycastle.native.cpu_variant=java`, so nothing is
+  unpacked. Expect slower AES-GCM on large files.
+- **Checking which mode a pod is in:** look for the
+  `bc_fips_native enabled=… variant=… aes_gcm_native=…` line in the startup log.
+  Native mode on x86-64 shows `enabled=true variant=avx aes_gcm_native=true`.
+- **Tested in containers:** both modes run with a read-only root filesystem, all
+  capabilities dropped, uid 65532 and a `noexec` `/tmp`. Each passed a full
+  round trip: bulk-client v2 encrypt, then serve, 412, 422, streamed-abort and
+  audit checks.
 
 **Sizing.** Heap is 75% of the memory limit (2 Gi by default). The budget is
 `maxBufferedRequests × ~16 MiB` for verified small files, plus about 4 MB per
