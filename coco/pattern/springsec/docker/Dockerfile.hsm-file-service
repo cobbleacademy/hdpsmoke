@@ -12,7 +12,7 @@ COPY pom.xml .
 # Every reactor module's pom.xml must be present for the parent's <modules> list to
 # resolve, even though -pl/-am only builds hsm-file-service and what it depends on.
 COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
-COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-cache-key-rotator/pom.xml hsm-cache-key-rotator/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml

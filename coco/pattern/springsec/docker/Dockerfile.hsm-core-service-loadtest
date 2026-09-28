@@ -24,7 +24,7 @@ COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 # must resolve) even with -pl/-am limiting what actually gets *built* -- these
 # three don't need their src copied in, only their pom.xml, same as every
 # other single-module Dockerfile in this repo.
-COPY cek-rotation-service/pom.xml cek-rotation-service/pom.xml
+COPY hsm-cache-key-rotator/pom.xml hsm-cache-key-rotator/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
