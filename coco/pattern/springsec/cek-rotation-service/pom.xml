@@ -33,10 +33,35 @@
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-identity</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Azure SDK HTTP transport: the JDK's own java.net.http client, not
+             azure-core-http-netty (excluded from every com.azure dependency in this
+             pom). Keeps reactor-netty and its Netty/HTTP-3 subtree off this module's
+             classpath entirely. That subtree was built for a different Netty line
+             than the rest of the build and failed at runtime with
+             NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup.
+             azure-core discovers this provider via ServiceLoader; with the Netty
+             provider absent it is the only one, so no code or config change is
+             needed. Version managed by azure-sdk-bom. -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
         </dependency>
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-security-keyvault-secrets</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
