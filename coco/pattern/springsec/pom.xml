@@ -13,7 +13,7 @@
 
     <modules>
         <module>hsm-core-service</module>
-        <module>cek-rotation-service</module>
+        <module>hsm-cache-key-rotator</module>
         <module>hsm-crypto-client</module>
         <module>hsm-file-store</module>
         <module>hsm-bulk-client</module>
@@ -50,82 +50,23 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- azure-sdk-bom 1.3.7 still manages netty 4.1.135.Final, which carries
-                 CVE-2026-59901/55831/55833/56745 (HIGH); importing netty-bom directly,
-                 ahead of azure-sdk-bom below, overrides it to the patched line. Bumping
-                 only io.netty:netty-codec (or any single Netty artifact) instead of the
-                 whole netty-bom would be wrong, since Netty's sub-modules are only
-                 tested to interoperate within the same release; mixing one artifact
-                 from a different line risks a split-classpath NoSuchMethodError at
-                 runtime. -->
+            <!-- One Netty for the whole build, imported FIRST so it wins over both
+                 spring-boot-dependencies (4.1.0 manages 4.2.15.Final) and azure-sdk-bom
+                 (manages 4.1.x). Must be the 4.2 line: Spring Boot 4.1's Lettuce 7.5.x
+                 (core's Redis DEK cache, hsm-cache-key-rotator's RedisOps) is built on Netty
+                 4.2, and a 4.1 pin here previously left it failing at runtime with
+                 NoClassDefFoundError: io/netty/channel/MultiThreadIoEventLoopGroup.
+                 4.2.18.Final: 4.2.15 through 4.2.17 carry open advisories (among them
+                 CVE-2026-59901/55831/55833/56745, then the HTTP/2 and codec fixes
+                 released in 4.2.17/4.2.18); 4.2.18 had none as of 2026-09-10. Always bump
+                 the whole BOM, never one Netty artifact: Netty's modules are only tested
+                 together within one release. -->
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
-                <version>4.1.136.Final</version>
+                <version>4.2.18.Final</version>
                 <type>pom</type>
                 <scope>import</scope>
-            </dependency>
-            <!-- azure-identity -> azure-core-http-netty -> reactor-netty-http:1.3.6
-                 hardcodes its own explicit version for the HTTP/3/QUIC codec family;
-                 these coordinates aren't in netty-bom:4.1.136.Final's managed list at
-                 all (HTTP/3 support doesn't exist on the 4.1.x line), so nothing above
-                 overrides them; confirmed via `mvn dependency:tree`, they were the only
-                 Netty artifacts not already on 4.1.136.Final. Pinned here to 4.2.16.Final
-                 as their own internally-consistent set (matching what reactor-netty-http
-                 itself already chose to run this family on), not mixed with the base
-                 4.1.x transport/codec stack managed above. -->
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-http3</artifactId>
-                <version>4.2.16.Final</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-base</artifactId>
-                <version>4.2.16.Final</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-compression</artifactId>
-                <version>4.2.16.Final</version>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-classes-quic</artifactId>
-                <version>4.2.16.Final</version>
-            </dependency>
-            <!-- netty-codec-native-quic ships as platform-classified jars; a bare
-                 dependencyManagement entry (no classifier) only matches an unclassified
-                 dependency, not these, so each platform classifier needs its own entry. -->
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-native-quic</artifactId>
-                <version>4.2.16.Final</version>
-                <classifier>linux-x86_64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-native-quic</artifactId>
-                <version>4.2.16.Final</version>
-                <classifier>linux-aarch_64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-native-quic</artifactId>
-                <version>4.2.16.Final</version>
-                <classifier>osx-x86_64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-native-quic</artifactId>
-                <version>4.2.16.Final</version>
-                <classifier>osx-aarch_64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec-native-quic</artifactId>
-                <version>4.2.16.Final</version>
-                <classifier>windows-x86_64</classifier>
             </dependency>
             <!-- spring-boot-dependencies 4.1.0 manages tools.jackson:jackson-bom at
                  3.1.4; importing a newer jackson-bom directly, ahead of
