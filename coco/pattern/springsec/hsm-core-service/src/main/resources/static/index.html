@@ -263,7 +263,7 @@ python scripts/provision_dek_cache_key.py \
         (<code>{slot}:{kv_version}:{edek_id}</code>) — e.g. <code>alpha:3f8a2b:{edek_id}</code> —
         so reusing a named slot (alpha→beta→alpha) never causes collisions: the Azure KV secret version
         changes on every write, making the old slot key distinct.
-        The <strong style="color:#eab308">CEK Rotation Service</strong> is a separate K8S service
+        The <strong style="color:#eab308">Cache Key Rotator (CEK rotation)</strong> is a separate K8S service
         (Rotation SPN, write-only on KV secrets) that runs every 4 hours and rotates immediately on
         recovery. It writes new CEK bytes to the inactive slot <em>first</em>, then updates
         <code>current_key</code>. Pods poll every 30 s (Service SPN, read-only), call
