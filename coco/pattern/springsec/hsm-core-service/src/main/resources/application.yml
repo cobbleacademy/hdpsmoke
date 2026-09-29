@@ -98,6 +98,13 @@ springdoc:
   swagger-ui:
     enabled: ${SPRINGDOC_ENABLED:false}
     path: ${API_V1_PREFIX:/api/sensec/hsm/v1}/swagger-ui.html
+    # RELATIVE to the UI page (<prefix>/swagger-ui/index.html), so the browser resolves them
+    # against whatever external prefix it used. Together with the relative spec
+    # (OpenApiConfig) and <prefix>/docs (ApiDocsEntryController) this lets one image serve
+    # Swagger correctly as demo, core or bulk behind a path-rewriting gateway, with no
+    # per-environment setting. Open Swagger via <prefix>/docs.
+    config-url: ../openapi/swagger-config
+    url: ../openapi
   # Only the service's own API -- not Spring's /error or the demo UI.
   paths-to-match: ${API_V1_PREFIX:/api/sensec/hsm/v1}/**
   # Demo-only endpoints (registered only when demo-mode=true) are not part of the contract.
