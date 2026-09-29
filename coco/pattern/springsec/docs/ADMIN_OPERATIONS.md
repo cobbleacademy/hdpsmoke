@@ -15,17 +15,45 @@ Spring Boot 4.1.0.
 - It is on automatically in demo mode, or with `SPRINGDOC_ENABLED=true` in a dev
   or test environment. Through the chart that's `config.openApiEnabled: "true"`,
   which the chart refuses when `config.serviceEnv` is `production`.
-- When on, both live under the API prefix, so they're reachable through the
-  same route as the API:
-  - `${API_V1_PREFIX}/openapi`: the spec, JSON (default `/api/sensec/hsm/v1/openapi`);
-  - `${API_V1_PREFIX}/swagger-ui.html`: Swagger UI. Use **Authorize** to enter the
-    bearer token and `X-App-ID`.
+- **Open Swagger at `<prefix>/docs`**, for example `/api/dsec/core/v1/docs` for core
+  or `/api/sensec/hsm/v1/docs` for demo. It redirects to the UI. The raw spec is at
+  `<prefix>/openapi`. (springdoc's own `<prefix>/swagger-ui.html` also exists, but
+  it redirects to an absolute internal path, so don't link to it behind a gateway.)
 - The spec shows the real wire format: snake_case fields, bearer + `X-App-ID` on
   every call except `GET /admin/health`, and no demo-only endpoints.
   `OpenApiSpecTest` pins all three.
 - It is documentation only. Every call made from Swagger UI goes through the
   normal authentication and `access-rules`, like any other client. mTLS client
   certificates can be described but not exercised from the UI.
+
+### Behind a path-rewriting gateway
+
+One image serves demo, core and bulk. The Istio VirtualService maps each external
+prefix onto the same internal one:
+
+| External | Internal |
+|---|---|
+| `/api/dsec/core/v1/*` | `/api/sensec/hsm/v1/*` |
+| `/api/dsec/bulk/v1/*` | `/api/sensec/hsm/v1/*` |
+| `/api/sensec/hsm/v1/*` (demo) | unchanged |
+
+Swagger works through all three with **no per-environment setting**, because
+nothing the service sends the browser contains its own path:
+
+| What | Value | Resolves to |
+|---|---|---|
+| `<prefix>/docs` redirect | `Location: swagger-ui/index.html` | `<external prefix>/swagger-ui/index.html` |
+| Swagger UI config and spec URLs | `../openapi/swagger-config`, `../openapi` | relative to the UI page, under the external prefix |
+| Spec `servers` | `.` | the prefix the spec was fetched from (OpenAPI 3 allows relative server URLs) |
+| Spec paths | `/encrypt`, `/dek/unwrap`, … | relative to that server |
+
+**How this was verified:** a real core image behind nginx, rewriting exactly as
+above. Through each route, Swagger loaded and "Try it out" `POST /encrypt`
+returned 201. The gateway logged no requests to the internal prefix.
+`OpenApiSpecTest` pins every value in the table.
+
+**If you add something to the spec**, keep it relative: no absolute paths or hosts.
+Anything absolute would reintroduce the internal prefix.
 
 ## What exists
 
