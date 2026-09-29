@@ -451,6 +451,22 @@ spark.hsm.signingKeyPath /path/to/signing-key.pem
 # spark.hsm.mtlsCertPath /path/to/client-cert.pem
 # spark.hsm.mtlsKeyPath /path/to/client-key.pem
 ----------------------------------------------------------------------------------------------------------------------------------
+The request still goes out with the correct Content-Length, set by Java. Your encrypt job is working: files_done=1 in the same log.
+Silencing it
+Immediately, without a rebuild: set this environment variable on the job.
+
+export LOGGING_LEVEL_COM_AZURE_CORE_HTTP_JDK_HTTPCLIENT_JDKHTTPCLIENT=ERROR
+
+Or add it to the job YAML:
+
+logging:
+  level:
+    com.azure.core.http.jdk.httpclient.JdkHttpClient: ERROR
+
+This hides only warnings from that one Azure class. Its real errors, and every other logger, still show.
+
+Permanently: add that same logging line to the default application.yml of each module that uses the Azure SDK: hsm-bulk-client, hsm-file-service, hsm-core-service and hsm-cache-key-rotator. Then nobody has to remember the variable.
+----------------------------------------------------------------------------------------------------------------------------------
 echo | openssl s_client -connect <target-host>:<port> -servername <target-host> -showcerts 2>/dev/null \
   > /tmp/istio-chain.pem
 
