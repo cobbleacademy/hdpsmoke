@@ -5,12 +5,18 @@ import io.swagger.v3.core.jackson.ModelResolver;
 import io.swagger.v3.core.util.Json;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Paths;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
+import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
 
 /**
  * Top-level OpenAPI document metadata for springdoc. Only loaded when the spec is
@@ -39,6 +45,27 @@ public class OpenApiConfig {
     @Bean
     public ModelResolver snakeCaseModelResolver() {
         return new ModelResolver(Json.mapper().copy().setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE));
+    }
+
+    /**
+     * Makes the published spec independent of the URL it is reached through, so one
+     * image works unchanged as demo, core and bulk behind a gateway that REWRITES
+     * external prefixes (e.g. /api/dsec/core/v1 -> /api/sensec/hsm/v1). Paths are listed
+     * relative to the API prefix ("/encrypt", not "/api/sensec/hsm/v1/encrypt") and the
+     * only server is ".", which OpenAPI 3 resolves against the URL the spec itself was
+     * fetched from -- i.e. whatever external prefix the caller used. Nothing here knows or
+     * needs the external prefix; see ADMIN_OPERATIONS.md "Behind a path-rewriting gateway".
+     */
+    @Bean
+    public OpenApiCustomizer relativeToWhereverServed(@Value("${hsm.service.api-v1-prefix}") String apiV1Prefix) {
+        return openApi -> {
+            Paths relative = new Paths();
+            openApi.getPaths().forEach((path, item) -> relative.addPathItem(
+                    path.startsWith(apiV1Prefix) ? path.substring(apiV1Prefix.length()) : path, item));
+            openApi.setPaths(relative);
+            openApi.setServers(List.of(new Server().url(".")
+                    .description("The API prefix this document was fetched from")));
+        };
     }
 
     @Bean
