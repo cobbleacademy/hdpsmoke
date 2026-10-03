@@ -28,6 +28,18 @@ spec:
       ports:
         - protocol: TCP
           port: {{ .Values.service.port }}
+    {{- if and .Values.docs.enabled .Values.docs.gatewayNamespaces }}
+    # Developer docs: the ingress gateway, API port only (docs.enabled; never 8081).
+    - from:
+        {{- range .Values.docs.gatewayNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+    {{- end }}
     {{- if $np.monitoringNamespaces }}
     # Probes/metrics: monitoring only (kubelet probes are rewritten by Istio to 15020).
     - from:

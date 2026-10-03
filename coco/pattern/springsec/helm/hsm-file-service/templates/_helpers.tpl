@@ -38,6 +38,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/* Fail fast on settings the service would reject at startup anyway -- better at `helm install` than as a CrashLoopBackOff. */}}
 {{- define "hsmfs.validate" -}}
+{{- if and .Values.docs.enabled (eq (.Values.config.serviceEnv | toString) "production") -}}
+{{- fail "docs.enabled=true is not allowed with config.serviceEnv=production: it opens a gateway route to the service (and with docs.tryItOut, to decrypted files)" -}}
+{{- end -}}
+{{- if and .Values.docs.enabled .Values.istio.authorizationPolicy.enabled (not .Values.docs.gatewayPrincipals) -}}
+{{- fail "docs.gatewayPrincipals must name the ingress gateway's principal when docs.enabled (or developers get 403 RBAC)" -}}
+{{- end -}}
+{{- $prefix := .Values.config.server.apiPrefix | default "" -}}
+{{- if not (regexMatch "^(/[A-Za-z0-9._~-]+)+$" $prefix) -}}
+{{- fail (printf "config.server.apiPrefix must look like /api/sensec/file/v1 (leading /, no trailing /, no spaces or wildcards), got: %q" $prefix) -}}
+{{- end -}}
 {{- if not .Values.config.access.allowedPathPrefixes -}}
 {{- fail "config.access.allowedPathPrefixes must list at least one prefix (use [\"*\"] to allow every path explicitly)" -}}
 {{- end -}}

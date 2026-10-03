@@ -10,6 +10,7 @@ data:
   SERVER_PORT: {{ .Values.service.port | quote }}
   MANAGEMENT_PORT: {{ .Values.service.managementPort | quote }}
   SHUTDOWN_GRACE: {{ .Values.config.shutdownGrace | quote }}
+  FILE_SERVICE_API_PREFIX: {{ .Values.config.server.apiPrefix | quote }}
   HSM_CORE_BASE_URL: {{ .Values.config.core.baseUrl | quote }}
   HSM_CORE_API_V1_PREFIX: {{ .Values.config.core.apiV1Prefix | quote }}
   HSM_CORE_APP_ID: {{ .Values.config.core.appId | quote }}
@@ -37,4 +38,7 @@ data:
   LIMITS_MAX_CHUNK_PLAINTEXT_BYTES: {{ .Values.config.limits.maxChunkPlaintextBytes | int64 | quote }}
   DEK_CACHE_TTL: {{ .Values.config.dekCache.ttl | quote }}
   DEK_CACHE_MAX_SIZE: {{ .Values.config.dekCache.maxSize | quote }}
-  SWAGGER_UI_ENABLED: {{ .Values.config.swaggerUi | quote }}
+  {{- if .Values.docs.enabled }}
+  # Spec + Swagger UI on the API port under the prefix (application.yml "docs" profile).
+  SPRING_PROFILES_ACTIVE: "docs"
+  {{- end }}

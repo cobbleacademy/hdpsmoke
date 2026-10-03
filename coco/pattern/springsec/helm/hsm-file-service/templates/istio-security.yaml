@@ -40,7 +40,29 @@ spec:
         - operation:
             ports: [{{ .Values.service.port | quote }}]
             methods: ["GET"]
-            paths: ["/v1/files/*"]
+            paths: [{{ printf "%s/files/*" .Values.config.server.apiPrefix | quote }}]
+    {{- if .Values.docs.enabled }}
+    # Developer docs through the ingress gateway (docs.enabled; never in production).
+    {{- $p := .Values.config.server.apiPrefix }}
+    - from:
+        - source:
+            principals:
+              {{- range .Values.docs.gatewayPrincipals }}
+              - {{ . | quote }}
+              {{- end }}
+      to:
+        - operation:
+            ports: [{{ .Values.service.port | quote }}]
+            methods: ["GET"]
+            paths:
+              - {{ printf "%s/docs" $p | quote }}
+              - {{ printf "%s/openapi" $p | quote }}
+              - {{ printf "%s/openapi/*" $p | quote }}
+              - {{ printf "%s/swagger-ui/*" $p | quote }}
+              {{- if .Values.docs.tryItOut }}
+              - {{ printf "%s/files/*" $p | quote }}
+              {{- end }}
+    {{- end }}
     {{- if .Values.istio.authorizationPolicy.monitoringNamespaces }}
     - from:
         - source:
