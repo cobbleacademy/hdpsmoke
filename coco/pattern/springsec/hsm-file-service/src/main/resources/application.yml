@@ -28,26 +28,25 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics,openapi,swagger-ui
+        include: health,info,prometheus,metrics,openapi
   endpoint:
     health:
       probes:
         enabled: true
       show-details: never
 
-# OpenAPI spec on the MANAGEMENT port only (http://<pod>:8081/actuator/openapi, YAML at
-# /actuator/openapi/yaml), never on the BFF-facing file port. The committed copy that ships
-# with the chart is helm/hsm-file-service/openapi.yaml. Swagger UI
-# (/actuator/swagger-ui) is off unless SWAGGER_UI_ENABLED=true -- handy with
-# `kubectl port-forward` in dev; the spec itself is harmless and stays on.
+# Default: OpenAPI spec on the MANAGEMENT port only (http://<pod>:8081/actuator/openapi,
+# YAML at /actuator/openapi/yaml), no Swagger UI. The committed copy that ships with the
+# chart is helm/hsm-file-service/openapi.yaml. For developers, the "docs" profile (below)
+# moves spec + Swagger UI onto the API port under the prefix.
 springdoc:
   use-management-port: true
   api-docs:
     enabled: ${OPENAPI_ENABLED:true}
   swagger-ui:
-    enabled: ${SWAGGER_UI_ENABLED:false}
+    enabled: false
   show-actuator: false
-  paths-to-match: /v1/**
+  paths-to-match: ${hsm.file-service.server.api-prefix}/**
 
 logging:
   pattern:
@@ -55,6 +54,12 @@ logging:
 
 hsm:
   file-service:
+    # THIS service's own API (inbound: what the BFF calls). The file endpoint is
+    # <api-prefix>/files/{path}. Not to be confused with core.api-v1-prefix below, which is
+    # hsm-core-service's prefix (outbound: the service this one calls).
+    server:
+      api-prefix: ${FILE_SERVICE_API_PREFIX:/api/sensec/file/v1}
+    # hsm-core-service, the service this one CALLS (outbound).
     core:
       base-url: ${HSM_CORE_BASE_URL:}
       api-v1-prefix: ${HSM_CORE_API_V1_PREFIX:/api/sensec/hsm/v1}
@@ -95,3 +100,26 @@ hsm:
       # Also the revocation lag: a revoked/shredded key keeps serving for up to ttl + 60 s.
       ttl: ${DEK_CACHE_TTL:15m}
       max-size: ${DEK_CACHE_MAX_SIZE:200}
+
+---
+# Developer docs (chart docs.enabled -> SPRING_PROFILES_ACTIVE=docs; dev/test only, the chart
+# refuses it with config.serviceEnv=production). Spec + Swagger UI on the API port (8080)
+# under the prefix, so a VirtualService can route developers to them; port 8081 is never
+# routed. Open <api-prefix>/docs. Every URL is RELATIVE (server ".", config-url, url and
+# the /docs redirect), so it works under whatever external prefix the VirtualService uses.
+spring:
+  config:
+    activate:
+      on-profile: docs
+springdoc:
+  use-management-port: false
+  api-docs:
+    enabled: true
+    path: ${hsm.file-service.server.api-prefix}/openapi
+  swagger-ui:
+    enabled: true
+    path: ${hsm.file-service.server.api-prefix}/swagger-ui.html
+    config-url: ../openapi/swagger-config
+    url: ../openapi
+    # Only GET exists; keep Try it out to it.
+    supported-submit-methods: get
