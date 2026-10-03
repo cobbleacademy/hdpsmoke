@@ -8,6 +8,8 @@ import com.hsm.filestore.FileStore;
 import com.hsm.filestore.LocalFileStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
+import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -76,6 +78,18 @@ public class FileServiceConfig {
     }
 
     /** Buffer slots for the verify-before-send path; bounded so small-file bursts can't exhaust the heap. */
+    /**
+     * Accept {@code %2F} inside {path}. OpenAPI-generated clients and Swagger UI encode the
+     * '/' of a path parameter (tenant-a%2F2026%2Freport.pdf); Tomcat's default rejects that
+     * with a bare 400 before the request reaches us. "passthrough" (not "decode") leaves the
+     * URI unnormalized, so FileController decodes it exactly once and RequestPaths validates
+     * the result: an encoded "../" is still rejected, never resolved.
+     */
+    @Bean
+    public WebServerFactoryCustomizer<TomcatServletWebServerFactory> encodedSlashInFilePath() {
+        return factory -> factory.addConnectorCustomizers(c -> c.setEncodedSolidusHandling("passthrough"));
+    }
+
     @Bean
     public Semaphore bufferSlots(FileServiceProperties props) {
         return new Semaphore(props.delivery().maxBufferedRequests());

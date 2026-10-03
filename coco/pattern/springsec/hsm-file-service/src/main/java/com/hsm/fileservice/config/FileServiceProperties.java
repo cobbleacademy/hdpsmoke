@@ -13,8 +13,40 @@ import java.util.List;
  * version bump; renaming or removing one is a major one.
  */
 @ConfigurationProperties("hsm.file-service")
-public record FileServiceProperties(Core core, Store store, Access access, Delivery delivery,
+public record FileServiceProperties(Server server, Core core, Store store, Access access, Delivery delivery,
                                     Limits limits, DekCache dekCache) {
+
+    public FileServiceProperties {
+        if (server == null) {
+            server = new Server(null);
+        }
+    }
+
+    /**
+     * This service's OWN API -- inbound, what the BFF calls. Deliberately a separate group
+     * from {@link Core}, which is the service this one calls (outbound): server.* /
+     * FILE_SERVICE_* always means "me", core.* / HSM_CORE_* always means hsm-core-service.
+     *
+     * @param apiPrefix path the API is served under, version included (default
+     *                  /api/sensec/file/v1); the file endpoint is {@code <apiPrefix>/files/{path}}.
+     *                  Must start with "/" and must not end with "/".
+     */
+    public record Server(String apiPrefix) {
+        public static final String DEFAULT_API_PREFIX = "/api/sensec/file/v1";
+
+        public Server {
+            if (apiPrefix == null || apiPrefix.isBlank()) {
+                apiPrefix = DEFAULT_API_PREFIX;
+            }
+            // Rejected rather than normalized: the request mapping is built from the raw value,
+            // so anything trimmed here would no longer match what Spring actually maps.
+            if (!apiPrefix.startsWith("/") || apiPrefix.endsWith("/") || apiPrefix.contains("//")
+                    || apiPrefix.contains("*") || apiPrefix.contains("{") || apiPrefix.matches(".*\\s.*")) {
+                throw new IllegalArgumentException("hsm.file-service.server.api-prefix must look like /api/sensec/file/v1"
+                        + " (leading /, no trailing /, no spaces, wildcards or placeholders), got: '" + apiPrefix + "'");
+            }
+        }
+    }
 
     public enum AuthMode { STATIC, AZURE_AD, SELF_SIGNED_JWT, MTLS }
 
