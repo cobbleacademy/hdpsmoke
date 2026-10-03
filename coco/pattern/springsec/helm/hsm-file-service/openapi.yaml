@@ -10,13 +10,17 @@ info:
     is the original file's bytes; JSON appears only for errors. Full guide: FILE_SERVICE.md.
   version: 1.0.0
 servers:
-- url: http://hsm-file-service:8080
+- url: http://hsm-file-service:8080{apiPrefix}
   description: In-cluster Service, file port. Reachable only from the BFF.
+  variables:
+    apiPrefix:
+      description: This deployment's API prefix (chart config.server.apiPrefix, env FILE_SERVICE_API_PREFIX). Default /api/sensec/file/v1.
+      default: /api/sensec/file/v1
 tags:
 - name: Files
   description: Decrypt-and-serve. The service's only data endpoint.
 paths:
-  /v1/files/{path}:
+  /files/{path}:
     get:
       tags:
       - Files

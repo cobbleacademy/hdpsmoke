@@ -29,6 +29,12 @@ workloadIdentity:
   enabled: true
 
 config:
+  # This service's OWN API (inbound, what the BFF calls). core.* below is the service
+  # this one calls (outbound) -- different things, hence separate groups.
+  server:
+    # Path the API is served under, version included. Endpoint: <apiPrefix>/files/{path}.
+    # Leading "/", no trailing "/". Change it to match your gateway/BFF conventions.
+    apiPrefix: /api/sensec/file/v1
   core:
     baseUrl: ""                     # REQUIRED, e.g. https://hsm-core-service.hsm.svc.cluster.local:3005
     apiV1Prefix: /api/sensec/hsm/v1
@@ -73,11 +79,28 @@ config:
     ttl: 15m
     maxSize: 200
   shutdownGrace: 30s
-  # OpenAPI spec is always served on the management port (8081) at /actuator/openapi
-  # (.yaml variant: /actuator/openapi/yaml); the same contract ships in this chart as
-  # openapi.yaml. Swagger UI (/actuator/swagger-ui) is off by default -- turn on for
-  # dev and reach it with `kubectl port-forward <pod> 8081`.
-  swaggerUi: false
+  # "production" refuses docs.enabled. Set e.g. dev / test to allow developer docs.
+  serviceEnv: "production"
+
+# ── Developer docs (Swagger UI) ─────────────────────────────────────────────────
+# Off: the OpenAPI spec is on the management port only (8081, /actuator/openapi and
+# /actuator/openapi/yaml); the same contract ships in this chart as openapi.yaml.
+# On (dev/test only; refused with config.serviceEnv=production): spec + Swagger UI move to
+# the API port (8080) under the prefix, so your VirtualService can route developers to
+#   <apiPrefix>/docs   (redirects to swagger-ui/index.html; loads <apiPrefix>/openapi)
+# All URLs are relative, so any external prefix or rewrite in the VirtualService works.
+# The chart does not create the VirtualService; port 8081 must never be routed.
+docs:
+  enabled: false
+  # Swagger UI "Try it out": lets the gateway principals below also GET <apiPrefix>/files/*
+  # (GET only, it is the only method). false = docs are read-only, files stay BFF-only.
+  tryItOut: true
+  # Istio principal(s) of the ingress gateway developers come through (AuthorizationPolicy).
+  gatewayPrincipals:
+    - cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account
+  # Namespace(s) of that gateway's pods (NetworkPolicy).
+  gatewayNamespaces:
+    - istio-system
 
 # ── Secrets ────────────────────────────────────────────────────────────────────
 # The app's RSA private key (always), plus the JWT signing key or mTLS cert/key for
@@ -172,7 +195,7 @@ istio:
     enabled: true
   authorizationPolicy:
     enabled: true
-    # REQUIRED when enabled: principals allowed to call GET /v1/files/*, e.g.
+    # REQUIRED when enabled: principals allowed to call GET <config.server.apiPrefix>/files/*, e.g.
     # cluster.local/ns/<consumer-ns>/sa/<bff-service-account>
     bffPrincipals: []
     # Namespaces allowed to scrape the management port (Prometheus).
