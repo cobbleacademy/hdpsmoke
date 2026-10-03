@@ -86,10 +86,10 @@ files to that consumer's BFF (backend-for-frontend).
 
 | | |
 |---|---|
-| **Does** | `GET /v1/files/{path}`: reads an encrypted file, verifies every chunk, returns the original bytes. Small files are verified before sending; large ones stream, and the connection is cut if tampering is detected mid-stream. |
+| **Does** | `GET /api/sensec/file/v1/files/{path}` (prefix configurable, `config.server.apiPrefix`): reads an encrypted file, verifies every chunk, returns the original bytes. Small files are verified before sending; large ones stream, and the connection is cut if tampering is detected mid-stream. |
 | **Auth** | Istio mTLS + AuthorizationPolicy (BFF only); no tokens. It unwraps keys from core as its own `app_id`, under a cross-app grant. |
 | **Depends on** | hsm-core-service (`/dek/unwrap`), Azure Blob/ADLS (read-only) |
-| **Runs as** | Deployment, `helm/hsm-file-service`. Port 8080 (files), 8081 (probes, metrics, OpenAPI). Core team ships the image and chart; the consumer configures them. |
+| **Runs as** | Deployment, `helm/hsm-file-service`. Port 8080 (files; plus Swagger UI at `<prefix>/docs` in dev/test with `docs.enabled`), 8081 (probes, metrics, OpenAPI; never routed through a VirtualService). Core team ships the image and chart; the consumer configures them. |
 | **Docs** | `FILE_SERVICE.md`, `FILE_FORMAT.md`; contract `helm/hsm-file-service/openapi.yaml` |
 
 ## Batch and test jobs

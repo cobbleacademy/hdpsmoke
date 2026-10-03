@@ -275,6 +275,15 @@ the pod log (`file_request_failed` / `file_request_rejected` /
 `file_stream_aborted`) and in the `file_access` audit line. The full code
 table is in `FILE_SERVICE.md`, "Error codes".
 
+To reproduce a reported failure, fetch the same path yourself with
+port-forward and curl, or through Swagger UI where developer docs are on
+(`FILE_SERVICE.md`, "Testing a file quickly"):
+
+```bash
+kubectl -n <ns> port-forward deploy/hsm-file-service 8080:8080
+curl -sS -D - -o out.bin http://localhost:8080/api/sensec/file/v1/files/<path>
+```
+
 | Symptom | Likely cause | Action |
 |---|---|---|
 | Every request `FS-502-KEY-UNAVAILABLE` right after install | No cross-app grant, or wrong `app_id` / public key | `GET /admin/grants`; compare `config.core.appId` with `app_registrations` |

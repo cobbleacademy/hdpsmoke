@@ -35,7 +35,7 @@ therefore reach every consumer as an image bump.
 ## Access model (option A: trust the BFF)
 
 ```
-UI ──► BFF ──(mesh mTLS, GET /v1/files/<path>)──► hsm-file-service ──► storage (read)
+UI ──► BFF ──(mesh mTLS, GET /api/sensec/file/v1/files/<path>)──► hsm-file-service ──► storage (read)
         │                                            └─────────────► hsm-core-service (/dek/unwrap)
         └── decides which user may see which file
 ```
@@ -46,7 +46,7 @@ is calling and which paths may be served, through these layers:
 1. **NetworkPolicy:** only BFF pods reach port 8080, and only monitoring
    reaches 8081.
 2. **Istio `PeerAuthentication` STRICT + `AuthorizationPolicy`:** only the
-   BFF's service-account principal may `GET /v1/files/*`. The sidecar
+   BFF's service-account principal may `GET <apiPrefix>/files/*`. The sidecar
    enforces this before the JVM sees the request.
 3. **`access.allowed-path-prefixes`** (required): anything else is `404`,
    even when the BFF asks for it.
@@ -67,16 +67,106 @@ shipped inside the chart. Generate a BFF client from it, or mock the service in
 BFF tests. It is produced from the service itself, by springdoc 3.1.x on Spring
 Boot 4.1.0. `OpenApiContractTest` fails the build if the running service and the
 committed file ever differ, so the file can't go stale. A running pod also
-serves it on the management port:
+serves it on the management port, at `/actuator/openapi` (JSON) and
+`/actuator/openapi/yaml`, unless developer docs are on (next section).
 
-- `/actuator/openapi` (JSON) and `/actuator/openapi/yaml`, always on;
-- `/actuator/swagger-ui`, only with `config.swaggerUi: true`. Reach it through
-  `kubectl port-forward <pod> 8081`.
+`GET <apiPrefix>/files/{path}`, where `apiPrefix` is this service's own prefix
+(`config.server.apiPrefix`, env `FILE_SERVICE_API_PREFIX`, default
+`/api/sensec/file/v1`), so the default URL is `GET /api/sensec/file/v1/files/{path}`.
+The `/` inside `{path}` may be sent literally or encoded as `%2F` (as
+OpenAPI-generated clients and Swagger UI do); both are decoded once and then
+validated, so an encoded `../` is still rejected with `FS-400-BAD-PATH`.
+This is the only data endpoint: no upload, list or delete. The prefix is
+inbound only; `config.core.apiV1Prefix` is the prefix of hsm-core-service,
+which this service calls.
 
-The spec is never on the BFF-facing port 8080.
+### Developer docs (Swagger UI)
 
-`GET /v1/files/{path}`. This is the only data endpoint: no upload, list or
-delete.
+For the developers who support and debug the service, in dev/test only. Set
+`docs.enabled: true` and a non-production `config.serviceEnv`; the chart
+refuses `docs.enabled` with `serviceEnv: production` (the default), because it
+opens a gateway route to the service and, with `docs.tryItOut`, to decrypted
+files.
+
+With docs on, the spec and Swagger UI move to the **API port 8080**, under the
+prefix:
+
+| Path (default prefix) | |
+|---|---|
+| `/api/sensec/file/v1/docs` | Entry point; relative redirect to `swagger-ui/index.html` |
+| `/api/sensec/file/v1/swagger-ui/index.html` | Swagger UI |
+| `/api/sensec/file/v1/openapi` | The spec it loads (server `.`, so Try it out calls `./files/{path}`) |
+
+Every URL is relative, as in hsm-core-service, so the docs work under any
+external prefix or rewrite. **The chart does not create a VirtualService**;
+the deployer routes the prefix to port 8080 in whatever way their gateway
+needs. **Port 8081 is never routed through a VirtualService.** For example:
+
+```yaml
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: hsm-file-service-docs
+spec:
+  hosts: ["dev-api.example.com"]
+  gateways: ["istio-system/dev-gateway"]
+  http:
+    - match:
+        - uri:
+            prefix: /api/sensec/file/v1/
+      route:
+        - destination:
+            host: hsm-file-service.<namespace>.svc.cluster.local
+            port:
+              number: 8080
+```
+
+Access is opened only for the gateway, and only for `GET`:
+
+- `docs.gatewayPrincipals` (default
+  `cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account`) is
+  added to the AuthorizationPolicy for `<prefix>/docs`, `/openapi`,
+  `/openapi/*` and `/swagger-ui/*`. With `docs.tryItOut: true` (the default
+  when docs are on) it may also `GET <prefix>/files/*`; Swagger UI offers only
+  GET.
+- `docs.gatewayNamespaces` (default `istio-system`) is added to the
+  NetworkPolicy, for port 8080 only.
+
+Change both defaults if your ingress gateway runs elsewhere. A wrong principal
+shows up as `403 RBAC: access denied` from the sidecar.
+
+### Testing a file quickly
+
+No extra programs, only `kubectl` and `curl`. Each prints the response headers
+(status, `Content-Type`, `X-HSM-Delivery` buffered/streamed, `X-HSM-File-Id`, `X-HSM-Format-Version`) and saves the
+body. A failure is a JSON body with an `FS-...` code (see "Error codes").
+
+1. **Port-forward + curl, the quickest.**
+   ```bash
+   kubectl -n <ns> port-forward deploy/hsm-file-service 8080:8080
+   curl -sS -D - -o report.pdf -H 'X-Request-Id: debug-1' \
+     http://localhost:8080/api/sensec/file/v1/files/tenant-a/2026/report.pdf
+   ```
+   Add `-H 'X-Expected-File-Id: <uuid>'` to test the file_id check. In Istio
+   sidecar mode, port-forward reaches the app directly and skips the
+   AuthorizationPolicy, so the Kubernetes `pods/portforward` permission is what
+   guards this; treat it as access to decrypted files. If
+   `access.trustedCallerSpiffeIds` is set, these requests are rejected (no
+   caller identity header).
+2. **Swagger UI, from the service itself** (docs on). Open
+   `<prefix>/docs` through the VirtualService, or
+   `http://localhost:8080/api/sensec/file/v1/docs` over the same port-forward,
+   then Try it out on `GET /files/{path}` with `tenant-a/2026/report.pdf`. The
+   UI shows the response headers and a download link for the file.
+3. **From the BFF pod, through the real policy.**
+   ```bash
+   kubectl -n <ns> exec deploy/<bff> -c <bff-container> -- \
+     curl -sS -D - -o /dev/null http://hsm-file-service:8080/api/sensec/file/v1/files/tenant-a/2026/report.pdf
+   ```
+   If the BFF image has no curl, `kubectl debug` with an ephemeral container
+   runs in the same pod, under the same identity.
+
+### Request and response
 
 | Request header | |
 |---|---|
@@ -144,6 +234,7 @@ each maps to an environment variable and a property under
 
 | values.yaml | Default | Notes |
 |---|---|---|
+| `config.server.apiPrefix` | `/api/sensec/file/v1` | This service's own prefix (inbound). Endpoint `<apiPrefix>/files/{path}`; also drives the AuthorizationPolicy path. Leading `/`, no trailing `/`. Env `FILE_SERVICE_API_PREFIX`. |
 | `config.core.baseUrl` | **required** | hsm-core-service URL |
 | `config.core.appId` | **required** | This service's own app_id, not the encrypting app's |
 | `config.core.authMode` | `AZURE_AD` | `AZURE_AD` / `SELF_SIGNED_JWT` / `MTLS` / `STATIC` (dev) |
@@ -160,7 +251,10 @@ each maps to an environment variable and a property under
 | `config.limits.maxChunkPlaintextBytes` | `12582912` | |
 | `config.dekCache.ttl` | `15m` | **Also the revocation lag**: a revoked or shredded key keeps serving for up to TTL + 60 s |
 | `config.dekCache.maxSize` | `200` | |
-| `config.swaggerUi` | `false` | Swagger UI on the management port; the spec itself is always served there |
+| `config.serviceEnv` | `production` | `production` refuses `docs.enabled` |
+| `docs.enabled` | `false` | Spec + Swagger UI on port 8080 under the prefix (Spring profile `docs`). See "Developer docs". |
+| `docs.tryItOut` | `true` | With docs on, the gateway principals may also `GET <apiPrefix>/files/*` |
+| `docs.gatewayPrincipals` / `docs.gatewayNamespaces` | Istio default ingress gateway / `istio-system` | Who may reach the docs (AuthorizationPolicy / NetworkPolicy) |
 | `bcFips.nativeMode` | `native` | `native`: BC-FIPS AES-GCM/SHA/DRBG acceleration, with libraries unpacked into a dedicated `emptyDir` at `/opt/bc-native`. `java`: pure Java, nothing unpacked or executed from disk. See "BC-FIPS native libraries". |
 | `secrets.keyVault.*` / `secrets.existingSecretName` | Key Vault CSI | Private key (plus signing key or mTLS cert/key) mounted as files under `/mnt/secrets/hsm` |
 
@@ -180,7 +274,7 @@ file the cache mostly helps re-opens.
 
 | | |
 |---|---|
-| Ports | 8080: file API (BFF only). 8081: `/actuator/health/{liveness,readiness}`, `/actuator/prometheus`, `/actuator/metrics`, `/actuator/openapi` (+ `/actuator/swagger-ui` when enabled) |
+| Ports | 8080: file API for the BFF, plus developer docs when `docs.enabled` (the only port a VirtualService may route). 8081, pod-direct only (probes, Prometheus, port-forward): `/actuator/health/{liveness,readiness}`, `/actuator/prometheus`, `/actuator/metrics`, `/actuator/openapi` (when docs are off) |
 | Metrics | `hsm_file_requests_total{outcome,code,mode,format}`, `hsm_file_request_duration_seconds`, `hsm_file_bytes_served` |
 | Audit | One JSON line per request on the `audit.json` logger: `event=file_access`, `request_id`, `outcome` (`ok` / `error` / `aborted` / `client_closed`), `error_code`, `mode`, `path`, `end_user`, `caller`, `file_id`, `format_version`, `bytes`, `duration_ms` |
 | Shutdown | Graceful: in-flight downloads get `config.shutdownGrace` (30 s), then the key cache is zeroed. `terminationGracePeriodSeconds` 45. |

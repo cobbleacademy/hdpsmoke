@@ -1,6 +1,6 @@
 <svg viewBox="0 0 1530 2720" xmlns="http://www.w3.org/2000/svg" role="img">
   <title>HSM Core Service - Sequence Diagram</title>
-  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest, plus hsm-file-service serving a decrypted file to a consumer BFF (GET /v1/files/{path}: path allow-list, expected file_id check, cached /dek/unwrap, buffered vs streamed delivery with abort on failure) and the v2 produce and rescue paths</desc>
+  <desc>Request flow: clients through PlainID, encrypt/decrypt via HSM service (including the core dek_name reuse-vs-mint branch) with Redis cache and CEK rotation, auditor SPN direct access path, plus the Tier 3 Bulk PoC dek_name reuse flow (hsm-bulk-client to HSM Service's own /dek/issue and /dek/unwrap endpoints), its file-format interoperability with HSM Service's own /decrypt, and optional compress-before-encrypt, all guarded by CoreBulkFileInteropTest, plus hsm-file-service serving a decrypted file to a consumer BFF (GET /api/sensec/file/v1/files/{path}: path allow-list, expected file_id check, cached /dek/unwrap, buffered vs streamed delivery with abort on failure) and the v2 produce and rescue paths</desc>
   <rect width="1530" height="2720" fill="#0f1117"/>
           <!-- LIVE_DEMO_HEADER_START, extracted by java/hsm-core-service's own
                DemoIndexGenerator (com.hsm.core.build.DemoIndexGenerator), which
@@ -336,9 +336,9 @@
           <text x="26" y="1856" fill="#555b7a" font-size="7" font-family="monospace">No AUTHZ-specific test coverage yet (same caveat as Python) — JWT signing verified real (signature checked against the public key), wire format/interop verified live</text>
 
 
-          <!-- ── hsm-file-service: GET /v1/files/{path} (FILE_SERVICE.md) ── -->
+          <!-- ── hsm-file-service: GET /api/sensec/file/v1/files/{path} (FILE_SERVICE.md) ── -->
           <rect x="10" y="1890" width="1500" height="592" rx="5" fill="#04121a" stroke="#14b8a6" stroke-width="0.8"/>
-          <text x="18" y="1904" fill="#14b8a6" font-size="9" font-family="monospace" text-anchor="start" letter-spacing="1">hsm-file-service  ·  GET /v1/files/{path}  (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)</text>
+          <text x="18" y="1904" fill="#14b8a6" font-size="9" font-family="monospace" text-anchor="start" letter-spacing="1">hsm-file-service  ·  GET /api/sensec/file/v1/files/{path}  (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)</text>
           <rect x="25" y="1914" width="130" height="24" rx="4" fill="#1a1d27" stroke="#3b82f6" stroke-width="1"/>
           <text x="90" y="1930" fill="#3b82f6" font-size="8.5" font-family="monospace" text-anchor="middle">Consumer UI</text>
           <line x1="90" y1="1938" x2="90" y2="2366" stroke="#3b82f6" stroke-width="0.6" stroke-dasharray="3,4" opacity="0.6"/>
@@ -367,9 +367,9 @@
           <line x1="280" y1="2010" x2="1414" y2="2010" stroke="#64748b" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#sq-cyan)"/>
           <text x="850.0" y="2006" fill="#64748b" font-size="7.5" font-family="monospace" text-anchor="middle">F3 expected file_id for path (loaded from bulk result .jsonl)</text>
           <line x1="280" y1="2036" x2="464" y2="2036" stroke="#3b82f6" stroke-width="1.2" marker-end="url(#sq-blue)"/>
-          <text x="375.0" y="2032" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="middle">F4 GET /v1/files/{path} · X-Expected-File-Id · X-End-User · X-Request-Id (mTLS)</text>
+          <text x="375.0" y="2032" fill="#3b82f6" font-size="7.5" font-family="monospace" text-anchor="middle">F4 GET …/files/{path} · X-Expected-File-Id · X-End-User · X-Request-Id (mTLS)</text>
           <line x1="470" y1="2060" x2="694" y2="2060" stroke="#eab308" stroke-width="1.2" marker-end="url(#sq-amber)"/>
-          <text x="585.0" y="2056" fill="#eab308" font-size="7.5" font-family="monospace" text-anchor="middle">F5 AuthorizationPolicy: BFF principal, GET /v1/files/* only — else 403 RBAC</text>
+          <text x="585.0" y="2056" fill="#eab308" font-size="7.5" font-family="monospace" text-anchor="middle">F5 AuthorizationPolicy: BFF principal, GET …/files/* only — else 403 RBAC</text>
           <rect x="706" y="2074" width="290" height="14" rx="2" fill="#141a2e" stroke="#14b8a6" stroke-width="0.6"/>
           <text x="713" y="2084" fill="#14b8a6" font-size="7.5" font-family="monospace" text-anchor="start">F6 path rules + allowed-path-prefixes → else FS-400 / FS-404</text>
           <line x1="700" y1="2108" x2="954" y2="2108" stroke="#38bdf8" stroke-width="1.2" marker-end="url(#sq-cyan)"/>
