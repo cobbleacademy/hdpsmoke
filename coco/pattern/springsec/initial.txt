@@ -562,6 +562,7 @@ Still ambiguous — waiting on you, not something I can resolve by reading code:
 "DEK_Template" — same.
 "Key rotation On Demand" — /admin/rotate-kek already exists and is manually callable; unclear if this ask is satisfied by that or means something more (self-service without the rotate authority?).
 ----------------------------------------------------------------------------------------------------------------------------------
+curl -sS -D - -o "input all.pdf" --variable 'p=input all.pdf' --expand-url "http://localhost:8080/api/sensec/file/v1/files/tenant/2026/{{p:url}}"
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
