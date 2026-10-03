@@ -27,8 +27,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * {@code GET /v1/files/{path}} -- the service's only data endpoint. Read-only by
- * design: there is no upload, list or delete. Request headers:
+ * {@code GET <api-prefix>/files/{path}} -- the service's only data endpoint, where
+ * api-prefix is this service's own prefix (hsm.file-service.server.api-prefix, default
+ * /api/sensec/file/v1). Read-only by design: there is no upload, list or delete. Request headers:
  * <ul>
  *   <li>{@code X-Expected-File-Id} (optional, or required via access.require-expected-file-id):
  *       the file_id the BFF recorded when the file was written; a mismatch is 412.</li>
@@ -40,7 +41,8 @@ import java.util.concurrent.TimeUnit;
 @Tag(name = "Files", description = "Decrypt-and-serve. The service's only data endpoint.")
 public class FileController {
 
-    static final String BASE = "/v1/files/";
+    /** Resource segment under the API prefix: the endpoint is {@code <api-prefix>/files/{path}}. */
+    static final String FILES = "/files/";
     static final String END_USER_HEADER = "X-End-User";
 
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
@@ -50,6 +52,7 @@ public class FileController {
     private final MeterRegistry meters;
     private final List<String> allowedPrefixes;
     private final List<String> trustedCallers;
+    private final String filesBase;
 
     public FileController(FileDeliveryService delivery, AccessAuditLogger audit, MeterRegistry meters,
                           FileServiceProperties props) {
@@ -58,6 +61,7 @@ public class FileController {
         this.meters = meters;
         this.allowedPrefixes = props.access().allowedPathPrefixes();
         this.trustedCallers = props.access().trustedCallerSpiffeIds();
+        this.filesBase = props.server().apiPrefix() + FILES;
         if (allowedPrefixes.isEmpty()) {
             throw new IllegalStateException("hsm.file-service.access.allowed-path-prefixes must list at least one prefix (use \"*\" to allow every path explicitly)");
         }
@@ -79,7 +83,7 @@ public class FileController {
                     the Istio sidecar with a plain-text "403 RBAC: access denied" before reaching the service.""")
     @Parameters({
             // The {path} parameter itself is added by FileServiceOpenApiConfig: the real mapping is
-            // /v1/files/** (multi-segment), which springdoc can't turn into a path variable.
+            // <api-prefix>/files/** (multi-segment), which springdoc can't turn into a path variable.
             @Parameter(name = FileDeliveryService.EXPECTED_FILE_ID_HEADER, in = ParameterIn.HEADER,
                     description = "file_id recorded when the file was written (bulk-client result files). Mismatch -> 412. "
                             + "Required when access.require-expected-file-id=true (428 if missing).",
@@ -115,7 +119,7 @@ public class FileController {
             @ApiResponse(responseCode = "502", description = "FS-502-KEY-UNAVAILABLE (grant missing / key shredded), FS-502-STORAGE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "503", description = "FS-503-CORE-UNAVAILABLE -- safe to retry with backoff", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
     })
-    @GetMapping(BASE + "**")
+    @GetMapping("${hsm.file-service.server.api-prefix:" + FileServiceProperties.Server.DEFAULT_API_PREFIX + "}" + FILES + "**")
     public void get(@Parameter(hidden = true) HttpServletRequest request, @Parameter(hidden = true) HttpServletResponse response) {
         long start = System.nanoTime();
         RequestTrace trace = new RequestTrace();
@@ -125,7 +129,7 @@ public class FileController {
             if (!trustedCallers.isEmpty() && (trace.caller == null || !trustedCallers.contains(trace.caller))) {
                 throw new FileServiceException(ErrorCode.CALLER_NOT_TRUSTED, "peer " + trace.caller + " not in trusted-caller-spiffe-ids");
             }
-            String path = RequestPaths.validate(extractPath(request));
+            String path = RequestPaths.validate(extractPath(request, filesBase));
             trace.path = path;
             if (!RequestPaths.isAllowed(path, allowedPrefixes)) {
                 throw new FileServiceException(ErrorCode.NOT_FOUND, "path outside allowed-path-prefixes");
@@ -182,10 +186,10 @@ public class FileController {
         }
     }
 
-    /** Path after /v1/files/, percent-decoded as a URI path (not as a form: "+" stays "+"). */
-    static String extractPath(HttpServletRequest request) {
+    /** Path after {@code <api-prefix>/files/}, percent-decoded as a URI path (not as a form: "+" stays "+"). */
+    static String extractPath(HttpServletRequest request, String filesBase) {
         String uri = request.getRequestURI();
-        String prefix = request.getContextPath() + BASE;
+        String prefix = request.getContextPath() + filesBase;
         if (!uri.startsWith(prefix)) {
             throw new FileServiceException(ErrorCode.BAD_PATH, "unexpected request URI");
         }
