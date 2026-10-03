@@ -175,7 +175,7 @@ class FileServiceIntegrationTest {
     }
 
     private HttpResponse<byte[]> get(String path, String... headers) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/files/" + path)).GET();
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/sensec/file/v1/files/" + path)).GET();
         for (int i = 0; i < headers.length; i += 2) {
             b.header(headers[i], headers[i + 1]);
         }
@@ -305,6 +305,23 @@ class FileServiceIntegrationTest {
         assertTrue(r.statusCode() == 400 || r.statusCode() == 404, "status " + r.statusCode());
         assertFalse(body(r).contains("%PDF"));
         assertEquals(-1, indexOf(r.body(), SMALL), "must never serve the other tenant's file");
+    }
+
+    @Test
+    void encodedSlashes_asSentByGeneratedClientsAndSwaggerUi_areServed() throws Exception {
+        HttpResponse<byte[]> r = get("tenant-a%2Freport.pdf");
+        assertEquals(200, r.statusCode(), body(r));
+        assertArrayEquals(SMALL, r.body());
+    }
+
+    @Test
+    void encodedSlashTraversal_isRejected() throws Exception {
+        for (String path : List.of("tenant-a%2F..%2Fother-tenant%2Fsecret.pdf", "tenant-a/..%2Fother-tenant/secret.pdf",
+                "tenant-a%2F%2E%2E%2Fother-tenant%2Fsecret.pdf")) {
+            HttpResponse<byte[]> r = get(path);
+            assertError(r, 400, "FS-400-BAD-PATH");
+            assertEquals(-1, indexOf(r.body(), SMALL), "must never serve the other tenant's file: " + path);
+        }
     }
 
     private static int indexOf(byte[] haystack, byte[] needle) {

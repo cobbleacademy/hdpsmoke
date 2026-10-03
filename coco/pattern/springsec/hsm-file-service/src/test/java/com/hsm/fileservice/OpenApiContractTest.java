@@ -139,9 +139,14 @@ class OpenApiContractTest {
         Map<String, Object> spec = generated();
         assertTrue(String.valueOf(spec.get("openapi")).startsWith("3.1"));
         Map<String, Object> paths = (Map<String, Object>) spec.get("paths");
-        assertEquals(List.of("/v1/files/{path}"), List.copyOf(paths.keySet()), "exactly one data endpoint, no actuator paths");
+        // Relative to the API prefix, which lives in the server URL as a variable.
+        assertEquals(List.of("/files/{path}"), List.copyOf(paths.keySet()), "exactly one data endpoint, no actuator paths");
+        Map<String, Object> server = ((List<Map<String, Object>>) spec.get("servers")).get(0);
+        assertEquals("http://hsm-file-service:8080{apiPrefix}", server.get("url"));
+        assertEquals("/api/sensec/file/v1", ((Map<String, Map<String, Object>>) server.get("variables")).get("apiPrefix").get("default"),
+                "server variable defaults to this deployment's server.api-prefix");
 
-        Map<String, Object> op = (Map<String, Object>) ((Map<String, Object>) paths.get("/v1/files/{path}")).get("get");
+        Map<String, Object> op = (Map<String, Object>) ((Map<String, Object>) paths.get("/files/{path}")).get("get");
         Map<String, Object> responses = (Map<String, Object>) op.get("responses");
         for (ErrorCode c : ErrorCode.values()) {
             assertTrue(responses.containsKey(String.valueOf(c.status().value())), "status documented for " + c.code());
