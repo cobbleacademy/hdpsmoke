@@ -139,11 +139,11 @@ function Panel({ title, sub, children }) {
 function ArchitectureDiagram() {
   return (
     <div style={s.diagramWrap}>
-      <svg viewBox="0 0 1320 2060" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
+      <svg viewBox="0 0 1320 2490" xmlns="http://www.w3.org/2000/svg" role="img" style={s.diagramSvg}>
         <title>HSM Core Service Architecture — replicated from hsm_bouncy/java/hsm-core-service/src/main/resources/static/index.html</title>
-        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own CEK Rotation Svc (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations, the coarse app_grants table, and the fine-grained per-dek_name app_dek_grants table) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row.</desc>
+        <desc>Centralized encryption service using Azure Key Vault HSM with DEK/KEK envelope encryption pattern, plus the Tier 3 Bulk PoC (POST /dek/issue and /dek/unwrap on CORE SERVICE itself, paired with the separate hsm-bulk-client), dek_name reuse, and BULK File's ciphertext-format interoperability with CORE SERVICE's own /decrypt, guarded by CoreBulkFileInteropTest. Multiple client apps consult PlainID/PBAC (an external shared policy service) before ever calling the HSM service; the HSM service's own Auth Middleware independently validates the JWT, App-ID, grant, and scope on every call, and the Core Service may optionally also call PlainID for fine-grained PBAC. Azure KV Secrets (cek-alpha, cek-beta, current_key pointer) and Azure Key Vault Managed HSM (the KEK) are two distinct resources — Service SPN reads both; a separate Rotation SPN is the only identity that writes new CEK slot bytes and flips current_key, via its own Cache Key Rotator (a separate K8s deployable, dashed border). The Redis DEK Cache uses versioned keys ({'{'}slot{'}'}:{'{'}kv_version{'}'}:{'{'}edek_id{'}'}) so cache hits skip the Managed HSM unwrap. The EDEK Store (schema hsm_crypto) and the Access Store (schema hsm_access — app_registrations, the coarse app_grants table, and the fine-grained per-dek_name app_dek_grants table) are two distinct PostgreSQL schemas. Auditor SPN sits entirely outside the Azure subscription boundary, reading Azure KV Secrets, the EDEK Store, and the Access Store directly with read-only access — it never routes through the Core Service. The Tier 3 Bulk PoC's /dek/issue and /dek/unwrap endpoints live on CORE SERVICE itself (merged from the formerly-separate hsm-bulk-service codebase) — helm/hsm-bulk-service now just deploys the identical CORE SERVICE image as a 2nd, independently-scaled release for bulk-traffic isolation, not a separate codebase. hsm-bulk-client is an external batch job (shared by hsm-spark-adapter via the same hsm-crypto-client library) that reuses one DEK per dek_name across many rows instead of minting a fresh one per row. Admission control adds two phased shadow-mode-then-enforce fresh-mint checks (classification governance via app_classification_grants, and dek_name reservation via kek_registry) with new admin endpoints. The Python and .NET reference clients (examples/python, examples/dotnet) each support 3 auth modes. hsm-file-service is a read-only, core-team-owned decrypt-and-serve service deployed in a consumer namespace behind the consumer BFF, reading file format v1/v2 through the shared hsm-crypto-client codec and hsm-file-store adapters.</desc>
 
-        <rect width="1320" height="2060" fill="#0f1117" />
+        <rect width="1320" height="2490" fill="#0f1117" />
 
         {/* ── AZURE SUBSCRIPTION BOUNDARY — everything below/left of this
             dashed rect is inside the HSM Service's own Azure subscription;
@@ -287,7 +287,7 @@ function ArchitectureDiagram() {
             or Grants + Rotation" the way it does everywhere else in this
             diagram. ── */}
         <rect x="440" y="650" width="200" height="116" rx="8" fill="#1a1d27" stroke="#eab308" strokeWidth="1.5" strokeDasharray="5,3" />
-        <text x="540" y="669" textAnchor="middle" fill="#eab308" fontSize="10" letterSpacing="1" fontFamily="monospace">CEK ROTATION SVC</text>
+        <text x="540" y="669" textAnchor="middle" fill="#eab308" fontSize="10" letterSpacing="1" fontFamily="monospace">CACHE KEY ROTATOR</text>
         <text x="540" y="682" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Separate K8S service · HSM Service SPN</text>
         <rect x="455" y="689" width="170" height="20" rx="4" fill="#22263a" stroke="#eab308" strokeWidth="1" />
         <text x="540" y="703" textAnchor="middle" fill="#eab308" fontSize="8" fontFamily="monospace">every 4h · immediate on recovery</text>
@@ -511,6 +511,104 @@ function ArchitectureDiagram() {
         <text x="34" y="2012" fill="#555b7a" fontSize="7" fontFamily="monospace">JWT signing verified: real RS256 token minted, signature checked against the public key, claims match SelfSignedAppKeyJwtValidator's contract</text>
         <text x="34" y="2030" fill="#f59e0b" fontSize="7" fontFamily="monospace">No AUTHZ-specific test coverage yet, same caveat as the Python reference clients above — only wire-format/interop + signing verified so far</text>
 
+        {/* ── hsm-file-service · CONSUMER NAMESPACE — continuous decrypt-and-serve (FILE_SERVICE.md) ── */}
+        <rect x="15" y="2062" width="330" height="16" rx="3" fill="#0f1117" />
+        <text x="22" y="2074" fill="#4b5563" fontSize="9" fontFamily="monospace" letterSpacing="1">hsm-file-service · CONSUMER NAMESPACE</text>
+        {/* consumer namespace boundary */}
+        <rect x="15" y="2088" width="885" height="300" rx="10" fill="none" stroke="#14b8a6" strokeWidth="1.5" strokeDasharray="8,4" />
+        <rect x="25" y="2080" width="250" height="16" rx="3" fill="#0f1117" />
+        <text x="32" y="2092" fill="#14b8a6" fontSize="9" fontFamily="monospace" letterSpacing="1">CONSUMER K8s NAMESPACE (Istio STRICT)</text>
+        {/* UI */}
+        <rect x="30" y="2108" width="140" height="44" rx="6" fill="#1a1d27" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="100" y="2127" textAnchor="middle" fill="#3b82f6" fontSize="10" fontFamily="monospace">Consumer UI</text>
+        <text x="100" y="2142" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">never calls the service directly</text>
+        {/* BFF */}
+        <rect x="30" y="2178" width="140" height="98" rx="6" fill="#1a1d27" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="100" y="2196" textAnchor="middle" fill="#3b82f6" fontSize="10" fontFamily="monospace">BFF</text>
+        <text x="100" y="2211" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">decides which user may</text>
+        <text x="100" y="2222" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">see which file (option A)</text>
+        <text x="100" y="2238" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">sends X-Expected-File-Id</text>
+        <text x="100" y="2249" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">X-End-User (audit only)</text>
+        <text x="100" y="2264" textAnchor="middle" fill="#f59e0b" fontSize="7" fontFamily="monospace">aborted download = failure</text>
+        <line x1="100" y1="2152" x2="100" y2="2176" stroke="#3b82f6" strokeWidth="1.2" markerEnd="url(#arr-blue)" />
+        {/* consumer DB (file_id records) */}
+        <rect x="30" y="2300" width="140" height="70" rx="6" fill="#1a1d27" stroke="#64748b" strokeWidth="1" />
+        <text x="100" y="2318" textAnchor="middle" fill="#94a3b8" fontSize="9" fontFamily="monospace">Consumer DB</text>
+        <text x="100" y="2333" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">path → expected file_id</text>
+        <text x="100" y="2344" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">(loaded from bulk</text>
+        <text x="100" y="2355" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">result .jsonl files)</text>
+        <line x1="100" y1="2298" x2="100" y2="2278" stroke="#64748b" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-teal)" />
+        {/* hsm-file-service */}
+        <rect x="200" y="2108" width="430" height="262" rx="8" fill="#1a1d27" stroke="#14b8a6" strokeWidth="2" />
+        <text x="415" y="2127" textAnchor="middle" fill="#14b8a6" fontSize="11" letterSpacing="1" fontFamily="monospace">hsm-file-service</text>
+        <text x="415" y="2140" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">core team owns the code · consumer gets signed image + Helm chart</text>
+        <rect x="215" y="2148" width="400" height="22" rx="4" fill="#22263a" stroke="#14b8a6" strokeWidth="1" />
+        <text x="415" y="2163" textAnchor="middle" fill="#14b8a6" fontSize="9" fontFamily="monospace">GET /api/sensec/file/v1/files/{'{'}path{'}'} · read-only (no upload/list/delete)</text>
+        <rect x="215" y="2174" width="400" height="32" rx="4" fill="#22263a" />
+        <text x="415" y="2187" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">AuthorizationPolicy: BFF principal only · NetworkPolicy · path-prefix allow-list</text>
+        <text x="415" y="2199" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">X-Expected-File-Id mismatch → 412 (whole-file swap)</text>
+        <rect x="215" y="2210" width="400" height="32" rx="4" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
+        <text x="415" y="2223" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">stored ≤ 21.5 MiB: verify whole file, then send (Content-Length)</text>
+        <text x="415" y="2235" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">larger: stream verified chunks · failure after 1st byte aborts connection</text>
+        <rect x="215" y="2248" width="196" height="54" rx="4" fill="#2d1b47" stroke="#a78bfa" strokeWidth="1" />
+        <text x="313" y="2263" textAnchor="middle" fill="#a78bfa" fontSize="8" fontFamily="monospace">hsm-crypto-client</text>
+        <text x="313" y="2276" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">codec v1+v2 (shared w/ bulk)</text>
+        <text x="313" y="2287" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">DEK cache 15 min / 200</text>
+        <text x="313" y="2298" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">= revocation lag</text>
+        <rect x="419" y="2248" width="196" height="54" rx="4" fill="#22263a" stroke="#38bdf8" strokeWidth="1" />
+        <text x="517" y="2263" textAnchor="middle" fill="#38bdf8" fontSize="8" fontFamily="monospace">hsm-file-store</text>
+        <text x="517" y="2276" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">AZURE_BLOB · ADLS · LOCAL</text>
+        <text x="517" y="2287" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">shared w/ bulk-client; keeps</text>
+        <text x="517" y="2298" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">Azure SDKs out of crypto lib</text>
+        <text x="415" y="2320" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">8080 files (BFF) · 8081 probes + Prometheus (monitoring) · audit.json file_access line per request</text>
+        <text x="415" y="2333" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">distroless nonroot · read-only rootfs · no heap dumps · no JVM attach · nothing written to disk</text>
+        <text x="415" y="2350" textAnchor="middle" fill="#f59e0b" fontSize="8" fontFamily="monospace">stable error codes: FS-4xx / FS-5xx → RUNBOOK.md</text>
+        {/* BFF → service */}
+        <line x1="170" y1="2210" x2="198" y2="2210" stroke="#14b8a6" strokeWidth="1.5" markerEnd="url(#arr-teal)" />
+        <text x="184" y="2203" textAnchor="middle" fill="#14b8a6" fontSize="6" fontFamily="monospace">mTLS</text>
+        {/* storage */}
+        <rect x="665" y="2108" width="220" height="112" rx="6" fill="#1a1d27" stroke="#38bdf8" strokeWidth="1.5" />
+        <text x="775" y="2126" textAnchor="middle" fill="#38bdf8" fontSize="10" fontFamily="monospace">Encrypted storage</text>
+        <text x="775" y="2140" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Azure Blob / ADLS Gen2</text>
+        <text x="775" y="2158" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">v1 + v2 chunked files</text>
+        <text x="775" y="2172" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">.hsm_bulk_results/**.jsonl</text>
+        <text x="775" y="2190" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">service identity: Blob Data Reader</text>
+        <text x="775" y="2202" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">(read-only)</text>
+        <line x1="630" y1="2160" x2="663" y2="2160" stroke="#38bdf8" strokeWidth="1.2" markerEnd="url(#arr-cyan)" />
+        <text x="646" y="2153" textAnchor="middle" fill="#38bdf8" fontSize="6" fontFamily="monospace">read</text>
+        {/* consumer key vault */}
+        <rect x="665" y="2240" width="220" height="62" rx="6" fill="#1a1d27" stroke="#eab308" strokeWidth="1" />
+        <text x="775" y="2258" textAnchor="middle" fill="#eab308" fontSize="9" fontFamily="monospace">Consumer Key Vault</text>
+        <text x="775" y="2273" textAnchor="middle" fill="#94a3b8" fontSize="7" fontFamily="monospace">service's RSA private key</text>
+        <text x="775" y="2285" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">mounted by Secrets Store CSI</text>
+        <line x1="663" y1="2272" x2="632" y2="2272" stroke="#eab308" strokeWidth="1" strokeDasharray="3,3" markerEnd="url(#arr-yellow)" />
+        {/* CORE SERVICE (outside the consumer namespace) */}
+        <rect x="940" y="2108" width="340" height="92" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
+        <text x="1110" y="2127" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">CORE SERVICE</text>
+        <rect x="955" y="2135" width="310" height="22" rx="4" fill="#22263a" stroke="#a78bfa" strokeWidth="1" />
+        <text x="1110" y="2150" textAnchor="middle" fill="#a78bfa" fontSize="9" fontFamily="monospace">POST /dek/unwrap (scope dek_unwrap)</text>
+        <text x="1110" y="2173" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">cross-app grant: service app_id may</text>
+        <text x="1110" y="2185" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">decrypt the encrypting app's keys</text>
+        <path d="M 630 2345 L 925 2345 L 925 2150 L 938 2150" fill="none" stroke="#a78bfa" strokeWidth="1.3" markerEnd="url(#arr-purple)" />
+        <text x="775" y="2339" textAnchor="middle" fill="#a78bfa" fontSize="7" fontFamily="monospace">/dek/unwrap by edek_id · cache miss only · own app_id</text>
+        {/* hsm-bulk-client producing v2 */}
+        <rect x="940" y="2225" width="340" height="112" rx="8" fill="#1a1d27" stroke="#3b82f6" strokeWidth="1.5" />
+        <text x="1110" y="2244" textAnchor="middle" fill="#3b82f6" fontSize="10" letterSpacing="1" fontFamily="monospace">hsm-bulk-client</text>
+        <text x="1110" y="2257" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">batch producer · same codec + stores</text>
+        <text x="1110" y="2274" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">file.format-version: 2 (readers first)</text>
+        <text x="1110" y="2287" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">chunk-size-bytes 1 MiB for UI-bound files</text>
+        <text x="1110" y="2300" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">writes result files: path → file_id</text>
+        <text x="1110" y="2317" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">named DEK per dataset at high volume</text>
+        <text x="1110" y="2328" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">(key count, HSM load, shred granularity)</text>
+        <path d="M 940 2250 L 905 2250 L 905 2195 L 887 2195" fill="none" stroke="#3b82f6" strokeWidth="1.3" markerEnd="url(#arr-blue)" />
+        <text x="900" y="2190" textAnchor="end" fill="#3b82f6" fontSize="6" fontFamily="monospace">write</text>
+        {/* format v2 note */}
+        <rect x="15" y="2398" width="1265" height="78" rx="6" fill="#0a1f1e" stroke="#10b981" strokeWidth="1" />
+        <text x="647" y="2415" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">File format v2 (FILE_FORMAT.md): header "HSMF" 0x02 · edek_id · file_id · chunk_size — each encrypted chunk carries file_id · chunk_index · is_final · chunk_size</text>
+        <text x="647" y="2429" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">truncation · reorder · duplicate · splice (same named DEK) · header strip (downgrade) · trailing data → all rejected; v1 missed every one of these</text>
+        <text x="647" y="2443" textAnchor="middle" fill="#10b981" fontSize="8" fontFamily="monospace">AAD unchanged ("hsm-svc:app_id=owner") → any v2 chunk still decrypts via CORE SERVICE /decrypt: rescue path, no core change (CoreBulkFileInteropTest)</text>
+        <text x="647" y="2459" textAnchor="middle" fill="#555b7a" fontSize="7" fontFamily="monospace">one codec in hsm-crypto-client · golden files in its test resources · Python reader verified against them · readers upgraded before any writer switches to v2</text>
+
         <defs>
           <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
             <polygon points="0 0, 8 3, 0 6" fill="#3b82f6" />
@@ -583,7 +681,7 @@ function ArchitectureDiagram() {
 // Replicated from hsm_project/app/static/index.html's own Sequence Diagram
 // (treated as the master copy, per the 2026-07-20 ADR-014 amendment) — same
 // 9 participants (Clients, PlainID/PBAC, HSM Service, Azure Managed HSM,
-// Azure KV Secrets, EDEK Store, Redis Cache, CEK Rotation Svc, Auditor SPN)
+// Azure KV Secrets, EDEK Store, Redis Cache, Cache Key Rotator, Auditor SPN)
 // and the same 6 sections (Startup, Policy Check, Encrypt, Decrypt, CEK
 // Rotation, Audit/Scan), including its step numbering scheme (0a/0b/0c,
 // 2a/2b, 15a/16a, R1-R6) rather than a purely sequential 1..N count.
@@ -706,15 +804,15 @@ const FLOWS = [
     title: '4. CEK Rotation Flow (every 4h or immediately on recovery — no pod restart)',
     color: '#eab308',
     steps: [
-      'CEK Rotation Svc generates a new 32-byte CEK and writes it to whichever slot is currently inactive — only alpha and beta ever exist, so this is always "the other one" from current_key (shown here as alpha active → writes cek-beta) — using its Rotation SPN, write-only on KV Secrets.',
+      'Cache Key Rotator generates a new 32-byte CEK and writes it to whichever slot is currently inactive — only alpha and beta ever exist, so this is always "the other one" from current_key (shown here as alpha active → writes cek-beta) — using its Rotation SPN, write-only on KV Secrets.',
       'Azure KV Secrets returns the new kv_version for that slot.',
-      'CEK Rotation Svc updates current_key to point at the newly-written slot — "beta" in this example — only after the slot bytes are already written, never before.',
+      'Cache Key Rotator updates current_key to point at the newly-written slot — "beta" in this example — only after the slot bytes are already written, never before.',
       'HSM Service\'s 30s poll (Service SPN, read-only) detects current_key now points at "beta" along with its new kv_version.',
       'HSM Service fetches that slot\'s bytes plus its kv_version from Azure KV Secrets.',
       'HSM Service calls rotate(new_cek, slot, kv_version) — this promotes the previously-active slot to "previous" and installs the newly-written slot as current. Every rotation flips current_key to whichever of alpha/beta was NOT already active, so the next rotation after this one flips right back — alpha→beta→alpha→beta, alternating indefinitely, never a third slot. New cache MISS entries are written under the new slot\'s key; old-slot entries simply expire via their 60s TTL — dual-read covers the ~30s convergence window while pods catch up. If the Rotation Svc itself is down at the 4h mark, pods hold their current CEK indefinitely with no errors, and rotation resumes immediately once it recovers.',
     ],
     actors: [
-      { id: 'cekrotationsvc', label: 'CEK Rotation Svc' },
+      { id: 'cekrotationsvc', label: 'Cache Key Rotator' },
       { id: 'kvsecrets', label: 'Azure KV Secrets' },
       { id: 'service', label: 'HSM Service' },
     ],
@@ -779,6 +877,106 @@ const FLOWS = [
       { from: 'clnt', to: 'clnt', self: true, label: 'hsm-spark-adapter shares this flow via hsm-crypto-client\'s SvcClient/DekManager — same /dek/issue, /dek/unwrap, RSA-OAEP-256→AES-256-GCM, driven from Spark UDFs instead of a batch job', stepNum: 31 },
     ],
   },
+  {
+    title: '7. Admission Control (fresh-mint /encrypt & /dek/issue only — runs between step 4 and step 5 above / the 26c mint branch)',
+    color: '#10b981',
+    steps: [
+      'Two independent checks run only on a fresh mint — in EncryptionService.resolveDek and DekIssueService.issueOne — never on REUSE (step 4a) and never on /decrypt. They sit between the Encrypt flow\'s steps 4 and 5, but are drawn as their own section rather than renumbering that flow.',
+      'classificationGovernance.checkFirstMintClassification(app_id, dek_name, data_classification) looks the app up in app_classification_grants (schema hsm_access, V15). In shadow mode (hsm.classification-governance.enforce=false, the default) it only logs and audits; with enforce=true it returns 403 if the app has no grant for the declared classification.',
+      'dekNameReservation.checkReservation(app_id, dek_name) looks for a tier-1 kek_registry row (schema hsm_crypto) — exact dek_name AND data_classification=UNSET only. In shadow mode (hsm.dek-name-reservation.enforce=false, the default) it only logs and audits; with enforce=true it returns 403 if the dek_name is reserved for a DIFFERENT app_id.',
+      'The two flags are independent — same phased shadow-mode → enforce rollout as each other, no relationship between them. kek_registry existed since V11 as KEK-selection only (no admission role); an exact-dek_name row now ALSO reserves that name once enforce=true.',
+      'New admin endpoints (Security Hardening round): GET /admin/edek/{edekId} — read-only ownership/metadata lookup for resolving cross-app decrypt denials [manage_apps]; POST · DELETE · GET /admin/apps/classifications — app_classification_grants CRUD [manage_classifications]; POST · DELETE · GET /admin/kek-registry — kek_registry CRUD incl. tier-1 dek_name reservations [manage_kek_registry]. kek_registry previously had no admin API at all — direct DB/seed access only, disruptive to running services.',
+    ],
+    actors: [
+      { id: 'service', label: 'HSM Service' },
+      { id: 'accessstore', label: 'Access Store' },
+      { id: 'edek', label: 'EDEK Store' },
+    ],
+    messages: [
+      { from: 'service', to: 'accessstore', label: 'classificationGovernance.checkFirstMintClassification(app_id, dek_name, data_classification) → app_classification_grants [hsm_access, V15] — shadow-mode (enforce=false, default): logs + audits only · enforce=true: 403 if app_id has no grant for the declared classification', stepNum: '4a2' },
+      { from: 'service', to: 'edek', label: 'dekNameReservation.checkReservation(app_id, dek_name) → kek_registry tier-1 row [hsm_crypto, exact dek_name AND data_classification=UNSET only] — shadow-mode (enforce=false, default): logs + audits only · enforce=true: 403 if dek_name is reserved for a DIFFERENT app_id', stepNum: '4a3' },
+    ],
+  },
+  {
+    title: '8. Python Reference Clients (examples/python — no separate flow, drives the SAME steps 3-11 / 12-20 above)',
+    color: '#3b82f6',
+    steps: [
+      'Not a new flow — it drives the same wire format as the Encrypt and Decrypt flows (or the Decrypt flow alone for the file reader), and documents auth support only.',
+      'HsmCoreClient (hsm_core_batch_file.py) does Tier 1 /encrypt · /decrypt/batch with chunking and a JSON manifest. decrypt_bulk_file (hsm_bulk_file_reader.py) reads a REAL FileBulkJob file and decrypts it via /decrypt/batch alone — zero JVM, replacing a subprocess `java -jar` call. Built for an Azure Function decrypt-validation path where no JVM is available.',
+      'auth.py TokenProvider supports STATIC, SELF_SIGNED_JWT (RS256, matches SelfSignedAppKeyJwtValidator) and AZURE_AD (DefaultAzureCredential). MTLS is NOT supported — it authenticates at the TLS transport layer (client cert/key), not via a bearer token, so it doesn\'t fit TokenProvider\'s shape.',
+      'Same 3-of-4 AuthMode subset hsm-databricks-udf already supports (SELF_SIGNED_JWT verified there too) — AZURE_AD is new, ported from hsm-crypto-client\'s SvcConfig.AuthMode. No AUTHZ-specific test coverage yet (grants / classification / reservation denial paths) — only wire-format/interop verified live so far, see examples/python\'s README.',
+    ],
+    actors: [
+      { id: 'clnt', label: 'Python reference client' },
+      { id: 'svc', label: 'HSM Service' },
+    ],
+    messages: [
+      { from: 'clnt', to: 'svc', label: 'HsmCoreClient (hsm_core_batch_file.py): Tier 1 /encrypt · /decrypt/batch, chunk + JSON manifest — same wire format as steps 3-20' },
+      { from: 'clnt', to: 'svc', label: 'decrypt_bulk_file (hsm_bulk_file_reader.py): reads a REAL FileBulkJob file, decrypts via /decrypt/batch alone — zero JVM, replaces a subprocess `java -jar` call' },
+      { from: 'clnt', to: 'clnt', self: true, label: 'auth.py TokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256) · AZURE_AD (DefaultAzureCredential) — NOT SUPPORTED: MTLS (TLS-layer)' },
+    ],
+  },
+  {
+    title: '9. .NET Reference Clients (examples/dotnet — same wire format as steps 3-11 / 12-20 above, not a separate flow)',
+    color: '#3b82f6',
+    steps: [
+      'Same shape as the Python reference clients, in C# — for a .NET-hosted decrypt-validation path (e.g. a .NET Azure Function). Same wire format as the Encrypt and Decrypt flows, not a separate flow.',
+      'HsmCoreClient (HsmCoreBatchFile.cs) does Tier 1 /encrypt · /decrypt/batch with chunking and a JSON manifest. HsmBulkFileReader.DecryptBulkFileAsync (HsmBulkFileReader.cs) reads a REAL FileBulkJob file and decrypts it via /decrypt/batch alone — hsm-bulk-service is never contacted.',
+      'Auth.cs ITokenProvider supports STATIC, SELF_SIGNED_JWT (RS256, hand-rolled via System.Security.Cryptography.RSA, no JWT NuGet package) and AZURE_AD (same credential cascade as hsm-crypto-client\'s AzureAdTokenProvider.java). MTLS is NOT supported — TLS-layer, doesn\'t fit ITokenProvider.',
+      'Direct ports of SelfSignedJwtTokenProvider.java / AzureAdTokenProvider.java (com.hsm.client.svc) — same claims shape, same TTL, same credential cascade. No AUTHZ-specific test coverage yet (same caveat as Python) — JWT signing verified real (signature checked against the public key), wire format/interop verified live.',
+    ],
+    actors: [
+      { id: 'clnt', label: '.NET reference client' },
+      { id: 'svc', label: 'HSM Service' },
+    ],
+    messages: [
+      { from: 'clnt', to: 'svc', label: 'HsmCoreClient (HsmCoreBatchFile.cs): Tier 1 /encrypt · /decrypt/batch, chunk + JSON manifest — same wire format as steps 3-20' },
+      { from: 'clnt', to: 'svc', label: 'HsmBulkFileReader.DecryptBulkFileAsync (HsmBulkFileReader.cs): reads a REAL FileBulkJob file, decrypts via /decrypt/batch alone — hsm-bulk-service never contacted' },
+      { from: 'clnt', to: 'clnt', self: true, label: 'Auth.cs ITokenProvider — SUPPORTED: STATIC · SELF_SIGNED_JWT (RS256, hand-rolled via System.Security.Cryptography.RSA) · AZURE_AD — NOT SUPPORTED: MTLS (TLS-layer)' },
+    ],
+  },
+  {
+    title: '10. hsm-file-service: GET /api/sensec/file/v1/files/{path} (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)',
+    color: '#14b8a6',
+    steps: [
+      'The consumer UI never calls the service directly: it asks the consumer BFF to open a document, and the BFF — the authority here (option A) — decides whether this user may see this file.',
+      'The BFF looks up the expected file_id for the path in the consumer DB (loaded from the bulk job\'s result .jsonl files), then calls hsm-file-service over mTLS with X-Expected-File-Id, X-End-User (audit only) and X-Request-Id.',
+      'The Istio sidecar enforces an AuthorizationPolicy — BFF principal only, GET …/files/* only, else 403 RBAC. hsm-file-service then applies path rules and the allowed-path-prefixes allow-list (else FS-400 / FS-404).',
+      'It reads the stored size and opens the file from Blob / ADLS; the header (v1, or v2 with edek_id, file_id, chunk_size) is checked against X-Expected-File-Id — a mismatch is FS-412, a whole-file swap.',
+      'Only on a DEK-cache miss does it POST /dek/unwrap(edek_id) to hsm-core-service as its own app_id; the cross-app grant is checked there (refused → FS-502, core down → FS-503). It RSA-OAEP-unwraps the DEK locally; the DEK cache is 15 min / 200 entries (= revocation lag) with a private copy per read.',
+      'Delivery depends on size: stored ≤ 21.5 MiB with a buffer slot free → decrypt and verify EVERY chunk in memory, then send 200 + Content-Length (or a clean JSON error). Larger → stream each verified chunk (chunked); a failure after the first byte ABORTS the connection.',
+      'It writes an audit.json file_access line {request_id, outcome, error_code, mode, path, end_user, caller, file_id} plus metrics. The BFF returns the file — or an error; an aborted or incomplete download is a failure, never shown.',
+      'PRODUCE — hsm-bulk-client with file.format-version: 2 (after every reader is upgraded): /dek/issue (named DEK per dataset at high volume) → the shared codec writes v2: "HSMF" 0x02 · edek_id · file_id · chunk_size; each chunk carries file_id · chunk_index · is_final · chunk_size inside the AES-GCM plaintext (AAD unchanged). Result files .hsm_bulk_results/<job>/<run>/batch-NNNNNN.jsonl (path → file_id) feed the consumer DB (F3). 1 MiB chunks for UI-bound files: faster first byte, ~4 MB heap per streamed download.',
+      'RESCUE — any chunk, v1 or v2, through hsm-core-service alone (no core change): token = "v1." + b64url(0x01 · edek_id · iv · tag · ciphertext) → POST /decrypt/batch → base64 chunk plaintext; the caller applies the v2 rules (file_id · position · chunk_size · exactly one final chunk · nothing after it). EncryptedFileReader.decryptTo(out, ChunkDecryptor), examples/python hsm_bulk_file_reader.py and examples/dotnet; guarded by CoreBulkFileInteropTest.v2File_rescuedChunkByChunkViaCoreDecrypt_keepsIntegrityChecks.',
+    ],
+    actors: [
+      { id: 'ui', label: 'Consumer UI' },
+      { id: 'bff', label: 'Consumer BFF' },
+      { id: 'istio', label: 'Istio sidecar' },
+      { id: 'fs', label: 'hsm-file-service' },
+      { id: 'blob', label: 'Blob / ADLS' },
+      { id: 'core', label: 'hsm-core-service' },
+      { id: 'cdb', label: 'Consumer DB' },
+    ],
+    messages: [
+      { from: 'ui', to: 'bff', label: 'open document', stepNum: 'F1' },
+      { from: 'bff', to: 'bff', self: true, label: 'decide: may this user see this file? (option A: BFF is the authority)', stepNum: 'F2' },
+      { from: 'bff', to: 'cdb', dashed: true, label: 'expected file_id for path (loaded from bulk result .jsonl)', stepNum: 'F3' },
+      { from: 'bff', to: 'istio', label: 'GET …/files/{path} · X-Expected-File-Id · X-End-User · X-Request-Id (mTLS)', stepNum: 'F4' },
+      { from: 'istio', to: 'fs', label: 'AuthorizationPolicy: BFF principal, GET …/files/* only — else 403 RBAC', stepNum: 'F5' },
+      { from: 'fs', to: 'fs', self: true, label: 'path rules + allowed-path-prefixes → else FS-400 / FS-404', stepNum: 'F6' },
+      { from: 'fs', to: 'blob', label: 'size(path) · openRead', stepNum: 'F7' },
+      { from: 'blob', to: 'fs', dashed: true, label: 'stored bytes · header (v1 | v2: edek_id, file_id, chunk_size)', stepNum: 'F7' },
+      { from: 'fs', to: 'fs', self: true, variant: 'deny', label: 'X-Expected-File-Id ≠ header file_id → FS-412 (whole-file swap)', stepNum: 'F8' },
+      { from: 'fs', to: 'core', label: 'POST /dek/unwrap(edek_id) — only on cache miss · as its own app_id', stepNum: 'F9' },
+      { from: 'core', to: 'fs', dashed: true, label: 'wrapped DEK + owner_app_id (cross-app grant checked) · refused → FS-502 · down → FS-503', stepNum: 'F9' },
+      { from: 'fs', to: 'fs', self: true, label: 'RSA-OAEP unwrap · DEK cache 15 min / 200 (= revocation lag) · private copy per read', stepNum: 'F10' },
+      { from: 'fs', to: 'bff', variant: 'allow', label: '[stored ≤ 21.5 MiB and buffer slot free] decrypt + verify EVERY chunk in memory, then 200 + Content-Length · or clean JSON error', stepNum: 'F11a' },
+      { from: 'fs', to: 'bff', variant: 'deny', label: '[else — large file] stream each verified chunk (chunked) · failure after 1st byte → connection ABORTED', stepNum: 'F11b' },
+      { from: 'fs', to: 'fs', self: true, label: 'audit.json file_access {request_id, outcome, error_code, mode, path, end_user, caller, file_id} · metrics', stepNum: 'F12' },
+      { from: 'bff', to: 'ui', label: 'file — or error; an aborted/incomplete download is a failure, never shown', stepNum: 'F13' },
+    ],
+  },
 ];
 
 // ── Mermaid rendering path (see USE_MERMAID_FLOWS above) ────────────────────
@@ -829,7 +1027,7 @@ function buildFlowMermaidText(flow) {
     // the [DENY]/[ALLOW] text markers already in the label carry that
     // meaning instead. See the ADR amendment for this tradeoff.
     const arrow = m.dashed ? '-->>' : '->>';
-    lines.push(`  ${m.from}${arrow}${m.to}: ${sanitizeForMermaid(`${m.stepNum}. ${m.label}`)}`);
+    lines.push(`  ${m.from}${arrow}${m.to}: ${sanitizeForMermaid(m.stepNum ? `${m.stepNum}. ${m.label}` : m.label)}`);
   });
   return lines.join('\n');
 }
@@ -916,7 +1114,7 @@ function SequenceDiagram({ actors, messages, color, markerId }) {
           return (
             <g key={idx}>
               <path d={`M ${x},${y} q 42,0 42,13 q 0,13 -42,13`} fill="none" stroke={stroke} strokeWidth="1.2" strokeDasharray={m.dashed ? '4,3' : undefined} markerEnd={marker} />
-              <text x={x + 10} y={y - 5} fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum}. {m.label}</text>
+              <text x={x + 10} y={y - 5} fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum ? `${m.stepNum}. ` : ''}{m.label}</text>
             </g>
           );
         }
@@ -925,7 +1123,7 @@ function SequenceDiagram({ actors, messages, color, markerId }) {
         return (
           <g key={idx}>
             <line x1={x1} y1={y} x2={x2} y2={y} stroke={stroke} strokeWidth="1.2" strokeDasharray={m.dashed ? '4,3' : undefined} markerEnd={marker} />
-            <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum}. {m.label}</text>
+            <text x={(x1 + x2) / 2} y={y - 6} textAnchor="middle" fill="#cdd2f0" fontSize="7.5" fontFamily="monospace">{m.stepNum ? `${m.stepNum}. ` : ''}{m.label}</text>
           </g>
         );
       })}
@@ -955,7 +1153,7 @@ const OVERVIEW_ACTORS = [
   { id: 'edek', label: 'EDEK Store' },
   { id: 'accessstore', label: 'Access Store' },
   { id: 'redis', label: 'Redis Cache' },
-  { id: 'cekrotationsvc', label: 'CEK Rotation Svc' },
+  { id: 'cekrotationsvc', label: 'Cache Key Rotator' },
   { id: 'auditor', label: 'Auditor SPN' },
 ];
 const OVERVIEW_MAIN_ROWS = [
