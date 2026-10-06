@@ -28,8 +28,10 @@ function normalize(text) {
     .trim();
 }
 
-// Master: "<stepNum>. <rest of label>" where stepNum is one of 12, 0a, 15a, R1, 26c, etc.
-const STEP_PREFIX_RE = /^((?:\d+[a-z]?)|(?:R\d+))\.\s*(.*)$/;
+// Master step grammar (grew over rounds -- this was the blind spot that hid Sections 7-9 and
+// the hsm-file-service flow for several rounds): "12." · "0a." · "15a." · "26c." · "4a2." ·
+// "R1." (dotted) and "F11a <label>" (letter-prefixed, no dot, hsm-file-service flow).
+const STEP_PREFIX_RE = /^(?:((?:\d+[a-z]?\d*)|(?:R\d+))\.\s*|(F\d+[ab]?)\s+)(.*)$/;
 
 function extractMasterSteps(svgPath) {
   const src = fs.readFileSync(svgPath, 'utf8');
@@ -41,11 +43,29 @@ function extractMasterSteps(svgPath) {
     if (!raw) continue;
     const stepMatch = raw.match(STEP_PREFIX_RE);
     if (!stepMatch) continue;
-    const [, stepNum, label] = stepMatch;
+    const stepNum = stepMatch[1] || stepMatch[2];
+    const label = stepMatch[3];
     if (!steps.has(stepNum)) steps.set(stepNum, []);
     steps.get(stepNum).push(label);
   }
   return steps;
+}
+
+// Whole-flow check: numbered-step diffing can't see a flow whose lines carry no step number
+// (Sections 8/9 are text-only) or a flow that doesn't exist in the replica at all. Master marks
+// every flow with a `SECTION n` comment, plus the un-numbered STARTUP block and the hsm-file-service
+// block; HsmDemo.jsx's FLOWS has one `title: 'N. ...'` entry per flow.
+function checkFlowCount(svgPath, jsxPath) {
+  const svg = fs.readFileSync(svgPath, 'utf8');
+  const jsx = fs.readFileSync(jsxPath, 'utf8');
+  const sections = (svg.match(/<!--\s*SECTION\s+\d+/g) || []).length;
+  const startup = /STARTUP\s+\(at service init/.test(svg) ? 1 : 0;
+  const fileSvc = /<!--[^>]*hsm-file-service:\s*GET/.test(svg) ? 1 : 0;
+  const masterFlows = sections + startup + fileSvc;
+  const jsxFlows = (jsx.match(/^\s{4}title: '\d+\.\s/gm) || []).length;
+  const ok = masterFlows === jsxFlows;
+  console.log(`[FLOW COUNT] master ${masterFlows} (${sections} SECTION + startup ${startup} + file-service ${fileSvc}) vs jsx FLOWS ${jsxFlows} -> ${ok ? 'ok' : 'MISMATCH -- a whole flow is missing or extra'}`);
+  return ok ? 0 : 1;
 }
 
 // HsmDemo.jsx: every message is written on one line, e.g.
@@ -102,7 +122,7 @@ function main() {
     return na - nb;
   });
 
-  let issues = 0;
+  let issues = checkFlowCount(svgPath, jsxPath);
   for (const stepNum of sorted) {
     const mLabels = masterSteps.get(stepNum) || [];
     const jLabels = jsxSteps.get(stepNum) || [];
