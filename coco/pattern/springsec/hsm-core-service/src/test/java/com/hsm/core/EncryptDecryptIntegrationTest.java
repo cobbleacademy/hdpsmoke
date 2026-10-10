@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -202,6 +203,53 @@ class EncryptDecryptIntegrationTest {
         List<Map> results = (List<Map>) adminResp.getBody().get("results");
         assertFalse(results.isEmpty());
         assertNotNull(results.get(0).get("new_kek_version"));
+    }
+
+    @Test
+    void rotateKekWithKekNameSweepsOnlyThatKek() {
+        HttpHeaders adminHeaders = headers("demo-token-ops-admin", "ops-admin");
+        String singleKek = "it-single-rotate-kek";
+        String dekName = "it-single-rotate-dek";
+
+        // One EDEK under a dedicated KEK (via kek_registry), one under the legacy default.
+        rest.postForEntity("/api/sensec/hsm/v1/admin/kek-registry", new HttpEntity<>(
+                Map.of("app_id", "payments-svc", "dek_name", dekName, "kek_name", singleKek), adminHeaders), Map.class);
+        ResponseEntity<Map> targetEnc = encryptNamed("demo-token-payments-svc", "payments-svc", "single kek target", dekName);
+        assertEquals(HttpStatus.CREATED, targetEnc.getStatusCode());
+        String targetToken = (String) targetEnc.getBody().get("ciphertext");
+        String targetEdekId = (String) targetEnc.getBody().get("edek_id");
+
+        HttpEntity<Map<String, Object>> otherReq = new HttpEntity<>(
+                Map.of("plaintext", "other kek bystander"), headers("demo-token-payments-svc", "payments-svc"));
+        ResponseEntity<Map> otherEnc = rest.postForEntity("/api/sensec/hsm/v1/encrypt", otherReq, Map.class);
+        String otherEdekId = (String) otherEnc.getBody().get("edek_id");
+        Map otherBefore = rest.exchange("/api/sensec/hsm/v1/admin/edek/" + otherEdekId, HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class).getBody();
+        assertNotEquals(singleKek, otherBefore.get("kek_name"));
+
+        ResponseEntity<Map> resp = rest.postForEntity("/api/sensec/hsm/v1/admin/rotate-kek?kekName=" + singleKek,
+                new HttpEntity<>(adminHeaders), Map.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        List<Map> results = (List<Map>) resp.getBody().get("results");
+        assertEquals(1, results.size());
+        assertEquals(singleKek, results.get(0).get("kek_name"));
+        assertEquals(1, results.get(0).get("records_rotated"));
+
+        Map targetAfter = rest.exchange("/api/sensec/hsm/v1/admin/edek/" + targetEdekId, HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class).getBody();
+        assertEquals(results.get(0).get("new_kek_version"), targetAfter.get("kek_version"));
+        Map otherAfter = rest.exchange("/api/sensec/hsm/v1/admin/edek/" + otherEdekId, HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), Map.class).getBody();
+        assertEquals(otherBefore.get("kek_version"), otherAfter.get("kek_version"));
+
+        ResponseEntity<Map> decResp = rest.postForEntity("/api/sensec/hsm/v1/decrypt", new HttpEntity<>(
+                Map.of("ciphertext", targetToken), headers("demo-token-payments-svc", "payments-svc")), Map.class);
+        assertEquals(HttpStatus.OK, decResp.getStatusCode());
+        assertEquals("single kek target", decResp.getBody().get("plaintext"));
+
+        ResponseEntity<Map> unknown = rest.postForEntity("/api/sensec/hsm/v1/admin/rotate-kek?kekName=does-not-exist",
+                new HttpEntity<>(adminHeaders), Map.class);
+        assertEquals(HttpStatus.NOT_FOUND, unknown.getStatusCode());
     }
 
     @Test
