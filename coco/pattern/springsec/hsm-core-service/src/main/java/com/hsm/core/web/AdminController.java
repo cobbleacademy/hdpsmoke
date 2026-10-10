@@ -53,6 +53,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.ByteArrayInputStream;
@@ -106,20 +107,24 @@ public class AdminController {
     }
 
     @PostMapping("${hsm.service.api-v1-prefix}/admin/rotate-kek")
-    public RotateKekResponse rotateKek(@AuthenticationPrincipal AuthenticatedCaller caller) {
+    public RotateKekResponse rotateKek(@RequestParam(required = false) String kekName,
+                                       @AuthenticationPrincipal AuthenticatedCaller caller) {
         // Demo HSM stand-in must mint a new key version itself; Azure does this via
         // its own rotation policy, so the real client has no such method. Multi-KEK
         // aware: every distinct demo key this instance has created so far gets a
         // fresh version, so the grouped sweep below has something to converge each
         // one's lagging EDEKs to -- not just "the one KEK" the way this worked
-        // before kek_name existed.
+        // before kek_name existed. With ?kekName=, only that one demo key gets a new
+        // version, so a single-KEK validation leaves every other KEK untouched.
         if (kekClient instanceof MockKekClient mock) {
-            for (String kekName : mock.getKnownKekNames()) {
-                mock.rotateToNewVersion(kekName);
+            for (String knownKekName : mock.getKnownKekNames()) {
+                if (kekName == null || kekName.equals(knownKekName)) {
+                    mock.rotateToNewVersion(knownKekName);
+                }
             }
         }
 
-        return rotationService.rotateKek("api:" + caller.sub());
+        return rotationService.rotateKek("api:" + caller.sub(), kekName);
     }
 
     /**
