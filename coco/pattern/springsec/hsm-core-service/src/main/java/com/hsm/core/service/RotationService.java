@@ -74,6 +74,20 @@ public class RotationService {
     }
 
     public RotateKekResponse rotateKek(String triggeredBy) {
+        return rotateKek(triggeredBy, null);
+    }
+
+    /**
+     * onlyKekName null -- sweep every KEK in use (scheduler, and the endpoint
+     * with no kekName). Non-null -- sweep just that one KEK's group, e.g. to
+     * validate a single Key Vault key rotation in isolation; 404 if no current
+     * EDEK is wrapped under it. Passing the legacy-default KEK name still
+     * sweeps (and backfills) the kek_name IS NULL rows, same as a full sweep.
+     */
+    public RotateKekResponse rotateKek(String triggeredBy, String onlyKekName) {
+        if (onlyKekName != null && onlyKekName.isBlank()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "kekName must not be blank");
+        }
         String legacyDefaultKekName = kekRegistryService.getLegacyDefaultKekName();
         List<String> kekNames = new ArrayList<>(
                 edekRecordRepository.findDistinctKekNamesForCurrentRecords(RotationStatus.CURRENT));
@@ -81,6 +95,13 @@ public class RotationService {
         if (hasLegacyRows && !kekNames.contains(legacyDefaultKekName)) {
             kekNames.add(legacyDefaultKekName);
         }
+        if (onlyKekName != null) {
+            if (!kekNames.contains(onlyKekName)) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "No current EDEKs are wrapped under kek_name " + onlyKekName);
+            }
+            kekNames = List.of(onlyKekName);
+        }
+        String scope = onlyKekName == null ? "all" : "single";
 
         List<RotateKekResponse.KekRotationResult> results = new ArrayList<>(kekNames.size());
         int grandTotal = 0;
@@ -92,7 +113,7 @@ public class RotationService {
 
             auditLogger.log("kek_rotation_completed",
                     "kek_name", kekName, "new_kek_version", newVersion, "records_rotated", total,
-                    "triggered_by", triggeredBy, "status", "success");
+                    "triggered_by", triggeredBy, "scope", scope, "status", "success");
             results.add(new RotateKekResponse.KekRotationResult(kekName, newVersion, total));
             grandTotal += total;
         }
