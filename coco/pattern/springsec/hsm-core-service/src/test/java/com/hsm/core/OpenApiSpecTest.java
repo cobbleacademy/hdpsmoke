@@ -73,6 +73,12 @@ class OpenApiSpecTest {
             assertTrue(encryptProps.containsKey("dek_name"));
             assertFalse(encryptProps.containsKey("dataClassification"));
 
+            Map<String, Object> rotateKek = (Map<String, Object>) ((Map<String, Object>) paths.get("/admin/rotate-kek")).get("post");
+            List<Map<String, Object>> rotateParams = (List<Map<String, Object>>) rotateKek.get("parameters");
+            assertTrue(rotateParams.stream().anyMatch(p -> "kekName".equals(p.get("name"))
+                    && "query".equals(p.get("in")) && !Boolean.TRUE.equals(p.get("required"))),
+                    "rotate-kek documents its optional kekName query parameter");
+
             assertEquals(List.of(Map.of("bearerAuth", List.of(), "appId", List.of())), spec.get("security"));
             Map<String, Object> health = (Map<String, Object>) ((Map<String, Object>) paths.get("/admin/health")).get("get");
             assertEquals(List.of(), health.get("security"), "health is public");
