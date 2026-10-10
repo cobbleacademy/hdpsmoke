@@ -79,7 +79,7 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/kek-registry` | `manage_kek_registry` | Register a KEK-selection preference for an app (per-`dek_name`, per-classification, or per-app default) — an exact-`dek_name` entry also reserves that `dek_name` (see below) |
 | `DELETE /admin/kek-registry` | `manage_kek_registry` | Remove a `kek_registry` entry |
 | `GET /admin/kek-registry` | `manage_kek_registry` | List all `kek_registry` entries |
-| `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`) |
+| `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`). Optional `?kekName=<name>` sweeps only that KEK (404 if no current EDEK uses it) -- for validating one Key Vault key rotation in isolation |
 | `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
 | `GET /admin/health` | none (public) | Vault + DB reachability |
