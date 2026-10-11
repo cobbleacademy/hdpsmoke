@@ -1,6 +1,6 @@
 package com.hsm.client.crypto;
 
-import com.hsm.client.config.FipsBootstrap;
+import com.hsm.crypto.FipsBootstrap;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;

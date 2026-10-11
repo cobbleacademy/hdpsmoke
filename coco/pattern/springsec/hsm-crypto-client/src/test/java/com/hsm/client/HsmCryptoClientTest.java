@@ -1,10 +1,10 @@
 package com.hsm.client;
 
-import com.hsm.client.config.FipsBootstrap;
-import com.hsm.client.crypto.DekManager;
-import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.svc.SvcClient;
 import com.hsm.client.svc.SvcConfig;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.FipsBootstrap;
+import com.hsm.crypto.TransportWrapper;
 import org.junit.jupiter.api.Test;
 
 import javax.crypto.AEADBadTagException;

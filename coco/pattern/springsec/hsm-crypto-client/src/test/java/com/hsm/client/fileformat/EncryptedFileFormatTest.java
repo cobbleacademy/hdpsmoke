@@ -1,11 +1,11 @@
 package com.hsm.client.fileformat;
 
-import com.hsm.client.crypto.DekManager;
 import com.hsm.client.fileformat.EncryptedFileException.Reason;
 import com.hsm.client.fileformat.EncryptedFileFormat.FileHeader;
 import com.hsm.client.fileformat.EncryptedFileFormat.Version;
 import com.hsm.client.fileformat.FileFormatTestSupport.Encrypted;
 import com.hsm.client.fileformat.FileFormatTestSupport.Split;
+import com.hsm.crypto.DekManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;

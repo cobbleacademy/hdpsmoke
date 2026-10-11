@@ -1,6 +1,6 @@
 package com.hsm.client.fileformat;
 
-import com.hsm.client.config.FipsBootstrap;
+import com.hsm.crypto.FipsBootstrap;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

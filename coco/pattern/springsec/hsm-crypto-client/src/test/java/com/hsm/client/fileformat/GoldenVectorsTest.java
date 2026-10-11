@@ -1,8 +1,8 @@
 package com.hsm.client.fileformat;
 
-import com.hsm.client.config.FipsBootstrap;
 import com.hsm.client.fileformat.EncryptedFileFormat.FileHeader;
 import com.hsm.client.fileformat.EncryptedFileFormat.Version;
+import com.hsm.crypto.FipsBootstrap;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
