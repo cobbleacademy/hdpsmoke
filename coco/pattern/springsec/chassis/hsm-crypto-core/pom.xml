@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.hsm</groupId>
+        <artifactId>hsm-bouncy-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+    <artifactId>hsm-crypto-core</artifactId>
+    <packaging>jar</packaging>
+    <name>HSM Crypto Core</name>
+    <description>The one implementation of the DEK-level crypto formats every service and client shares (java/docs/COMPATIBILITY_CONTRACT.md C1-C4, C7): BC-FIPS bootstrap, AES-256-GCM DekManager with the v1 ciphertext token, IV generation, RSA-OAEP DEK transport wrap, and the Redis DEK cache codec. Plain Java with bc-fips as its only runtime dependency -- no Spring, no Azure SDK -- so it can sit on any classpath, including a Spark executor's. Pinned by the cross-language vectors in java/chassis/test-vectors/crypto-v1.json.</description>
+    <dependencies>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bc-fips</artifactId>
+        </dependency>
+        <!-- Test only: reads the shared JSON test vectors. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
