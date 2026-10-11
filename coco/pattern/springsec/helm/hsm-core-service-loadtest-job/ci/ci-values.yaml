@@ -1,0 +1,4 @@
+# Placeholder values for CI rendering only (scripts/ci/build.sh) -- not a deployable
+# configuration. They satisfy the chart's `required` checks.
+targetSecretName: ci-placeholder-loadtest-target
+baseUrl: http://hsm-core-service.ci.svc.cluster.local:8000/api/sensec/hsm/v1
