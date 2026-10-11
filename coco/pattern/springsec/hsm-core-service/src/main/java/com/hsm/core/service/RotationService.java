@@ -5,6 +5,8 @@ import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RotateKekResponse;
+import com.hsm.core.lock.JobAlreadyRunningException;
+import com.hsm.core.lock.JobLock;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.model.RotationStatus;
 import com.hsm.core.repository.EdekRecordRepository;
@@ -23,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * KEK rotation service. Ported from app/services/rotation_service.py, then
@@ -50,27 +53,52 @@ import java.util.UUID;
  * <p>Always re-queries page 0 within a group: once a page's records are
  * rewrapped they drop out of that group's filter, so the next unprocessed
  * batch is always at offset 0.
+ *
+ * <p><b>Single runner.</b> Every pod of every release sharing the database
+ * registers the same schedulers, and the admin API can start the same work by
+ * hand, so each public entry point runs under a {@link JobLock}. rotateKek,
+ * rekey and revertRekey share one lock ({@value #KEK_WRAP_LOCK}) because all
+ * three rewrite the same rows' KEK wrapping; rotateNamedDeks has its own. A
+ * caller that loses the race gets {@link JobAlreadyRunningException} (409 on
+ * the admin API, a logged skip in the schedulers) and a "*_skipped" audit event.
  */
 @Service
 public class RotationService {
 
     private static final Logger log = LoggerFactory.getLogger(RotationService.class);
     private static final int PAGE_SIZE = 200;
+    static final int MAX_CONSECUTIVE_ROW_FAILURES = 10;
+
+    static final String KEK_WRAP_LOCK = "hsm:kek-wrap";
+    static final String NAMED_DEK_ROTATION_LOCK = "hsm:named-dek-rotation";
 
     private final KekClient kekClient;
     private final KekRegistryService kekRegistryService;
     private final EdekRecordRepository edekRecordRepository;
     private final AuditLogger auditLogger;
     private final TransactionTemplate transactionTemplate;
+    private final JobLock jobLock;
 
     public RotationService(KekClient kekClient, KekRegistryService kekRegistryService,
                             EdekRecordRepository edekRecordRepository,
-                            AuditLogger auditLogger, PlatformTransactionManager transactionManager) {
+                            AuditLogger auditLogger, PlatformTransactionManager transactionManager,
+                            JobLock jobLock) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
         this.auditLogger = auditLogger;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.jobLock = jobLock;
+    }
+
+    private <T> T exclusively(String lockKey, String operation, String triggeredBy, Supplier<T> work) {
+        return jobLock.tryRun(lockKey, work).orElseThrow(() -> {
+            log.info("{}_skipped reason=already_running lock={} triggered_by={}", operation, lockKey, triggeredBy);
+            auditLogger.log(operation + "_skipped",
+                    "reason", "already_running", "lock", lockKey, "triggered_by", triggeredBy, "status", "skipped");
+            return new JobAlreadyRunningException(operation + " skipped: another KEK/DEK rotation job holding lock "
+                    + lockKey + " is already running; retry once it completes");
+        });
     }
 
     public RotateKekResponse rotateKek(String triggeredBy) {
@@ -88,6 +116,10 @@ public class RotationService {
         if (onlyKekName != null && onlyKekName.isBlank()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "kekName must not be blank");
         }
+        return exclusively(KEK_WRAP_LOCK, "kek_rotation", triggeredBy, () -> doRotateKek(triggeredBy, onlyKekName));
+    }
+
+    private RotateKekResponse doRotateKek(String triggeredBy, String onlyKekName) {
         String legacyDefaultKekName = kekRegistryService.getLegacyDefaultKekName();
         List<String> kekNames = new ArrayList<>(
                 edekRecordRepository.findDistinctKekNamesForCurrentRecords(RotationStatus.CURRENT));
@@ -187,6 +219,10 @@ public class RotationService {
         if (fromKekName.equals(toKekName)) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "fromKekName and toKekName must differ");
         }
+        return exclusively(KEK_WRAP_LOCK, "kek_rekey", triggeredBy, () -> doRekey(fromKekName, toKekName, triggeredBy));
+    }
+
+    private RekeyResponse doRekey(String fromKekName, String toKekName, String triggeredBy) {
         String legacyDefaultKekName = kekRegistryService.getLegacyDefaultKekName();
         String newVersion = kekClient.getCurrentKekVersion(toKekName);
 
@@ -246,6 +282,10 @@ public class RotationService {
 
     /** Undoes the most recent rekey into kekName -- restores each affected row's previous kek_name/kek_version/edek_blob and clears the undo buffer. */
     public RekeyResponse revertRekey(String kekName, String triggeredBy) {
+        return exclusively(KEK_WRAP_LOCK, "kek_rekey_revert", triggeredBy, () -> doRevertRekey(kekName, triggeredBy));
+    }
+
+    private RekeyResponse doRevertRekey(String kekName, String triggeredBy) {
         int total = 0;
         String revertedToKekName = null;
         String revertedToKekVersion = null;
@@ -278,26 +318,83 @@ public class RotationService {
     /**
      * Rotates every "current" named DEK (edek_records row with a non-null
      * current_dek_name) whose createdAt is older than maxAgeHours -- one at a time,
-     * each in its own transaction, so a failure partway through only loses that one
-     * rotation, not the whole sweep. Unlike rotateKek this mints a brand-new DEK per
-     * row rather than re-wrapping the existing one -- the DEK material itself is
-     * what's being retired, not just its KEK wrapping. Keeps the row's existing
-     * kek_name (falling back to the legacy default only for pre-migration rows) --
-     * moving a named DEK to a different KEK is what rekey is for, not this.
+     * each in its own transaction. A row that fails (HSM error, constraint
+     * violation, ...) is rolled back, logged and audited on its own, and the sweep
+     * moves on, so one bad row doesn't leave every row after it unrotated until the
+     * next night. Failed rows stay current and are retried on the next run.
+     * {@value #MAX_CONSECUTIVE_ROW_FAILURES} failures in a row end the sweep early
+     * instead: that pattern means something systemic (Managed HSM or the database is
+     * down), and pressing on would only burn HSM calls and flood the logs. Unlike
+     * rotateKek this mints a brand-new DEK per row rather than re-wrapping the
+     * existing one -- the DEK material itself is what's being retired, not just its
+     * KEK wrapping. Keeps the row's existing kek_name (falling back to the legacy
+     * default only for pre-migration rows) -- moving a named DEK to a different KEK
+     * is what rekey is for, not this.
      */
     public int rotateNamedDeks(int maxAgeHours) {
+        return exclusively(NAMED_DEK_ROTATION_LOCK, "named_dek_rotation", "scheduler", () -> doRotateNamedDeks(maxAgeHours));
+    }
+
+    private int doRotateNamedDeks(int maxAgeHours) {
         OffsetDateTime cutoff = OffsetDateTime.now().minusHours(maxAgeHours);
         List<EdekRecord> candidates = edekRecordRepository.findByRotationStatusAndCurrentDekNameIsNotNullAndCreatedAtBefore(
                 RotationStatus.CURRENT, cutoff);
 
         int rotated = 0;
-        for (EdekRecord old : candidates) {
-            transactionTemplate.executeWithoutResult(status -> rotateNamedDek(old));
-            rotated++;
+        int failed = 0;
+        int consecutiveFailures = 0;
+        int processed = 0;
+        boolean aborted = false;
+        for (EdekRecord candidate : candidates) {
+            UUID edekId = candidate.getEdekId();
+            processed++;
+            try {
+                if (rotateNamedDekIfStillCurrent(edekId)) {
+                    rotated++;
+                }
+                consecutiveFailures = 0;
+            } catch (RuntimeException e) {
+                failed++;
+                consecutiveFailures++;
+                log.error("named_dek_rotation_row_failed edek_id={} error={}", edekId, e.getMessage(), e);
+                // Exception type only: messages from the KEK client or JDBC can carry
+                // vault URLs or SQL fragments that don't belong in the audit trail.
+                auditLogger.log("named_dek_rotation_row_failed",
+                        "edek_id", edekId.toString(), "error_type", e.getClass().getSimpleName(), "status", "failure");
+                if (consecutiveFailures >= MAX_CONSECUTIVE_ROW_FAILURES) {
+                    aborted = true;
+                    log.error("named_dek_rotation_aborted consecutive_failures={} rotated={} remaining={}",
+                            consecutiveFailures, rotated, candidates.size() - processed);
+                    break;
+                }
+            }
         }
 
-        auditLogger.log("named_dek_rotation_completed", "records_rotated", rotated, "max_age_hours", maxAgeHours, "status", "success");
+        String status = aborted ? "aborted" : failed > 0 ? "partial_failure" : "success";
+        auditLogger.log("named_dek_rotation_completed",
+                "records_rotated", rotated, "records_failed", failed, "candidates", candidates.size(),
+                "max_age_hours", maxAgeHours, "status", status);
         return rotated;
+    }
+
+    /**
+     * Re-reads the candidate under a row lock (SELECT ... FOR UPDATE) and rotates it
+     * only if it is still the current row for its name. The candidate list is read
+     * before any row is touched, so without this a row rotated in the meantime --
+     * by anything that bypassed {@link #NAMED_DEK_ROTATION_LOCK} -- would be rotated a
+     * second time from a stale copy and fail on idx_edek_current_name.
+     */
+    boolean rotateNamedDekIfStillCurrent(UUID edekId) {
+        Boolean rotated = transactionTemplate.execute(status -> {
+            EdekRecord locked = edekRecordRepository.findByIdForUpdate(edekId).orElse(null);
+            if (locked == null || locked.getRotationStatus() != RotationStatus.CURRENT || locked.getCurrentDekName() == null) {
+                log.info("named_dek_rotation_row_skipped edek_id={} reason=no_longer_current", edekId);
+                return false;
+            }
+            rotateNamedDek(locked);
+            return true;
+        });
+        return Boolean.TRUE.equals(rotated);
     }
 
     private void rotateNamedDek(EdekRecord old) {
