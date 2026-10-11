@@ -223,6 +223,19 @@
             <artifactId>spring-boot-restclient</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Real-Postgres coverage for PostgresAdvisoryJobLock (advisory locks have no H2
+             equivalent). Versions managed by spring-boot-dependencies; the test class is
+             disabledWithoutDocker, so builds without a Docker daemon just skip it. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Load-test harness only, see java/docs/PERFORMANCE_TESTING.md. Test-scoped so
              it never ships in the Spring Boot fat jar; gatling-charts-highcharts pulls in
