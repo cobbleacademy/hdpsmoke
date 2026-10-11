@@ -1,13 +1,13 @@
 package com.hsm.client;
 
-import com.hsm.client.config.FipsBootstrap;
 import com.hsm.client.crypto.DekCache;
-import com.hsm.client.crypto.DekManager;
-import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.fileformat.EncryptedFileReader;
 import com.hsm.client.fileformat.EncryptedFileWriter;
 import com.hsm.client.svc.SvcClient;
 import com.hsm.client.svc.SvcConfig;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.FipsBootstrap;
+import com.hsm.crypto.TransportWrapper;
 
 import javax.crypto.AEADBadTagException;
 import java.io.InputStream;
