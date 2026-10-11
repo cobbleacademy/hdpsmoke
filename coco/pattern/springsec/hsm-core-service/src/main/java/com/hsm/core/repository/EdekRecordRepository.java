@@ -2,9 +2,11 @@ package com.hsm.core.repository;
 
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.model.RotationStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -28,6 +30,11 @@ public interface EdekRecordRepository extends JpaRepository<EdekRecord, UUID> {
     /** Used by the named-DEK rotation scheduler to find rows past their age threshold. */
     List<EdekRecord> findByRotationStatusAndCurrentDekNameIsNotNullAndCreatedAtBefore(
             RotationStatus rotationStatus, OffsetDateTime cutoff);
+
+    /** RotationService.rotateNamedDekIfStillCurrent: re-reads one rotation candidate under SELECT ... FOR UPDATE. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM EdekRecord e WHERE e.edekId = :edekId")
+    Optional<EdekRecord> findByIdForUpdate(@Param("edekId") UUID edekId);
 
     /**
      * RotationService.rotateKek: which distinct KEKs actually have current EDEKs, to sweep -- see V8's migration
