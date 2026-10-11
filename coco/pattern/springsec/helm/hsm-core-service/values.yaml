@@ -157,6 +157,18 @@ tmpVolume:
   enabled: true
   sizeLimit: 128Mi
 
+# ── BC-FIPS native libraries ───────────────────────────────────────────────────
+# BC-FIPS 2.x can use native (CPU-accelerated) AES-GCM/SHA/DRBG. It unpacks those
+# libraries from its jar at startup and loads them, so the directory must be
+# writable AND executable. native (default): a dedicated emptyDir at /opt/bc-native
+# (the image points BC-FIPS there), so /tmp can stay non-executable. java:
+# pure-Java implementations only; nothing unpacked or executed from disk -- use this
+# where policy forbids executable volumes. The mode in effect is visible in the pod
+# (see RUNBOOK.md "BC-FIPS native libraries").
+bcFips:
+  nativeMode: native        # native | java
+  nativeVolumeSizeLimit: 32Mi
+
 # ── Network policy ─────────────────────────────────────────────────────────────
 # Off by default so the chart installs cleanly without assuming your CNI
 # supports NetworkPolicy. Turn on and fill in egress targets for real
@@ -234,8 +246,18 @@ config:
   splunkBatchSize: "50"
   splunkFlushIntervalSeconds: "5"
 
+  # KEK and named-DEK rotation run under a cross-pod Postgres advisory lock
+  # (RotationService / PostgresAdvisoryJobLock): every replica of this release
+  # and of hsm-bulk-service registers the schedulers, but only one pod actually
+  # sweeps per tick -- the rest log "*_job_skipped reason=already_running".
   kekRotationCron: "0 2 1 * *"
   kekRotationEnabled: "true"
+
+  # Rotates named DEKs (edek_records rows with a non-null current_dek_name)
+  # once they've been current longer than maxAgeHours. Daily at 03:00.
+  namedDekRotationCron: "0 3 * * *"
+  namedDekRotationEnabled: "true"
+  namedDekRotationMaxAgeHours: "720"
 
   # PlainID PBAC — per-user policy gate for encrypt/decrypt.
   # When disabled (default), NullPBACClient is used (always permits).
@@ -297,6 +319,13 @@ secrets:
     # this service's own log pipeline; an embedded password would land in
     # plaintext in every pod's logs. Use a bare URL (no credentials) plus these
     # two separate fields instead.
+    #
+    # Append tcpKeepAlive=true to the JDBC URL (e.g.
+    # "jdbc:postgresql://host:5432/db?sslmode=require&tcpKeepAlive=true"). The
+    # rotation jobs' cross-pod lock is a Postgres session advisory lock held on
+    # a direct (port 5432, not PgBouncer) connection; if a pod hangs without its
+    # TCP connection closing, keepalive is what lets Postgres notice and release
+    # the lock so another pod can take over the next run.
     databaseUrl: ""
     databaseUsername: ""
     databasePassword: ""
