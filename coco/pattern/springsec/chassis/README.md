@@ -20,7 +20,7 @@ a Helm library chart.
 | Service | On the chassis | Notes |
 |---|---|---|
 | hsm-cache-key-rotator | ✓ `hsm-chassis-core` | Phase 3. Own `FipsBootstrap` and cache codec removed; no `JobLock` (no database; single pod via `replicaCount: 1` + `Recreate`). |
-| hsm-crypto-client (→ file-service, bulk-client, Spark adapter) | — | next: `hsm-crypto-core` |
+| hsm-crypto-client (→ file-service, bulk-client, Spark adapter) | ✓ `hsm-crypto-core` | Phase 4. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` removed; consumers import `com.hsm.crypto.*`. The Spark adapter jar bundles `hsm-crypto-core` and still excludes bc-fips (provided on the cluster). |
 | hsm-file-service | — | with `hsm-chassis-web` |
 | hsm-core-service (+ bulk release) | — | last; run as v1/v2 in parallel |
 
