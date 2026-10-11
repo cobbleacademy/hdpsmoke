@@ -16,12 +16,14 @@
     <description>Embeddable Java library for hsm-core-service's bulk DEK endpoints (POST /dek/issue, /dek/unwrap): a stateful HsmCryptoClient exposing encrypt/decrypt methods for other JVM applications to import directly, rather than driving a config-file batch job. Plain Java -- no Spring dependency at all -- so importing it never drags Spring Boot autoconfiguration/component-scanning into a host application. hsm-bulk-client (the standalone batch-job CLI) depends on this module too, for the exact same SvcClient/TransportWrapper/DekManager primitives, rather than duplicating them.</description>
 
     <dependencies>
-        <!-- BC-FIPS: local AES-256-GCM (DekManager) and RSA-OAEP-256 transport wrap/unwrap
-             (TransportWrapper), same CMVP-validated module every other service in this
-             repo uses, not the general-purpose provider. -->
+        <!-- The shared crypto formats (DekManager v1 token, RSA-OAEP TransportWrapper,
+             IvFactory, FipsBootstrap) and, through it, bc-fips. One implementation,
+             shared across the chassis and pinned by
+             java/chassis/test-vectors/crypto-v1.json. Plain Java, no Spring. -->
         <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bc-fips</artifactId>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-crypto-core</artifactId>
+            <version>1.0.0</version>
         </dependency>
 
         <!-- Builds and RS256-signs the self-issued bearer JWT SelfSignedJwtTokenProvider
