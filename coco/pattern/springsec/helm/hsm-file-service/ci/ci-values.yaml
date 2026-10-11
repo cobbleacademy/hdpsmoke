@@ -1,0 +1,19 @@
+# Placeholder values for CI rendering only (scripts/ci/build.sh) -- not a deployable
+# configuration. They satisfy the chart's `required` checks so `helm lint` and
+# `helm template` exercise every template.
+secrets:
+  keyVault:
+    keyVaultName: ci-placeholder-vault
+    tenantId: 00000000-0000-0000-0000-000000000000
+config:
+  access:
+    allowedPathPrefixes: ["ci/"]
+  core:
+    baseUrl: http://hsm-core-service.ci.svc.cluster.local:8000/api/sensec/hsm/v1
+    appId: hsm-file-service-ci
+    azureTokenScope: api://hsm-core-service-ci/.default
+  store:
+    root: /ci-placeholder
+istio:
+  authorizationPolicy:
+    bffPrincipals: ["cluster.local/ns/ci/sa/ci-bff"]
