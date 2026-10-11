@@ -1,0 +1,15 @@
+{
+  "status" : 200,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "records_queued" : "number",
+    "results" : [ {
+      "kek_name" : "string",
+      "new_kek_version" : "string",
+      "records_rotated" : "number"
+    } ]
+  }
+}

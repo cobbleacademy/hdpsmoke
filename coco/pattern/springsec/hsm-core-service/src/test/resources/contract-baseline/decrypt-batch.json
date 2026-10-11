@@ -1,0 +1,22 @@
+{
+  "status" : 200,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "items" : [ {
+      "detail" : "null",
+      "key" : "string",
+      "result" : {
+        "code" : "string",
+        "correlation_id" : "string",
+        "encoding" : "string",
+        "message" : "string",
+        "plaintext" : "string",
+        "status" : "string"
+      },
+      "status" : "string"
+    } ]
+  }
+}

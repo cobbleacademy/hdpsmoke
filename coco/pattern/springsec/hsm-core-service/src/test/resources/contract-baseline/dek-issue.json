@@ -1,0 +1,18 @@
+{
+  "status" : 200,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "items" : [ {
+      "detail" : "null",
+      "edek_id" : "string",
+      "key" : "string",
+      "owner_app_id" : "string",
+      "reused" : "boolean",
+      "status" : "string",
+      "wrapped_dek_b64" : "string"
+    } ]
+  }
+}

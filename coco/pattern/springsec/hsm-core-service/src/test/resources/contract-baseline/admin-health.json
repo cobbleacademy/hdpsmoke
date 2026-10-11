@@ -1,0 +1,12 @@
+{
+  "status" : 200,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "db_reachable" : "boolean",
+    "status" : "string",
+    "vault_reachable" : "boolean"
+  }
+}

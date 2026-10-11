@@ -1,0 +1,15 @@
+{
+  "status" : 200,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "code" : "string",
+    "correlation_id" : "string",
+    "encoding" : "string",
+    "message" : "string",
+    "plaintext" : "string",
+    "status" : "string"
+  }
+}

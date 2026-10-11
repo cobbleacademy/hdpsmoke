@@ -1,0 +1,10 @@
+{
+  "status" : 403,
+  "headers_present" : {
+    "X-Correlation-Id" : true,
+    "Content-Type" : true
+  },
+  "body" : {
+    "detail" : "string"
+  }
+}
