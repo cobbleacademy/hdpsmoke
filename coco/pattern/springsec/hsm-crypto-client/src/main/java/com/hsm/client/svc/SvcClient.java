@@ -2,7 +2,7 @@ package com.hsm.client.svc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.hsm.client.crypto.TransportWrapper;
+import com.hsm.crypto.TransportWrapper;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.SSLContext;

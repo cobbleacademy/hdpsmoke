@@ -1,6 +1,6 @@
 package com.hsm.client.svc;
 
-import com.hsm.client.crypto.TransportWrapper;
+import com.hsm.crypto.TransportWrapper;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
