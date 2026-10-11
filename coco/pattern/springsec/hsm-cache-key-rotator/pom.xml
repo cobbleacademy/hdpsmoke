@@ -25,9 +25,12 @@
             <artifactId>lettuce-core</artifactId>
         </dependency>
 
+        <!-- Chassis: BC-FIPS registration + startup check + bc_fips_native status line,
+             and (via hsm-crypto-core) bc-fips itself and the shared DEK cache codec. -->
         <dependency>
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bc-fips</artifactId>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-chassis-core</artifactId>
+            <version>1.0.0</version>
         </dependency>
 
         <dependency>
@@ -72,6 +75,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- RedisOpsContainerTest: rekey/flush against a real Redis (skipped without Docker). -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
