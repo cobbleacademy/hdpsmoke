@@ -21,6 +21,8 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
+# hsm-crypto-client is built on hsm-crypto-core (chassis), compiled alongside (-am).
+COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src
 COPY hsm-crypto-client/src hsm-crypto-client/src
 COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
 COPY hsm-file-store/src hsm-file-store/src
