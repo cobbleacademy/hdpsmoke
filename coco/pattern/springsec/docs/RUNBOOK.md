@@ -76,6 +76,81 @@ DB fix has to happen directly against the database, not through the API.
 - If it's failing entirely (not just partial), check Managed HSM
   reachability/throttling first — re-wrap is HSM-call-heavy for a large
   batch.
+- `POST /admin/rotate-kek` (or `rekey-kek`, `rekey-kek/revert`) returning
+  **409** means another rotation is still running — scheduled or manual, on
+  any pod. Wait for its `kek_rotation_completed` / `kek_rekey_completed` /
+  `kek_rekey_reverted` audit event and retry. See "Rotation jobs: one runner
+  across all pods" below.
+
+## Rotation jobs: one runner across all pods
+
+Every replica of `hsm-core-service` — and of `hsm-bulk-service`, which is the
+same image deployed as a second release against the same database —
+registers `KekRotationScheduler` and `NamedDekRotationScheduler`. To stop
+every pod sweeping the same rows at the same cron tick, `RotationService`
+runs each job under a **Postgres session advisory lock**
+(`PostgresAdvisoryJobLock`):
+
+| Lock key | Guards |
+|---|---|
+| `hsm:kek-wrap` | `rotateKek`, `rekey`, `revertRekey` — scheduled and admin-API runs alike, since all three rewrite the same rows' KEK wrapping |
+| `hsm:named-dek-rotation` | `rotateNamedDeks` |
+
+**What to expect per tick:** exactly one pod logs `*_job_triggered` →
+`*_job_completed`; every other pod logs `*_job_skipped
+reason=already_running`, and a `*_skipped` audit event records it. The
+admin endpoints answer **409 Conflict** instead of queuing.
+
+**Ownership by release:** the `hsm-bulk-service` chart sets
+`kekRotationEnabled` / `namedDekRotationEnabled` to `"false"`, so rotation
+work stays on the primary release's pods. The lock is the backstop if both
+ever have them enabled (including v1/v2 running side by side).
+
+**Requirements:**
+- `DATABASE_URL` must be a **direct** Postgres connection (port 5432). A
+  transaction-mode PgBouncer would run the unlock on a different server
+  session than the lock.
+- Append `tcpKeepAlive=true` to `DATABASE_URL`. A pod that crashes drops its
+  connection and Postgres frees the lock immediately; a pod that *hangs* with
+  its TCP connection still open is only detected through keepalive.
+
+**Is a rotation lock stuck?** If every tick logs `already_running` but no pod
+logs `*_job_triggered` for that job, look for the session holding it:
+
+```sql
+-- pg_locks splits a 64-bit advisory key into classid (high 32 bits) and objid (low 32 bits).
+SELECT k.key, l.pid, a.client_addr, a.application_name, a.state, a.backend_start, a.state_change
+FROM pg_locks l
+JOIN pg_stat_activity a ON a.pid = l.pid
+JOIN (VALUES ('hsm:kek-wrap'), ('hsm:named-dek-rotation')) AS k(key)
+  ON (l.classid::bigint << 32) | l.objid::bigint = hashtextextended(k.key, 0)
+WHERE l.locktype = 'advisory' AND l.objsubid = 1;
+```
+
+If the holder's pod is genuinely gone or hung, restart that pod; only if that
+isn't possible, `SELECT pg_terminate_backend(<pid>)` releases the lock.
+Rotation is safe to re-run after an interrupted sweep (see above).
+
+**Deploying a change to `RotationService` or the lock:** old pods (without the
+lock) and new pods run side by side during a rolling update. Deploy outside
+the rotation windows (default KEK `0 2 1 * *`, named-DEK `0 3 * * *`).
+
+## Named-DEK rotation partially failed
+
+`rotateNamedDeks` rotates each due row in its own transaction. A row that
+fails (HSM error, constraint violation, …) is rolled back and **stays
+current** — it is retried on the next nightly run — and the sweep carries on
+with the remaining rows.
+
+- Per failed row: a `named_dek_rotation_row_failed` audit event (`edek_id`,
+  `error_type`) plus an ERROR log line with the full exception.
+- Per run: `named_dek_rotation_completed` with `records_rotated`,
+  `records_failed`, `candidates` and `status` = `success` /
+  `partial_failure` / `aborted`.
+- `status=aborted`: 10 rows failed in a row, so the sweep stopped early
+  (`named_dek_rotation_aborted` in the logs). That pattern is systemic —
+  check Managed HSM reachability/throttling and DB health first. The
+  remaining rows are picked up on the next run once the cause is fixed.
 
 ## CEK rotation service down
 
@@ -93,6 +168,11 @@ DB fix has to happen directly against the database, not through the API.
   the current CEK) rather than waiting for the service to come back, that's
   the only reason to treat this as urgent — see `CACHING_AND_ROTATION.md`
   for why rotation cadence is a security dial, not a performance one.
+- The rotator must only ever run as **one** pod — two would flip the same
+  alpha/beta Key Vault slots against each other. The chart pins
+  `replicaCount: 1` and uses `strategy: Recreate`, so a deploy stops the old
+  pod before starting the new one. Expect a few seconds with no rotator
+  during a rollout; that's intended, and harmless per the first bullet.
 
 ## Redis (DEK cache) down
 

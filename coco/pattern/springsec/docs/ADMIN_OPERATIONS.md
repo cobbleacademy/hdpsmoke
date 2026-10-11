@@ -84,6 +84,13 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
 | `GET /admin/health` | none (public) | Vault + DB reachability |
 
+`rotate-kek`, `rekey-kek` and `rekey-kek/revert` share one cross-pod lock with
+the scheduled KEK rotation. While any of them is running — on any pod of
+`hsm-core-service` or `hsm-bulk-service` — the others answer **409 Conflict**
+(`{"detail": "... already running; retry once it completes"}`) rather than
+waiting. Retry after the running job's completion audit event. See
+`RUNBOOK.md` → "Rotation jobs: one runner across all pods".
+
 ## Provisioning an app's public key(s) — `POST /admin/apps/keys`
 
 Replaces the earlier no-admin-endpoint approach (a direct SQL `UPDATE` against

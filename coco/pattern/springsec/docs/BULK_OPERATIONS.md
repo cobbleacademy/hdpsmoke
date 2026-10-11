@@ -643,6 +643,13 @@ required for a first version.
   endpoint (`/encrypt`, `/dek/issue`) minted it, since both write into the
   same table. Running a second, separate scheduler post-merge would have
   meant two schedulers racing to rotate the same rows for no benefit.
+  **Update (rotation single-runner fix):** that race existed anyway — the
+  `hsm-bulk-service` release runs the same `hsm-core-service` image, and every
+  replica of both releases registered the same schedulers, so up to four pods
+  swept the same rows each tick. `RotationService` now runs each sweep under a
+  cross-pod Postgres advisory lock, and the `hsm-bulk-service` chart turns both
+  schedulers off so rotation stays on the primary release. See `RUNBOOK.md` →
+  "Rotation jobs: one runner across all pods".
 - ~~Bounded concurrent fan-out for `/encrypt/batch`/`/decrypt/batch` was
   deliberately deferred until real Managed HSM throughput numbers exist~~ —
   **resolved, built (later round)**: `BatchExecutorConfig` adds one shared,
