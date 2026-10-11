@@ -1,6 +1,6 @@
 package com.hsm.fileservice;
 
-import com.hsm.client.config.FipsBootstrap;
+import com.hsm.crypto.FipsBootstrap;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
