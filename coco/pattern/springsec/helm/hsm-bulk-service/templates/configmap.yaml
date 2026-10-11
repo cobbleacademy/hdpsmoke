@@ -41,6 +41,9 @@ data:
 
   KEK_ROTATION_CRON: {{ .Values.config.kekRotationCron | quote }}
   KEK_ROTATION_ENABLED: {{ .Values.config.kekRotationEnabled | quote }}
+  NAMED_DEK_ROTATION_CRON: {{ .Values.config.namedDekRotationCron | quote }}
+  NAMED_DEK_ROTATION_ENABLED: {{ .Values.config.namedDekRotationEnabled | quote }}
+  NAMED_DEK_ROTATION_MAX_AGE_HOURS: {{ .Values.config.namedDekRotationMaxAgeHours | quote }}
 
   PBAC_ENABLED: {{ .Values.config.pbacEnabled | quote }}
   PLAINID_URL: {{ .Values.config.plainidUrl | quote }}

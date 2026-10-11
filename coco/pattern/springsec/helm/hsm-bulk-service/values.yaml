@@ -120,6 +120,18 @@ tmpVolume:
   enabled: true
   sizeLimit: 128Mi
 
+# ── BC-FIPS native libraries ───────────────────────────────────────────────────
+# BC-FIPS 2.x can use native (CPU-accelerated) AES-GCM/SHA/DRBG. It unpacks those
+# libraries from its jar at startup and loads them, so the directory must be
+# writable AND executable. native (default): a dedicated emptyDir at /opt/bc-native
+# (the image points BC-FIPS there), so /tmp can stay non-executable. java:
+# pure-Java implementations only; nothing unpacked or executed from disk -- use this
+# where policy forbids executable volumes. The mode in effect is visible in the pod
+# (see RUNBOOK.md "BC-FIPS native libraries").
+bcFips:
+  nativeMode: native        # native | java
+  nativeVolumeSizeLimit: 32Mi
+
 # ── Network policy ─────────────────────────────────────────────────────────────
 # Off by default so the chart installs cleanly without assuming your CNI
 # supports NetworkPolicy. This release should only ever need to reach Key
@@ -170,12 +182,12 @@ config:
 
   # Rotates named DEKs (edek_records rows with a non-null current_dek_name,
   # including ones minted via /dek/issue) once they've been current longer
-  # than maxAgeHours. Only needs to run on ONE release when both point at the
-  # same database -- consider disabling here if the primary hsm-core-service
-  # release already has this enabled, to avoid both releases sweeping the
-  # same rows redundantly.
+  # than maxAgeHours. Off here: the primary hsm-core-service release owns
+  # rotation, keeping that work off the bulk-traffic pods. Even if enabled on
+  # both, the cross-pod advisory lock in RotationService lets only one pod
+  # sweep per tick.
   namedDekRotationCron: "0 3 * * *"
-  namedDekRotationEnabled: "true"
+  namedDekRotationEnabled: "false"
   namedDekRotationMaxAgeHours: "720"
 
   azureClientId: ""
@@ -202,11 +214,11 @@ config:
   splunkFlushIntervalSeconds: "5"
 
   kekRotationCron: "0 2 1 * *"
-  # Only needs to run on ONE release -- rotateKek sweeps every KEK with
-  # current EDEKs regardless of which release minted them (shared DB), so
-  # running it on both is redundant work, not a correctness issue. Consider
-  # disabling here if the primary release already handles it.
-  kekRotationEnabled: "true"
+  # Off here: rotateKek sweeps every KEK with current EDEKs regardless of
+  # which release minted them (shared DB), so the primary hsm-core-service
+  # release owns it. The cross-pod advisory lock in RotationService is the
+  # backstop if both releases ever have it enabled.
+  kekRotationEnabled: "false"
 
   pbacEnabled: "false"
   plainidUrl: ""
@@ -234,6 +246,12 @@ secrets:
   create: false
   existingSecretName: "hsm-bulk-service-secrets"
   values:
+    # Append tcpKeepAlive=true to the JDBC URL (e.g.
+    # "jdbc:postgresql://host:5432/db?sslmode=require&tcpKeepAlive=true"). The
+    # rotation jobs' cross-pod lock is a Postgres session advisory lock held on
+    # a direct (port 5432, not PgBouncer) connection; if a pod hangs without its
+    # TCP connection closing, keepalive is what lets Postgres notice and release
+    # the lock so another pod can take over the next run.
     databaseUrl: ""
     databaseUsername: ""
     databasePassword: ""

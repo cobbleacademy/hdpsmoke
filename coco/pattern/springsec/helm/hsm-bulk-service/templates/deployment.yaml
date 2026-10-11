@@ -1,3 +1,6 @@
+{{- if not (has .Values.bcFips.nativeMode (list "native" "java")) }}
+{{- fail "bcFips.nativeMode must be native or java" }}
+{{- end }}
 {{- if and (eq (.Values.config.demoMode | toString) "true") (or .Values.autoscaling.enabled (gt (.Values.replicaCount | int) 1)) }}
 {{- fail "DEMO_MODE's mock HSM key and H2 file store are per-process, not shared across replicas. Running config.demoMode=true with replicaCount > 1 (or autoscaling enabled) causes encrypt/decrypt to silently fail depending on which pod a request lands on. Set replicaCount: 1 and autoscaling.enabled: false while demo_mode is on, or turn demo_mode off for a real multi-replica deployment." }}
 {{- end }}
@@ -154,7 +157,15 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- $jdkOpts := list }}
           {{- if .Values.corporateCa.enabled }}
+          {{- $jdkOpts = append $jdkOpts (printf "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword=%s" .Values.corporateCa.trustStorePassword) }}
+          {{- end }}
+          {{- if eq .Values.bcFips.nativeMode "java" }}
+          {{- /* Pure-Java BC-FIPS: nothing unpacked or executed from disk. */}}
+          {{- $jdkOpts = append $jdkOpts "-Dorg.bouncycastle.native.cpu_variant=java" }}
+          {{- end }}
+          {{- if $jdkOpts }}
           env:
             # JDK_JAVA_OPTIONS (JDK 9+, JEP 293) is the officially recommended
             # way to pass default options to the `java` launcher via env var --
@@ -169,13 +180,23 @@ spec:
             # test where it appeared not to take effect was inconclusive and is
             # being re-validated, hence sticking with the recommended option
             # here rather than JAVA_TOOL_OPTIONS.
+            # One JDK_JAVA_OPTIONS for every option that needs it (corporate trust
+            # store, BC-FIPS java mode): Kubernetes env vars don't merge, so a second
+            # entry with the same name would silently replace the first.
             - name: JDK_JAVA_OPTIONS
-              value: "-Djavax.net.ssl.trustStore=/truststore/cacerts -Djavax.net.ssl.trustStorePassword={{ .Values.corporateCa.trustStorePassword }}"
+              value: {{ join " " $jdkOpts | quote }}
           {{- end }}
           volumeMounts:
             {{- if .Values.tmpVolume.enabled }}
             - name: tmp
               mountPath: /tmp
+            {{- end }}
+            {{- if eq .Values.bcFips.nativeMode "native" }}
+            # BC-FIPS unpacks and loads its native libraries here (the image sets
+            # -Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native), so /tmp
+            # never needs to be executable.
+            - name: bc-native
+              mountPath: /opt/bc-native
             {{- end }}
             {{- if .Values.pbacIntegration.enabled }}
             - name: pbac-integration-config
@@ -192,6 +213,12 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if eq .Values.bcFips.nativeMode "native" }}
+        # Disk-backed and without noexec: the JVM must mmap these libraries executable.
+        - name: bc-native
+          emptyDir:
+            sizeLimit: {{ .Values.bcFips.nativeVolumeSizeLimit }}
         {{- end }}
         {{- if .Values.pbacIntegration.enabled }}
         - name: pbac-integration-config
