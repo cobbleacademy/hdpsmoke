@@ -1,5 +1,6 @@
 package com.hsm.client.crypto;
 
+import com.hsm.crypto.DekManager;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
