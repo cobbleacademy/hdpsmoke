@@ -1,0 +1,3 @@
+# Registers BC-FIPS before any bean exists -- see FipsEnvironmentPostProcessor.
+org.springframework.boot.EnvironmentPostProcessor=\
+com.hsm.chassis.fips.FipsEnvironmentPostProcessor

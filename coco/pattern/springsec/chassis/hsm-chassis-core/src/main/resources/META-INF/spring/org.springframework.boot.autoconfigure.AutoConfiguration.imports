@@ -1,0 +1,2 @@
+com.hsm.chassis.fips.ChassisFipsAutoConfiguration
+com.hsm.chassis.lock.ChassisJobLockAutoConfiguration
