@@ -15,6 +15,11 @@ COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY hsm-cache-key-rotator/pom.xml hsm-cache-key-rotator/pom.xml
 COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
+# Every module the parent pom.xml lists must have its pom.xml present, or Maven
+# refuses to read the reactor -- including the chassis modules, even when this
+# image doesn't build them.
+COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
+COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 COPY hsm-crypto-client/src hsm-crypto-client/src
 COPY hsm-file-store/pom.xml hsm-file-store/pom.xml

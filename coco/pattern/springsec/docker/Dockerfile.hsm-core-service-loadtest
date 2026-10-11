@@ -30,6 +30,11 @@ COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
 COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
 COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
+# Every module the parent pom.xml lists must have its pom.xml present, or Maven
+# refuses to read the reactor -- including the chassis modules, even when this
+# image doesn't build them.
+COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
+COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope
 # (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +

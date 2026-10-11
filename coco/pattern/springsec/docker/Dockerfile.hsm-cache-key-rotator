@@ -24,6 +24,14 @@ COPY hsm-bulk-client/pom.xml hsm-bulk-client/pom.xml
 COPY hsm-file-service/pom.xml hsm-file-service/pom.xml
 COPY hsm-file-store/pom.xml hsm-file-store/pom.xml
 COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
+# Every module the parent pom.xml lists must have its pom.xml present, or Maven
+# refuses to read the reactor -- including the chassis modules, even when this
+# image doesn't build them.
+COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
+COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
+# On the chassis: compile hsm-crypto-core and hsm-chassis-core alongside (-am).
+COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src
+COPY chassis/hsm-chassis-core/src chassis/hsm-chassis-core/src
 COPY hsm-cache-key-rotator/src hsm-cache-key-rotator/src
 RUN mvn -q -pl hsm-cache-key-rotator -am package -DskipTests
 # Empty directory for BC-FIPS's native libraries (see the ENTRYPOINT comment), copied
