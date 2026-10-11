@@ -55,10 +55,10 @@ binary:   version(1) = 0x01
   `urlsafe_b64encode`). **Decoders must accept padded and unpadded** input (Java
   re-pads; Python appends `==`).
 - Fixed overhead 45 bytes; a token with an empty ciphertext is rejected.
-- Implementations: `hsm-crypto-core` `DekManager` (the shared library),
-  `hsm-core-service` `crypto/DekManager` and `hsm-crypto-client` `crypto/DekManager`
-  (copies, until those modules adopt `hsm-crypto-core`), and `hsm-databricks-udf`
-  `dek_manager.py`.
+- Implementations: `hsm-crypto-core` `DekManager` (the shared library, used by
+  `hsm-crypto-client` and so by hsm-file-service, hsm-bulk-client and the Spark
+  adapter), `hsm-core-service` `crypto/DekManager` (a copy, until it adopts
+  `hsm-crypto-core`), and `hsm-databricks-udf` `dek_manager.py`.
 
 ## C2 AAD (app binding)
 
@@ -82,9 +82,9 @@ How `/dek/issue` and `/dek/unwrap` hand a raw DEK to the calling app.
 - Public key: the app's `app_registrations.public_key_pem`, PEM `PUBLIC KEY`
   (X.509 SubjectPublicKeyInfo). Private key (client side only): PEM `PRIVATE KEY` (PKCS#8).
 - Response field `wrapped_dek_b64`: **standard** base64 (not url-safe).
-- Implementations: `hsm-core-service` `crypto/TransportWrapper` (wrap),
-  `hsm-crypto-client` `crypto/TransportWrapper` and `hsm-databricks-udf`
-  `transport.py` (unwrap).
+- Implementations: `hsm-core-service` `crypto/TransportWrapper` (wrap; a copy until
+  it adopts `hsm-crypto-core`), `hsm-crypto-core` `TransportWrapper` (unwrap, via
+  `hsm-crypto-client`) and `hsm-databricks-udf` `transport.py` (unwrap).
 
 ## C5 EDEK record (`edek_records`)
 
@@ -221,7 +221,7 @@ unchanged.
 
 | Contract | Pinned by | Status |
 |---|---|---|
-| C1, C2, C3 | `java/chassis/test-vectors/crypto-v1.json`, run by `hsm-crypto-core`, `hsm-core-service`, `hsm-crypto-client` (`CryptoVectorsTest`) and `hsm-databricks-udf` (`test_crypto_vectors.py`) | ✓ (Phase 1) |
+| C1, C2, C3 | `java/chassis/test-vectors/crypto-v1.json`, run by `hsm-crypto-core` and `hsm-core-service` (`CryptoVectorsTest`) and `hsm-databricks-udf` (`test_crypto_vectors.py`); `hsm-crypto-client` now uses `hsm-crypto-core` itself | ✓ (Phase 1) |
 | C4 | transport vectors in the same file, same four suites | ✓ (Phase 1) |
 | C5 | Flyway migrations + `ApiContractBaselineTest` indirectly | partial |
 | C7 | cache vectors in the same file, run by `hsm-crypto-core`; `RedisOpsContainerTest` (rotator, real Redis) | partial — `RedisDekCache` keeps its own copy until hsm-core-service adopts `hsm-crypto-core` |
