@@ -1,10 +1,10 @@
 package com.hsm.client.db;
 
 import com.hsm.client.config.ClientProperties;
-import com.hsm.client.crypto.DekManager;
-import com.hsm.client.crypto.TransportWrapper;
 import com.hsm.client.svc.SvcClient;
 import com.hsm.client.svc.SvcConfig;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.TransportWrapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
