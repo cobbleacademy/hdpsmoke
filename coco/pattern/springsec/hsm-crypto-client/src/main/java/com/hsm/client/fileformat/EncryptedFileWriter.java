@@ -1,9 +1,9 @@
 package com.hsm.client.fileformat;
 
-import com.hsm.client.crypto.DekManager;
 import com.hsm.client.fileformat.EncryptedFileException.Reason;
 import com.hsm.client.fileformat.EncryptedFileFormat.FileHeader;
 import com.hsm.client.fileformat.EncryptedFileFormat.Version;
+import com.hsm.crypto.DekManager;
 
 import java.io.DataOutputStream;
 import java.io.FilterOutputStream;

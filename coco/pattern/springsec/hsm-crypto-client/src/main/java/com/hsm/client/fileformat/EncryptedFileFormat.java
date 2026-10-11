@@ -1,6 +1,6 @@
 package com.hsm.client.fileformat;
 
-import com.hsm.client.crypto.DekManager;
+import com.hsm.crypto.DekManager;
 import org.bouncycastle.crypto.CryptoServicesRegistrar;
 
 import java.io.DataOutputStream;
