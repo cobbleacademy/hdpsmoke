@@ -2,6 +2,7 @@ package com.hsm.core.scheduler;
 
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.dto.RotateKekResponse;
+import com.hsm.core.lock.JobAlreadyRunningException;
 import com.hsm.core.service.RotationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -47,6 +48,9 @@ public class KekRotationScheduler {
         try {
             RotateKekResponse result = rotationService.rotateKek("scheduler");
             log.info("kek_rotation_job_completed records={}", result.recordsQueued());
+        } catch (JobAlreadyRunningException e) {
+            // Another pod (or release) sharing the database won the lock for this tick.
+            log.info("kek_rotation_job_skipped reason=already_running");
         } catch (Exception e) {
             log.error("kek_rotation_job_failed error={}", e.getMessage(), e);
         }

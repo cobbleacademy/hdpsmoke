@@ -1,6 +1,7 @@
 package com.hsm.core.scheduler;
 
 import com.hsm.core.config.HsmProperties;
+import com.hsm.core.lock.JobAlreadyRunningException;
 import com.hsm.core.service.RotationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -46,6 +47,9 @@ public class NamedDekRotationScheduler {
         try {
             int rotated = rotationService.rotateNamedDeks(properties.namedDekRotation().maxAgeHours());
             log.info("named_dek_rotation_job_completed records={}", rotated);
+        } catch (JobAlreadyRunningException e) {
+            // Another pod (or release) sharing the database won the lock for this tick.
+            log.info("named_dek_rotation_job_skipped reason=already_running");
         } catch (Exception e) {
             log.error("named_dek_rotation_job_failed error={}", e.getMessage(), e);
         }
