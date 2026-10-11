@@ -2,7 +2,7 @@ package com.hsm.fileservice;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hsm.client.config.FipsBootstrap;
+import com.hsm.crypto.FipsBootstrap;
 import com.hsm.fileservice.web.ErrorCode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;

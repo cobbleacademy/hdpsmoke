@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.hsm.client.crypto.TransportWrapper;
+import com.hsm.crypto.TransportWrapper;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;

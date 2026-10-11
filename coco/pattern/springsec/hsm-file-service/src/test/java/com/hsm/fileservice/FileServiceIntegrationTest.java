@@ -1,8 +1,8 @@
 package com.hsm.fileservice;
 
-import com.hsm.client.config.FipsBootstrap;
-import com.hsm.client.crypto.DekManager;
 import com.hsm.client.fileformat.EncryptedFileWriter;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.FipsBootstrap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
