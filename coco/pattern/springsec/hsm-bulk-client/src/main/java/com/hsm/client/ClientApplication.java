@@ -1,10 +1,10 @@
 package com.hsm.client;
 
 import com.hsm.client.config.ClientProperties;
-import com.hsm.client.config.FipsBootstrap;
 import com.hsm.client.db.DbBulkJob;
 import com.hsm.client.file.FileBulkJob;
 import com.hsm.client.svc.SvcClient;
+import com.hsm.crypto.FipsBootstrap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
