@@ -21,6 +21,14 @@
             <artifactId>hsm-crypto-client</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- Chassis: BC-FIPS registration + startup check + bc_fips_native line + fips
+             health component (hsm-chassis-core), X-Request-Id filter and docs redirect
+             (hsm-chassis-web). -->
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-chassis-web</artifactId>
+            <version>1.0.0</version>
+        </dependency>
         <dependency>
             <groupId>com.hsm</groupId>
             <artifactId>hsm-file-store</artifactId>
