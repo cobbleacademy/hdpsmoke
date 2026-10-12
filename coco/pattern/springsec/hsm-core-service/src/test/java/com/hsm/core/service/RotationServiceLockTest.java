@@ -1,12 +1,12 @@
 package com.hsm.core.service;
 
-import com.hsm.core.crypto.DekManager;
+import com.hsm.chassis.lock.JobLock;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.lock.JobAlreadyRunningException;
-import com.hsm.core.lock.JobLock;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.model.RotationStatus;
 import com.hsm.core.repository.EdekRecordRepository;
+import com.hsm.crypto.DekManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;

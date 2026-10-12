@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.hsm.core.config.FipsBootstrap;
-import com.hsm.core.crypto.DekManager;
-import com.hsm.core.crypto.TransportWrapper;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.FipsBootstrap;
+import com.hsm.crypto.TransportWrapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;

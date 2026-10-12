@@ -1,9 +1,7 @@
 package com.hsm.core.service;
 
 import com.hsm.core.audit.RecentEventsBuffer;
-import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
-import com.hsm.core.crypto.TransportWrapper;
 import com.hsm.core.dto.DekIssueItem;
 import com.hsm.core.dto.DekIssueRequest;
 import com.hsm.core.dto.DekIssueResponse;
@@ -19,6 +17,8 @@ import com.hsm.core.repository.AppRegistrationRepository;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.repository.KekRegistryEntryRepository;
 import com.hsm.core.web.ApiException;
+import com.hsm.crypto.DekManager;
+import com.hsm.crypto.TransportWrapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
