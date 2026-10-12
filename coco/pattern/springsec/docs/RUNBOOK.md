@@ -315,6 +315,32 @@ fails the build if any of these break:
 **Bumping Netty for a CVE:** change the `netty-bom` version in `java/pom.xml`
 only, never a single Netty artifact.
 
+## BC-FIPS approved-only mode (all Java services)
+
+BC-FIPS's approved-only mode must hold on **every thread**, not just the one that
+registered the provider. `CryptoServicesRegistrar.setApprovedOnlyMode(true)` — what
+every service's `FipsBootstrap` used to rely on — only affects the calling thread:
+request threads, schedulers and Spark tasks stayed in general mode and could use
+non-approved algorithms. JVM-wide mode comes only from the system property
+`org.bouncycastle.fips.approved_only=true`, read once when BC-FIPS initializes.
+
+- **On the chassis** (`hsm-crypto-core` users: cache-key-rotator, file-service,
+  bulk-client, Spark adapter): `FipsBootstrap.register()` sets the property before
+  BC-FIPS initializes. Spring services on `hsm-chassis-core` verify it from a fresh
+  thread at startup and **refuse to start** if it isn't in effect; the
+  `bc_fips_native … approved_only=` line and the `fips` health component report the
+  JVM-wide value.
+- **If a service refuses to start** with `FIPS check failed: BC-FIPS is not in
+  approved-only mode JVM-wide`: something initialized BC-FIPS before the property was
+  set. Add `-Dorg.bouncycastle.fips.approved_only=true` to the JVM options (e.g.
+  `JDK_JAVA_OPTIONS`), which guarantees it regardless of class-loading order.
+- **hsm-core-service / hsm-bulk-service** still use their own `FipsBootstrap` until
+  they adopt the chassis. Their charts set the JVM flag instead: `bcFips.approvedOnly:
+  true` (default) adds `-Dorg.bouncycastle.fips.approved_only=true` to the container's
+  `JDK_JAVA_OPTIONS`. The pod's first log line confirms the JVM took it:
+  `NOTE: Picked up JDK_JAVA_OPTIONS: … -Dorg.bouncycastle.fips.approved_only=true`.
+  Rollback without a new image: `--set bcFips.approvedOnly=false`.
+
 ## BC-FIPS native libraries (all Java services)
 
 Applies to `hsm-core-service` (including the `hsm-bulk-service` release),

@@ -179,9 +179,14 @@ Scopes come from `app_registrations.allowed_scopes` (comma-separated):
 `provision_app_keys`, `manage_classifications`, `manage_kek_registry`.
 
 Request/trace headers: `X-Correlation-Id` (hsm-core-service: accepted, generated
-if absent, echoed), `X-Request-Id` (hsm-file-service), `X-End-User`,
-`X-Response-Detail`, `X-Forwarded-For`. The chassis request-ID filter must keep
-accepting **both** `X-Correlation-Id` and `X-Request-Id`.
+if absent, echoed; MDC `correlationId`), `X-Request-Id` (hsm-file-service, via
+`hsm-chassis-web`'s `RequestIdFilter`: accepted if it matches
+`[A-Za-z0-9._:-]{1,128}`, else generated; echoed; MDC `requestId`), `X-End-User`,
+`X-Response-Detail`, `X-Forwarded-For`. When hsm-core-service adopts the chassis it
+must keep `X-Correlation-Id`/`correlationId` and add `X-Request-Id` to
+`also-accept`. Not yet done: hsm-file-service does not forward its request id on
+its calls to hsm-core-service (hsm-crypto-client `SvcClient`), so one user request
+appears under two ids.
 
 ## C12 Audit events
 
