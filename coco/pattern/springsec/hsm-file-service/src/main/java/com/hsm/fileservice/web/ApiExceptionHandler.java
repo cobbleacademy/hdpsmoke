@@ -1,5 +1,6 @@
 package com.hsm.fileservice.web;
 
+import com.hsm.chassis.web.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,7 +24,7 @@ public class ApiExceptionHandler {
                 .header(HttpHeaders.CACHE_CONTROL, "no-store");
         if (requestId != null) {
             // Re-set: a streaming failure before the first byte resets the response, clearing it.
-            builder.header(RequestIdFilter.HEADER, requestId);
+            builder.header(RequestIdFilter.DEFAULT_HEADER, requestId);
         }
         return builder.body(new ErrorResponse(e.code().code(), e.code().message(), requestId));
     }

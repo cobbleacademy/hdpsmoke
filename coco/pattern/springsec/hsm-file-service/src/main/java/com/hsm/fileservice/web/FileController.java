@@ -1,5 +1,6 @@
 package com.hsm.fileservice.web;
 
+import com.hsm.chassis.web.RequestIdFilter;
 import com.hsm.fileservice.audit.AccessAuditLogger;
 import com.hsm.fileservice.config.FileServiceProperties;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -91,7 +92,7 @@ public class FileController {
             @Parameter(name = END_USER_HEADER, in = ParameterIn.HEADER,
                     description = "Who the BFF is serving. Recorded in the audit line only, never used for access decisions. Truncated to 256 chars.",
                     schema = @Schema(type = "string", maxLength = 256)),
-            @Parameter(name = RequestIdFilter.HEADER, in = ParameterIn.HEADER,
+            @Parameter(name = RequestIdFilter.DEFAULT_HEADER, in = ParameterIn.HEADER,
                     description = "Correlation id, echoed back. Replaced by a generated UUID unless it matches the pattern.",
                     schema = @Schema(type = "string", pattern = "^[A-Za-z0-9._:-]{1,128}$"))
     })
@@ -107,7 +108,7 @@ public class FileController {
                             @Header(name = "X-HSM-Format-Version", description = "1 or 2", schema = @Schema(type = "string", allowableValues = {"1", "2"})),
                             @Header(name = "X-HSM-File-Id", description = "v2 files only", schema = @Schema(type = "string", format = "uuid")),
                             @Header(name = "X-HSM-Delivery", description = "buffered or streaming", schema = @Schema(type = "string", allowableValues = {"buffered", "streaming"})),
-                            @Header(name = RequestIdFilter.HEADER, description = "Correlation id", schema = @Schema(type = "string"))
+                            @Header(name = RequestIdFilter.DEFAULT_HEADER, description = "Correlation id", schema = @Schema(type = "string"))
                     }),
             @ApiResponse(responseCode = "400", description = "FS-400-BAD-PATH, FS-400-BAD-FILE-ID", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "403", description = "FS-403-CALLER-NOT-TRUSTED (access.trusted-caller-spiffe-ids)", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
