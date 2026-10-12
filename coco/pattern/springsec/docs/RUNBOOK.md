@@ -315,6 +315,60 @@ fails the build if any of these break:
 **Bumping Netty for a CVE:** change the `netty-bom` version in `java/pom.xml`
 only, never a single Netty artifact.
 
+## Rolling out a new hsm-core-service build (v1/v2)
+
+For a build that changes core-service internals but no contract -- e.g. the chassis
+adoption (Phase 7): crypto, FIPS, locking and the correlation-id filter moved to
+shared libraries; API shapes, token/EDEK/cache formats and lock keys unchanged.
+Old (v1) and new (v2) can run side by side against the same database, Key Vault and
+Redis, because everything they share is pinned (COMPATIBILITY_CONTRACT.md).
+
+**What makes side-by-side safe:**
+- **Rotation jobs:** v1 and v2 use the same advisory-lock keys (`hsm:kek-wrap`,
+  `hsm:named-dek-rotation`), so only one pod of either version runs a sweep.
+- **Schema:** the build adds no Flyway migration, so v2's startup Flyway run is a
+  no-op validation. (A build that *does* add one needs the add-only rule and a single
+  migrating release -- not this procedure.)
+- **Data:** tokens, EDEKs and cache entries written by either version are read by
+  the other -- pinned by the shared test vectors.
+
+**Procedure** (core first; repeat for the bulk release with its own values):
+1. Note the current image tag (rollback point).
+2. Install v2 as a **second release** of the same chart (e.g. `hsm-core-service-next`;
+   "v2" is only a release label -- the API path stays `/api/sensec/hsm/v1`), with the
+   same values file as v1 plus this overlay:
+   ```yaml
+   image:
+     tag: "<new tag>"
+   config:
+     splunkSource: "hsm-core-service-next"   # tell v1 and v2 apart in Splunk
+   serviceAccount:
+     create: false                           # REQUIRED: reuse v1's ServiceAccount --
+     name: "<v1 ServiceAccount name>"        # Azure Workload Identity trusts that name only
+   ```
+   Without the `serviceAccount` override the chart creates a new ServiceAccount named
+   after the release, which Entra ID has no federated credential for: every Key Vault
+   / Managed HSM call from v2 would fail. The release gets its own Service, ConfigMaps,
+   HPA, PDB and NetworkPolicy (same rules as v1). Callers keep their URL; your Istio
+   VirtualService for that host splits traffic between the v1 and v2 Services.
+3. Check v2 pods before any traffic: first log line `Picked up JDK_JAVA_OPTIONS: …
+   approved_only=true`; `bc_fips_native … approved_only=true`; no `FIPS check failed`;
+   `job_lock_mode=postgres_advisory`.
+4. Shift traffic with your Istio VirtualService weights (v1/v2 Services):
+   0 → 5% → 25% → 50% → 100%, watching at each step: 4xx/5xx rate, decrypt latency,
+   `NoSuchAlgorithm`/`FIPS` errors, and that `correlation_id`s look normal. Optional
+   before 5%: **mirror** only `/decrypt`, `/decrypt/batch` and `/dek/unwrap` to v2 --
+   never `/encrypt`, `/dek/issue` or admin calls (they write rows).
+5. At 100% for the agreed period (suggested 2 weeks with no errors), upgrade the
+   original release to the new tag and remove v2 -- or keep v2 and retire v1.
+6. **Rollback at any step:** set the weight back to v1 (seconds). v1 keeps running
+   throughout; nothing it relies on changed.
+
+**Expected, intended differences in v2:** an incoming `X-Correlation-Id` with
+characters outside `[A-Za-z0-9._:-]` (or > 128 chars) is replaced by a UUID instead of
+being echoed; a caller sending only `X-Request-Id` gets that id adopted as the
+correlation id.
+
 ## BC-FIPS approved-only mode (all Java services)
 
 BC-FIPS's approved-only mode must hold on **every thread**, not just the one that
@@ -334,12 +388,13 @@ non-approved algorithms. JVM-wide mode comes only from the system property
   approved-only mode JVM-wide`: something initialized BC-FIPS before the property was
   set. Add `-Dorg.bouncycastle.fips.approved_only=true` to the JVM options (e.g.
   `JDK_JAVA_OPTIONS`), which guarantees it regardless of class-loading order.
-- **hsm-core-service / hsm-bulk-service** still use their own `FipsBootstrap` until
-  they adopt the chassis. Their charts set the JVM flag instead: `bcFips.approvedOnly:
-  true` (default) adds `-Dorg.bouncycastle.fips.approved_only=true` to the container's
-  `JDK_JAVA_OPTIONS`. The pod's first log line confirms the JVM took it:
-  `NOTE: Picked up JDK_JAVA_OPTIONS: … -Dorg.bouncycastle.fips.approved_only=true`.
-  Rollback without a new image: `--set bcFips.approvedOnly=false`.
+- **hsm-core-service / hsm-bulk-service** are on the chassis too (Phase 7), so they
+  also log `bc_fips_native … approved_only=` and refuse to start if it isn't
+  JVM-wide. Their charts additionally pass the JVM flag: `bcFips.approvedOnly: true`
+  (default) adds `-Dorg.bouncycastle.fips.approved_only=true` to `JDK_JAVA_OPTIONS`
+  (first log line: `NOTE: Picked up JDK_JAVA_OPTIONS: …`). Keep it on: it guarantees
+  the mode regardless of class-loading order, and it is what protected a pre-chassis
+  image. `--set bcFips.approvedOnly=false` removes it.
 
 ## BC-FIPS native libraries (all Java services)
 

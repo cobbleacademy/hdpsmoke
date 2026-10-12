@@ -55,10 +55,10 @@ binary:   version(1) = 0x01
   `urlsafe_b64encode`). **Decoders must accept padded and unpadded** input (Java
   re-pads; Python appends `==`).
 - Fixed overhead 45 bytes; a token with an empty ciphertext is rejected.
-- Implementations: `hsm-crypto-core` `DekManager` (the shared library, used by
-  `hsm-crypto-client` and so by hsm-file-service, hsm-bulk-client and the Spark
-  adapter), `hsm-core-service` `crypto/DekManager` (a copy, until it adopts
-  `hsm-crypto-core`), and `hsm-databricks-udf` `dek_manager.py`.
+- Implementations: `hsm-crypto-core` `DekManager` -- the one Java implementation,
+  used by hsm-core-service (and its bulk release) and, via `hsm-crypto-client`, by
+  hsm-file-service, hsm-bulk-client and the Spark adapter -- and `hsm-databricks-udf`
+  `dek_manager.py`.
 
 ## C2 AAD (app binding)
 
@@ -82,9 +82,8 @@ How `/dek/issue` and `/dek/unwrap` hand a raw DEK to the calling app.
 - Public key: the app's `app_registrations.public_key_pem`, PEM `PUBLIC KEY`
   (X.509 SubjectPublicKeyInfo). Private key (client side only): PEM `PRIVATE KEY` (PKCS#8).
 - Response field `wrapped_dek_b64`: **standard** base64 (not url-safe).
-- Implementations: `hsm-core-service` `crypto/TransportWrapper` (wrap; a copy until
-  it adopts `hsm-crypto-core`), `hsm-crypto-core` `TransportWrapper` (unwrap, via
-  `hsm-crypto-client`) and `hsm-databricks-udf` `transport.py` (unwrap).
+- Implementations: `hsm-crypto-core` `TransportWrapper` (wrap in hsm-core-service;
+  unwrap via `hsm-crypto-client`) and `hsm-databricks-udf` `transport.py` (unwrap).
 
 ## C5 EDEK record (`edek_records`)
 
@@ -125,9 +124,9 @@ for unwrap until no `current` row references them (see RUNBOOK "KEK rotation").
   AES-256-GCM under the CEK, 12-byte IV, **no AAD**.
 - TTL: `DEK_CACHE_TTL_SECONDS`. Lookup tries the current CEK version, then the
   previous one, so a CEK rotation causes no miss storm.
-- Implementations: `hsm-crypto-core` `DekCacheCodec` (the shared codec), used by
-  `hsm-cache-key-rotator` `RedisOps` (rekey/flush); `hsm-core-service`
-  `crypto/RedisDekCache` still carries its own copy until it adopts `hsm-crypto-core`.
+- Implementations: `hsm-crypto-core` `DekCacheCodec`, used by both hsm-core-service
+  `crypto/RedisDekCache` (read/write) and hsm-cache-key-rotator `RedisOps`
+  (rekey/flush).
 
 ## C8 Cache encryption key secrets
 
@@ -182,9 +181,12 @@ Request/trace headers: `X-Correlation-Id` (hsm-core-service: accepted, generated
 if absent, echoed; MDC `correlationId`), `X-Request-Id` (hsm-file-service, via
 `hsm-chassis-web`'s `RequestIdFilter`: accepted if it matches
 `[A-Za-z0-9._:-]{1,128}`, else generated; echoed; MDC `requestId`), `X-End-User`,
-`X-Response-Detail`, `X-Forwarded-For`. When hsm-core-service adopts the chassis it
-must keep `X-Correlation-Id`/`correlationId` and add `X-Request-Id` to
-`also-accept`. Not yet done: hsm-file-service does not forward its request id on
+`X-Response-Detail`, `X-Forwarded-For`. hsm-core-service is on the same chassis filter
+configured for its own contract (`X-Correlation-Id` in/out, MDC `correlationId`, response
+`correlation_id`), with `X-Request-Id` accepted as a fallback. Since Phase 7 it validates
+the incoming id like file-service does: before, any non-blank value was echoed and
+logged verbatim (log injection); now an id outside `[A-Za-z0-9._:-]{1,128}` is replaced
+with a UUID. Not yet done: hsm-file-service does not forward its request id on
 its calls to hsm-core-service (hsm-crypto-client `SvcClient`), so one user request
 appears under two ids.
 
@@ -215,10 +217,10 @@ Postgres advisory locks, `hashtextextended(key, 0)`: `hsm:kek-wrap`
 (rotate/rekey/revert) and `hsm:named-dek-rotation`. Every build that can run these
 jobs against the same database **must use the same keys**, or v1 and v2 will
 rotate concurrently. See RUNBOOK "Rotation jobs: one runner across all pods".
-The lock itself is `hsm-chassis-core` `com.hsm.chassis.lock.PostgresAdvisoryJobLock`
-(hsm-core-service keeps its own identical copy until it adopts the chassis); the
-key strings live in the calling code (`RotationService`) and must be carried over
-unchanged.
+The lock itself is `hsm-chassis-core` `com.hsm.chassis.lock.PostgresAdvisoryJobLock`;
+the key strings live in hsm-core-service `RotationService` and must never change
+(a pre-chassis v1 and a chassis v2 running side by side exclude each other only
+because they use the same strings).
 
 ---
 
@@ -226,14 +228,14 @@ unchanged.
 
 | Contract | Pinned by | Status |
 |---|---|---|
-| C1, C2, C3 | `java/chassis/test-vectors/crypto-v1.json`, run by `hsm-crypto-core` and `hsm-core-service` (`CryptoVectorsTest`) and `hsm-databricks-udf` (`test_crypto_vectors.py`); `hsm-crypto-client` now uses `hsm-crypto-core` itself | ✓ (Phase 1) |
+| C1, C2, C3 | `java/chassis/test-vectors/crypto-v1.json`, run by `hsm-crypto-core` (`CryptoVectorsTest`; every Java service uses it) and `hsm-databricks-udf` (`test_crypto_vectors.py`) | ✓ |
 | C4 | transport vectors in the same file, same four suites | ✓ (Phase 1) |
 | C5 | Flyway migrations + `ApiContractBaselineTest` indirectly | partial |
-| C7 | cache vectors in the same file, run by `hsm-crypto-core`; `RedisOpsContainerTest` (rotator, real Redis) | partial — `RedisDekCache` keeps its own copy until hsm-core-service adopts `hsm-crypto-core` |
+| C7 | cache vectors in the same file, run by `hsm-crypto-core` (the codec both RedisDekCache and RedisOps use); `RedisOpsContainerTest` (rotator, real Redis) | ✓ |
 | C8 | — | manual review |
 | C9 | `hsm-crypto-client` golden files | ✓ |
 | C10 | `ApiContractBaselineTest` | ✓ (Phase 0) |
-| C11 | existing auth tests (`RsaJwtValidatorTest`, `SelfSignedJwtMultiAudienceTest`, `AdminMtlsCertTest`) | partial |
+| C11 | auth tests (`RsaJwtValidatorTest`, `SelfSignedJwtMultiAudienceTest`, `AdminMtlsCertTest`); request-id: `ChassisAdoptionTest` (core), `RequestIdFilterTest` (chassis), `FileServiceIntegrationTest` | partial |
 | C12 | — | manual review |
 | C13 | `RotationServiceLockTest`, `PostgresAdvisoryJobLockContainerTest` | ✓ |
 
