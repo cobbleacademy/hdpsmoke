@@ -85,6 +85,14 @@
             <groupId>org.bouncycastle</groupId>
             <artifactId>bc-fips</artifactId>
         </dependency>
+        <!-- Chassis: hsm-crypto-core (DekManager, TransportWrapper, IvFactory, DekCacheCodec),
+             hsm-chassis-core (BC-FIPS registration + JVM-wide check, bc_fips_native line,
+             JobLock) and hsm-chassis-web (correlation-id filter, docs redirect). -->
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-chassis-web</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
         <dependency>
             <groupId>com.nimbusds</groupId>
