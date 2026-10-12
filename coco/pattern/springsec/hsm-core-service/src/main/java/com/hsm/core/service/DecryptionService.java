@@ -5,7 +5,6 @@ import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.PbacClient;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.DekCache;
-import com.hsm.core.crypto.DekManager;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.dto.BatchDecryptItem;
 import com.hsm.core.dto.BatchDecryptRequest;
@@ -16,7 +15,8 @@ import com.hsm.core.dto.DecryptResponse;
 import com.hsm.core.model.EdekRecord;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.web.ApiException;
-import com.hsm.core.web.CorrelationIdFilter;
+import com.hsm.core.web.CorrelationId;
+import com.hsm.crypto.DekManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -197,7 +197,7 @@ public class DecryptionService {
 
         return new DecryptResponse(new String(plaintext, StandardCharsets.UTF_8), ownerAppId, record.getAlgorithm(), record.getEncoding(),
                 "success", "DECRYPT_SUCCESS", "Decryption completed successfully",
-                MDC.get(CorrelationIdFilter.MDC_KEY));
+                MDC.get(CorrelationId.MDC_KEY));
     }
 
     /**
