@@ -4,7 +4,6 @@ import com.hsm.core.audit.AuditLogger;
 import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.auth.JwtValidator;
 import com.hsm.core.config.HsmProperties;
-import com.hsm.core.web.CorrelationIdFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -28,11 +27,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  */
 @Configuration
 public class SecurityConfig {
-
-    @Bean
-    public CorrelationIdFilter correlationIdFilter() {
-        return new CorrelationIdFilter();
-    }
 
     @Bean
     public JwtAppIdAuthenticationFilter jwtAppIdAuthenticationFilter(
@@ -67,7 +61,6 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            CorrelationIdFilter correlationIdFilter,
             JwtAppIdAuthenticationFilter authFilter,
             @Autowired(required = false) @Nullable MtlsAppIdAuthenticationFilter mtlsAuthFilter,
             HsmAccessDeniedHandler accessDeniedHandler,
@@ -98,8 +91,10 @@ public class SecurityConfig {
                         .authenticationEntryPoint(new HsmAuthenticationEntryPoint())
                         .accessDeniedHandler(accessDeniedHandler)
                 )
-                .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(correlationIdFilter, JwtAppIdAuthenticationFilter.class);
+                // The correlation-id filter is hsm-chassis-web's RequestIdFilter: a servlet
+                // filter at highest precedence, so it runs before this whole chain and even
+                // an authentication failure's audit/log lines carry the id.
+                .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class);
 
         // Runs ahead of the JWT filter: if a client certificate authenticates
         // successfully, JwtAppIdAuthenticationFilter's own early-exit guard (skip if
