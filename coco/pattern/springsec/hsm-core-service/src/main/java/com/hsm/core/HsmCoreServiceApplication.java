@@ -1,6 +1,5 @@
 package com.hsm.core;
 
-import com.hsm.core.config.FipsBootstrap;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
@@ -33,15 +32,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @ConfigurationPropertiesScan
 public class HsmCoreServiceApplication {
 
-    // A static initializer, not a @PostConstruct bean hook: Spring gives no ordering
-    // guarantee between unrelated beans' @PostConstruct methods, and CryptoBeansConfig's
-    // eager KekClient/DekCache beans need BC-FIPS registered before they construct. A
-    // static initializer on the @SpringBootConfiguration root class runs at class-load
-    // time -- before SpringApplication.run() can even begin -- for both `java -jar`
-    // launches and @SpringBootTest (which loads this class directly, bypassing main()).
-    static {
-        FipsBootstrap.register();
-    }
+    // BC-FIPS: registered by hsm-chassis-core before any bean exists (also under
+    // @SpringBootTest), and the chassis refuses to start outside JVM-wide
+    // approved-only mode -- no static initializer needed here any more.
 
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(HsmCoreServiceApplication.class);
