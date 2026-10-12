@@ -6,7 +6,6 @@ import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.crypto.MockKekClient;
-import com.hsm.core.crypto.TransportWrapper;
 import com.hsm.core.dto.AppKeysRequest;
 import com.hsm.core.dto.AppKeysResponse;
 import com.hsm.core.dto.AppStatusRequest;
@@ -41,6 +40,7 @@ import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.service.ClassificationGovernanceService;
 import com.hsm.core.service.KekRegistryService;
 import com.hsm.core.service.RotationService;
+import com.hsm.crypto.TransportWrapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -405,7 +405,11 @@ public class AdminController {
         try {
             TransportWrapper.parsePublicKeyPem(pem);
         } catch (IllegalArgumentException e) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "invalid " + fieldName + ": " + e.getMessage());
+            // Same detail text as before hsm-crypto-core ("invalid <field>: Invalid public_key_pem:
+            // <parser detail>") -- an API response, so kept byte-identical for callers.
+            String parserDetail = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    "invalid " + fieldName + ": Invalid public_key_pem: " + parserDetail);
         }
     }
 
