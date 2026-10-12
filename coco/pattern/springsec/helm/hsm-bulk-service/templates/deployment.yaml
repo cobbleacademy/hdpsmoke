@@ -165,6 +165,13 @@ spec:
           {{- /* Pure-Java BC-FIPS: nothing unpacked or executed from disk. */}}
           {{- $jdkOpts = append $jdkOpts "-Dorg.bouncycastle.native.cpu_variant=java" }}
           {{- end }}
+          {{- if .Values.bcFips.approvedOnly }}
+          {{- /* JVM-wide BC-FIPS approved-only mode. The app's own FipsBootstrap only
+                 sets it for the thread that calls it; request and scheduler threads
+                 need this property, read once when BC-FIPS initializes. See
+                 java/docs/RUNBOOK.md "BC-FIPS approved-only mode". */}}
+          {{- $jdkOpts = append $jdkOpts "-Dorg.bouncycastle.fips.approved_only=true" }}
+          {{- end }}
           {{- if $jdkOpts }}
           env:
             # JDK_JAVA_OPTIONS (JDK 9+, JEP 293) is the officially recommended
@@ -181,8 +188,9 @@ spec:
             # being re-validated, hence sticking with the recommended option
             # here rather than JAVA_TOOL_OPTIONS.
             # One JDK_JAVA_OPTIONS for every option that needs it (corporate trust
-            # store, BC-FIPS java mode): Kubernetes env vars don't merge, so a second
-            # entry with the same name would silently replace the first.
+            # store, BC-FIPS java mode, BC-FIPS approved-only): Kubernetes env vars
+            # don't merge, so a second entry with the same name would silently
+            # replace the first.
             - name: JDK_JAVA_OPTIONS
               value: {{ join " " $jdkOpts | quote }}
           {{- end }}
