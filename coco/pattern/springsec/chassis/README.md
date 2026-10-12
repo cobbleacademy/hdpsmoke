@@ -23,7 +23,7 @@ Helm library chart (Phase 5 skipped: core and bulk keep separate charts).
 | hsm-cache-key-rotator | ✓ `hsm-chassis-core` | Phase 3. Own `FipsBootstrap` and cache codec removed; no `JobLock` (no database; single pod via `replicaCount: 1` + `Recreate`). |
 | hsm-crypto-client (→ file-service, bulk-client, Spark adapter) | ✓ `hsm-crypto-core` | Phase 4. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` removed; consumers import `com.hsm.crypto.*`. The Spark adapter jar bundles `hsm-crypto-core` and still excludes bc-fips (provided on the cluster). |
 | hsm-file-service | ✓ `hsm-chassis-web` (+ core) | Phase 6. Own `BcFipsStatusLogger`, `RequestIdFilter`, `ApiDocsEntryController` and FIPS static block removed; request-id contract kept (`X-Request-Id`, MDC `requestId`). Gains a `fips` health component (not in the liveness/readiness probes). |
-| hsm-core-service (+ bulk release) | — | last; run as v1/v2 in parallel |
+| hsm-core-service (+ bulk release) | ✓ `hsm-chassis-web` (+ core, crypto-core) | Phase 7. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` (and its two static blocks), `JobLock` + `JobLockConfig`, `CorrelationIdFilter`, `ApiDocsEntryController` and Redis cache codec removed. Contracts kept: `X-Correlation-Id`/`correlationId`, lock keys, admin error texts, API shapes (`ApiContractBaselineTest`). Rollout: RUNBOOK "Rolling out a new hsm-core-service build (v1/v2)". |
 
 Images: a module on the chassis needs the chassis **sources** copied in its
 Dockerfile (`COPY chassis/<module>/src …`), not just the poms every Dockerfile
