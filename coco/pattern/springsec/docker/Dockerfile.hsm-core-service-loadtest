@@ -36,6 +36,10 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY chassis/hsm-chassis-web/pom.xml chassis/hsm-chassis-web/pom.xml
+# On the chassis (hsm-crypto-core, hsm-chassis-core, hsm-chassis-web), compiled alongside (-am).
+COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src
+COPY chassis/hsm-chassis-core/src chassis/hsm-chassis-core/src
+COPY chassis/hsm-chassis-web/src chassis/hsm-chassis-web/src
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope
 # (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +
@@ -44,7 +48,13 @@ COPY hsm-core-service/src hsm-core-service/src
 # (Azure SDK, Postgres driver, Bouncy Castle, etc.) rides along unused. Fine
 # for a diagnostic tool image, same order of magnitude as this repo's other
 # module images -- revisit if image size ever becomes an actual constraint.
-RUN mvn -q -pl hsm-core-service -am test-compile dependency:copy-dependencies \
+#
+# Two steps since hsm-core-service depends on the chassis modules: copy-dependencies
+# can't copy a reactor module that hasn't been packaged yet (MDEP-187), so the chassis
+# jars are installed into the local repository first and the copy then runs on
+# hsm-core-service alone.
+RUN mvn -q -pl chassis/hsm-crypto-core,chassis/hsm-chassis-core,chassis/hsm-chassis-web -am install -DskipTests \
+ && mvn -q -pl hsm-core-service test-compile dependency:copy-dependencies \
     -DincludeScope=test -DoutputDirectory=target/lib
 
 # Debian-based distroless, not Ubuntu -- same rationale and same image as every
