@@ -29,6 +29,7 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 # image doesn't build them.
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
+COPY chassis/hsm-chassis-web/pom.xml chassis/hsm-chassis-web/pom.xml
 # On the chassis: compile hsm-crypto-core and hsm-chassis-core alongside (-am).
 COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src
 COPY chassis/hsm-chassis-core/src chassis/hsm-chassis-core/src

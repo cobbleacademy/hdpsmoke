@@ -35,6 +35,7 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 # image doesn't build them.
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
+COPY chassis/hsm-chassis-web/pom.xml chassis/hsm-chassis-web/pom.xml
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope
 # (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +
