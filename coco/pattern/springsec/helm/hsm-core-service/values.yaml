@@ -167,6 +167,11 @@ tmpVolume:
 # (see RUNBOOK.md "BC-FIPS native libraries").
 bcFips:
   nativeMode: native        # native | java
+  # Puts BC-FIPS in approved-only mode for the whole JVM
+  # (-Dorg.bouncycastle.fips.approved_only=true in JDK_JAVA_OPTIONS). Without it,
+  # only the thread that registered BC-FIPS is approved-only; request and scheduler
+  # threads can use non-approved algorithms. Leave true.
+  approvedOnly: true
   nativeVolumeSizeLimit: 32Mi
 
 # ── Network policy ─────────────────────────────────────────────────────────────
