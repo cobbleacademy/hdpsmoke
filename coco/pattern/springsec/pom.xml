@@ -15,6 +15,7 @@
         <!-- Chassis: shared libraries services adopt one at a time (java/docs/COMPATIBILITY_CONTRACT.md). -->
         <module>chassis/hsm-crypto-core</module>
         <module>chassis/hsm-chassis-core</module>
+        <module>chassis/hsm-chassis-web</module>
         <module>hsm-core-service</module>
         <module>hsm-cache-key-rotator</module>
         <module>hsm-crypto-client</module>
