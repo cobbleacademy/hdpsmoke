@@ -18,8 +18,8 @@
 server:
   port: ${SERVER_PORT:3005}
 
-# CorrelationIdFilter (com.hsm.core.web) puts one correlation ID per request into
-# MDC under "correlationId" -- this is the standard Spring Boot mechanism
+# hsm-chassis-web's RequestIdFilter (configured under hsm.chassis.web below) puts one
+# correlation ID per request into MDC under "correlationId" -- this is the standard Spring Boot mechanism
 # (logging.pattern.level) for surfacing an MDC value in the console log line
 # without redefining the whole pattern. Only affects the plain CONSOLE
 # appender/log.info(...) call sites -- the audit.json stream builds its own
@@ -27,6 +27,18 @@ server:
 logging:
   pattern:
     level: "%5p [correlationId=%X{correlationId:-}]"
+
+# Chassis (hsm-chassis-web). request-id: this service's contract (COMPATIBILITY_CONTRACT.md
+# C11) -- X-Correlation-Id in and out, MDC key correlationId (pattern above, and response
+# bodies' correlation_id). also-accept: an X-Request-Id from a caller that sends only that
+# (e.g. hsm-file-service) is adopted instead of minting a new id, so one request keeps one id.
+# api-prefix: where the <prefix>/docs Swagger UI redirect is served.
+hsm.chassis.web:
+  api-prefix: ${hsm.service.api-v1-prefix}
+  request-id:
+    header: X-Correlation-Id
+    mdc-key: correlationId
+    also-accept: X-Request-Id
 
 spring:
   web:
