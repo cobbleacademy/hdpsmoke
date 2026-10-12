@@ -53,6 +53,15 @@ logging:
     level: "%5p [requestId=%X{requestId:-}]"
 
 hsm:
+  # Chassis (hsm-chassis-web): the request-id contract this service's callers rely on --
+  # X-Request-Id in and out, MDC key requestId (logging.pattern.level above). Also the
+  # prefix the <prefix>/docs Swagger UI redirect is served under.
+  chassis:
+    web:
+      api-prefix: ${hsm.file-service.server.api-prefix}
+      request-id:
+        header: X-Request-Id
+        mdc-key: requestId
   file-service:
     # THIS service's own API (inbound: what the BFF calls). The file endpoint is
     # <api-prefix>/files/{path}. Not to be confused with core.api-v1-prefix below, which is
