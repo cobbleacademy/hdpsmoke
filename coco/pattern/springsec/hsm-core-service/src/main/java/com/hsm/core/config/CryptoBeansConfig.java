@@ -24,19 +24,10 @@ public class CryptoBeansConfig {
 
     private static final Logger log = LoggerFactory.getLogger(CryptoBeansConfig.class);
 
-    // HsmCoreServiceApplication's own static initializer only reliably runs
-    // before SpringApplication.run() on a real `java -jar` launch -- referencing
-    // that class as a @SpringBootTest config *source* (a Class object) does not
-    // by itself trigger its <clinit>. In a Spring test context, whichever
-    // @Configuration class's @Bean method Spring happens to invoke first is free
-    // to run before that class is ever actively used. This class's own bean
-    // methods construct BC-FIPS ciphers/SecureRandoms eagerly (MockKekClient,
-    // AzureKeyVaultKekClient, RedisDekCache), so registering here too guarantees
-    // readiness via the JVM's own per-class init-before-use contract, independent
-    // of which @Configuration class Spring resolves first.
-    static {
-        FipsBootstrap.register();
-    }
+    // BC-FIPS is registered (JVM-wide approved-only) by hsm-chassis-core's
+    // FipsEnvironmentPostProcessor before any bean definition is read -- including under
+    // @SpringBootTest -- so the eager BC-FIPS users below (MockKekClient,
+    // AzureKeyVaultKekClient, RedisDekCache) never construct ahead of it.
 
     @Bean(destroyMethod = "close")
     public KekClient kekClient(HsmProperties properties) {
