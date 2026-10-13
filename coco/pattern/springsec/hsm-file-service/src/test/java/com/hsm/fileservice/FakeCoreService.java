@@ -13,10 +13,12 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -35,6 +37,8 @@ final class FakeCoreService implements AutoCloseable {
     final Map<UUID, Dek> deks = new ConcurrentHashMap<>();
     final Set<UUID> failHttp = ConcurrentHashMap.newKeySet();
     final AtomicInteger unwrapCalls = new AtomicInteger();
+    /** X-Correlation-Id of each /dek/unwrap call, in order ("" when absent). */
+    final List<String> correlationIds = new CopyOnWriteArrayList<>();
     private final HttpServer server;
     private final PublicKey serviceTransportKey;
 
@@ -43,6 +47,8 @@ final class FakeCoreService implements AutoCloseable {
         this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext(apiPrefix + "/dek/unwrap", exchange -> {
             unwrapCalls.incrementAndGet();
+            String correlationId = exchange.getRequestHeaders().getFirst("X-Correlation-Id");
+            correlationIds.add(correlationId == null ? "" : correlationId);
             JsonNode req = MAPPER.readTree(exchange.getRequestBody());
             ArrayNode items = MAPPER.createArrayNode();
             int status = 200;

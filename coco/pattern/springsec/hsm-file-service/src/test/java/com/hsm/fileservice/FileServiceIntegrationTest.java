@@ -212,6 +212,25 @@ class FileServiceIntegrationTest {
     }
 
     @Test
+    void requestId_isForwardedToCore_asItsCorrelationId() throws Exception {
+        // Fresh keys, so neither file's DEK is cached and each request really calls core.
+        write("tenant-a/trace-1.pdf", SMALL, newKey(), EncryptedFileWriter.Options.v2(CHUNK, false));
+        write("tenant-a/trace-2.pdf", SMALL, newKey(), EncryptedFileWriter.Options.v2(CHUNK, false));
+
+        int before = CORE.correlationIds.size();
+        assertEquals(200, get("tenant-a/trace-1.pdf", "X-End-User", "alice@example.com", "X-Request-Id", "bff-trace-77").statusCode());
+        assertEquals(List.of("bff-trace-77"), CORE.correlationIds.subList(before, CORE.correlationIds.size()),
+                "core sees the caller's request id: one id for the request across both services");
+
+        before = CORE.correlationIds.size();
+        HttpResponse<byte[]> generated = get("tenant-a/trace-2.pdf", "X-End-User", "alice@example.com");
+        assertEquals(200, generated.statusCode());
+        assertEquals(List.of(generated.headers().firstValue("X-Request-Id").orElseThrow()),
+                CORE.correlationIds.subList(before, CORE.correlationIds.size()),
+                "without a caller id, the id file-service generated is the one forwarded");
+    }
+
+    @Test
     void v1File_isServed() throws Exception {
         HttpResponse<byte[]> r = get("legacy/scan.png");
         assertEquals(200, r.statusCode());
