@@ -57,6 +57,10 @@ hsm:
   # X-Request-Id in and out, MDC key requestId (logging.pattern.level above). Also the
   # prefix the <prefix>/docs Swagger UI redirect is served under.
   chassis:
+    # Audit (hsm-chassis-audit): file_access keeps its ISO-8601 instant timestamps. Splunk
+    # HEC delivery is available (hsm.chassis.audit.hec.*) but off; stdout audit.json is the record.
+    audit:
+      timestamp-format: iso-instant
     web:
       api-prefix: ${hsm.file-service.server.api-prefix}
       request-id:
