@@ -32,6 +32,7 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY chassis/hsm-chassis-web/pom.xml chassis/hsm-chassis-web/pom.xml
+COPY chassis/hsm-chassis-audit/pom.xml chassis/hsm-chassis-audit/pom.xml
 COPY hsm-file-store/src hsm-file-store/src
 COPY hsm-bulk-client/src hsm-bulk-client/src
 RUN mvn -q -pl hsm-bulk-client -am package -DskipTests

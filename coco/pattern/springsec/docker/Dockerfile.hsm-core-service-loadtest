@@ -36,10 +36,12 @@ COPY hsm-spark-adapter/pom.xml hsm-spark-adapter/pom.xml
 COPY chassis/hsm-crypto-core/pom.xml chassis/hsm-crypto-core/pom.xml
 COPY chassis/hsm-chassis-core/pom.xml chassis/hsm-chassis-core/pom.xml
 COPY chassis/hsm-chassis-web/pom.xml chassis/hsm-chassis-web/pom.xml
-# On the chassis (hsm-crypto-core, hsm-chassis-core, hsm-chassis-web), compiled alongside (-am).
+COPY chassis/hsm-chassis-audit/pom.xml chassis/hsm-chassis-audit/pom.xml
+# On the chassis (hsm-crypto-core, hsm-chassis-core, hsm-chassis-web, hsm-chassis-audit), compiled alongside (-am).
 COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src
 COPY chassis/hsm-chassis-core/src chassis/hsm-chassis-core/src
 COPY chassis/hsm-chassis-web/src chassis/hsm-chassis-web/src
+COPY chassis/hsm-chassis-audit/src chassis/hsm-chassis-audit/src
 COPY hsm-core-service/src hsm-core-service/src
 # -DincludeScope=test pulls in every dependency this module has at any scope
 # (compile/runtime/test) -- deliberately not hand-pruned to just Gatling +
@@ -53,7 +55,7 @@ COPY hsm-core-service/src hsm-core-service/src
 # can't copy a reactor module that hasn't been packaged yet (MDEP-187), so the chassis
 # jars are installed into the local repository first and the copy then runs on
 # hsm-core-service alone.
-RUN mvn -q -pl chassis/hsm-crypto-core,chassis/hsm-chassis-core,chassis/hsm-chassis-web -am install -DskipTests \
+RUN mvn -q -pl chassis/hsm-crypto-core,chassis/hsm-chassis-core,chassis/hsm-chassis-web,chassis/hsm-chassis-audit -am install -DskipTests \
  && mvn -q -pl hsm-core-service test-compile dependency:copy-dependencies \
     -DincludeScope=test -DoutputDirectory=target/lib
 
