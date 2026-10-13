@@ -98,7 +98,9 @@ public record HsmProperties(
             String sourcetype,
             boolean verifySsl,
             int batchSize,
-            int flushIntervalSeconds
+            int flushIntervalSeconds,
+            int maxQueueSize,         // HEC queue bound; oldest events dropped (still on stdout) beyond it
+            int shutdownFlushSeconds  // how long shutdown keeps sending queued events
     ) {
     }
 
