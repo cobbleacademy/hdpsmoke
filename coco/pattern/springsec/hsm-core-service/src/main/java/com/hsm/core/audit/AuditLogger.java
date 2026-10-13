@@ -1,8 +1,11 @@
 package com.hsm.core.audit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hsm.core.config.HsmProperties;
+import com.hsm.core.web.CorrelationId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
@@ -28,10 +31,15 @@ public class AuditLogger {
 
     private final RecentEventsBuffer recentEvents;
     private final SplunkHecBatcher splunkHecBatcher;
+    /** Which release emitted the event (hsm-core-service / hsm-bulk-service / a -next release). */
+    private final String service;
 
-    public AuditLogger(RecentEventsBuffer recentEvents, SplunkHecBatcher splunkHecBatcher) {
+    public AuditLogger(RecentEventsBuffer recentEvents, SplunkHecBatcher splunkHecBatcher, HsmProperties properties) {
         this.recentEvents = recentEvents;
         this.splunkHecBatcher = splunkHecBatcher;
+        // The per-release Splunk source name (chart config.splunkSource) -- set for every
+        // release even with Splunk HEC disabled, so it tells core and bulk apart on stdout.
+        this.service = properties.splunk().source();
     }
 
     /**
@@ -43,6 +51,15 @@ public class AuditLogger {
         record.put("event_type", eventType);
         double epochSeconds = Instant.now().toEpochMilli() / 1000.0;
         record.put("_epoch", epochSeconds);
+        // Context added to every event (OBS-2 step 1; additive -- no existing field changes):
+        // the request's correlation id, so an audit record joins up with the request's log
+        // lines and with the caller's own records (hsm-file-service forwards its
+        // request_id as X-Correlation-Id); absent outside a request (rotation jobs).
+        String requestId = MDC.get(CorrelationId.MDC_KEY);
+        if (requestId != null && !requestId.isBlank()) {
+            record.put("request_id", requestId);
+        }
+        record.put("service", service);
         for (int i = 0; i + 1 < kv.length; i += 2) {
             record.put(String.valueOf(kv[i]), kv[i + 1]);
         }

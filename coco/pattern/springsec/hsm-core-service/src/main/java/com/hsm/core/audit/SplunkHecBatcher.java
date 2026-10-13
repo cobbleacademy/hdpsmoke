@@ -27,6 +27,20 @@ import java.util.concurrent.locks.ReentrantLock;
  * Batches audit events to Splunk's HTTP Event Collector as newline-delimited JSON.
  * Ported from app/audit/logger.py's SplunkHECBatcher. A no-op (enqueue/start/stop
  * do nothing) when splunk.enabled=false, so callers don't need to branch.
+ *
+ * <p>Delivery is best-effort and must never threaten the service itself -- every event
+ * is also on stdout (the audit.json stream), which stays the complete record:
+ * <ul>
+ *   <li>The in-memory queue is bounded ({@code max-queue-size}); when full, the
+ *       <em>oldest</em> event is dropped and counted, and the count is logged
+ *       ({@code splunk_hec_events_dropped}) once per flush. A long Splunk outage costs
+ *       HEC delivery of old events, not the pod's memory.</li>
+ *   <li>Each flush sends batches until the queue is empty or a send fails, so delivery
+ *       keeps up with any event rate rather than one batch per interval.</li>
+ *   <li>A failed batch is put back at the front (order preserved) and retried on the
+ *       next flush, still subject to the queue bound.</li>
+ *   <li>On shutdown, sending continues for up to {@code shutdown-flush-seconds}.</li>
+ * </ul>
  */
 public class SplunkHecBatcher {
 
@@ -41,11 +55,15 @@ public class SplunkHecBatcher {
     private final String sourcetype;
     private final int batchSize;
     private final long flushIntervalSeconds;
+    private final int maxQueueSize;
+    private final long shutdownFlushSeconds;
     private final HttpClient httpClient;
     private final String authHeader;
 
     private final Deque<Map<String, Object>> queue = new ArrayDeque<>();
     private final ReentrantLock lock = new ReentrantLock();
+    private long droppedTotal;
+    private long droppedSinceLastReport;
     private ScheduledExecutorService executor;
 
     public SplunkHecBatcher(HsmProperties.Splunk config, String resolvedToken) {
@@ -56,6 +74,8 @@ public class SplunkHecBatcher {
         this.sourcetype = config.sourcetype();
         this.batchSize = config.batchSize();
         this.flushIntervalSeconds = config.flushIntervalSeconds();
+        this.maxQueueSize = Math.max(1, config.maxQueueSize());
+        this.shutdownFlushSeconds = Math.max(0, config.shutdownFlushSeconds());
         this.authHeader = "Splunk " + resolvedToken;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     }
@@ -67,8 +87,18 @@ public class SplunkHecBatcher {
         lock.lock();
         try {
             queue.addLast(event);
+            trimToBound();
         } finally {
             lock.unlock();
+        }
+    }
+
+    /** Caller holds {@link #lock}. Drops the oldest events beyond the bound. */
+    private void trimToBound() {
+        while (queue.size() > maxQueueSize) {
+            queue.pollFirst();
+            droppedTotal++;
+            droppedSinceLastReport++;
         }
     }
 
@@ -93,15 +123,48 @@ public class SplunkHecBatcher {
         if (executor != null) {
             executor.shutdownNow();
         }
-        flush(); // one final flush
+        // Keep sending what's queued, but never hold up shutdown past the budget.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(shutdownFlushSeconds);
+        while (System.nanoTime() < deadline && sendNextBatch()) {
+            // loop until empty, a failed send, or the deadline
+        }
+        reportDrops();
+        int left = queueSize();
+        if (left > 0) {
+            log.warn("splunk_hec_shutdown_undelivered count={} -- still on stdout (audit.json)", left);
+        }
     }
 
-    private void flush() {
+    /** One scheduled tick: send until the queue is empty or a send fails. */
+    void flush() {
+        while (sendNextBatch()) {
+            // keep draining
+        }
+        reportDrops();
+    }
+
+    private void reportDrops() {
+        long dropped;
+        lock.lock();
+        try {
+            dropped = droppedSinceLastReport;
+            droppedSinceLastReport = 0;
+        } finally {
+            lock.unlock();
+        }
+        if (dropped > 0) {
+            log.warn("splunk_hec_events_dropped count={} max_queue_size={} -- oldest dropped; still on stdout (audit.json)",
+                    dropped, maxQueueSize);
+        }
+    }
+
+    /** Sends one batch. True if a batch was delivered (so there may be more); false if the queue was empty or the send failed. */
+    private boolean sendNextBatch() {
         List<Map<String, Object>> batch;
         lock.lock();
         try {
             if (queue.isEmpty()) {
-                return;
+                return false;
             }
             batch = new ArrayList<>();
             for (int i = 0; i < batchSize && !queue.isEmpty(); i++) {
@@ -109,9 +172,6 @@ public class SplunkHecBatcher {
             }
         } finally {
             lock.unlock();
-        }
-        if (batch.isEmpty()) {
-            return;
         }
 
         try {
@@ -126,18 +186,42 @@ public class SplunkHecBatcher {
             if (response.statusCode() >= 400) {
                 throw new IllegalStateException("Splunk HEC returned HTTP " + response.statusCode());
             }
+            return true;
         } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             log.error("splunk_hec_delivery_failed error={} batch_size={}", e.getMessage(), batch.size());
             // Requeue the whole batch at the front, preserving order, for retry on the
-            // next tick -- unbounded retry, matching Python (no backoff/retry-count limit).
+            // next tick -- still subject to the queue bound (oldest dropped first).
             lock.lock();
             try {
                 for (int i = batch.size() - 1; i >= 0; i--) {
                     queue.addFirst(batch.get(i));
                 }
+                trimToBound();
             } finally {
                 lock.unlock();
             }
+            return false;
+        }
+    }
+
+    int queueSize() {
+        lock.lock();
+        try {
+            return queue.size();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    long droppedTotal() {
+        lock.lock();
+        try {
+            return droppedTotal;
+        } finally {
+            lock.unlock();
         }
     }
 
