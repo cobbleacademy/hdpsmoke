@@ -186,6 +186,11 @@ hsm:
     verify-ssl: ${SPLUNK_VERIFY_SSL:true}
     batch-size: ${SPLUNK_BATCH_SIZE:50}
     flush-interval-seconds: ${SPLUNK_FLUSH_INTERVAL_SECONDS:5}
+    # Bound on events waiting for HEC delivery; beyond it the oldest are dropped (and
+    # counted in splunk_hec_events_dropped) -- every event is also on stdout (audit.json).
+    max-queue-size: ${SPLUNK_MAX_QUEUE_SIZE:10000}
+    # On shutdown, keep sending queued events for at most this long.
+    shutdown-flush-seconds: ${SPLUNK_SHUTDOWN_FLUSH_SECONDS:10}
   pbac:
     enabled: ${PBAC_ENABLED:false}
     plainid-url: ${PLAINID_URL:}
