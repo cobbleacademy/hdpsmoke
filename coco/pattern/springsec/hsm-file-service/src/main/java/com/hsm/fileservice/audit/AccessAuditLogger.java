@@ -1,19 +1,18 @@
 package com.hsm.fileservice.audit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.hsm.chassis.audit.AuditLog;
 import org.springframework.stereotype.Component;
 
-import java.net.InetAddress;
-import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * One JSON line per file request on the {@code audit.json} logger -- the same stream
- * convention as hsm-core-service (see logback-spring.xml), so the same Splunk/Log
- * Analytics pipeline picks it up.
+ * One {@code file_access} audit event per file request, through hsm-chassis-audit's
+ * {@link AuditLog} -- the same implementation hsm-core-service uses, so both services'
+ * events share the common envelope ({@code event}, {@code event_type}, {@code level},
+ * {@code logger}, {@code host}, {@code timestamp}, {@code request_id}, {@code service})
+ * on the same audit.json stream. Every field this event had before is kept, with the
+ * same name and value format (timestamp stays an ISO-8601 instant).
  *
  * <p>{@code end_user} is whatever the BFF put in X-End-User: recorded for the audit
  * trail, never used to allow or deny (under the option-A trust model the BFF is the
@@ -23,15 +22,10 @@ import java.time.Instant;
 @Component
 public class AccessAuditLogger {
 
-    private static final Logger AUDIT = LoggerFactory.getLogger("audit.json");
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final String HOST = resolveHostname();
+    private final AuditLog auditLog;
 
-    /** spring.application.name -- names the emitting service on the line itself (OBS-2 step 1). */
-    private final String service;
-
-    public AccessAuditLogger(@Value("${spring.application.name:hsm-file-service}") String service) {
-        this.service = service;
+    public AccessAuditLogger(AuditLog auditLog) {
+        this.auditLog = auditLog;
     }
 
     public record Event(String requestId, String outcome, String errorCode, String mode, String path,
@@ -40,34 +34,18 @@ public class AccessAuditLogger {
     }
 
     public void log(Event e) {
-        ObjectNode line = MAPPER.createObjectNode()
-                .put("event", "file_access")
-                .put("timestamp", Instant.now().toString())
-                .put("service", service)
-                .put("host", HOST)
-                .put("request_id", e.requestId())
-                .put("outcome", e.outcome())
-                .put("error_code", e.errorCode())
-                .put("mode", e.mode())
-                .put("path", e.path())
-                .put("end_user", e.endUser())
-                .put("caller", e.caller())
-                .put("file_id", e.fileId())
-                .put("format_version", e.formatVersion())
-                .put("bytes", e.bytes())
-                .put("duration_ms", e.durationMs());
-        try {
-            AUDIT.info(MAPPER.writeValueAsString(line));
-        } catch (Exception ex) {
-            AUDIT.info("{\"event\":\"file_access\",\"audit_serialization_failed\":true}");
-        }
-    }
-
-    private static String resolveHostname() {
-        try {
-            return InetAddress.getLocalHost().getHostName();
-        } catch (Exception e) {
-            return "unknown";
-        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("request_id", e.requestId());
+        fields.put("outcome", e.outcome());
+        fields.put("error_code", e.errorCode());
+        fields.put("mode", e.mode());
+        fields.put("path", e.path());
+        fields.put("end_user", e.endUser());
+        fields.put("caller", e.caller());
+        fields.put("file_id", e.fileId());
+        fields.put("format_version", e.formatVersion());
+        fields.put("bytes", e.bytes());
+        fields.put("duration_ms", e.durationMs());
+        auditLog.log("file_access", fields);
     }
 }
