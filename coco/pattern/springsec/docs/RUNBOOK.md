@@ -210,9 +210,10 @@ never steady-state traffic). The moment a bulk window closes:
 
 ## Tracing a slow or failing single request (later round)
 
-Every request gets one correlation ID (`CorrelationIdFilter`) — reused from
-an incoming `X-Correlation-Id` header if the caller supplied one, otherwise
-a fresh UUID. It's echoed back on the `X-Correlation-Id` response header and
+Every request gets one correlation ID (hsm-chassis-web's `RequestIdFilter`,
+configured for hsm-core-service as `X-Correlation-Id` / MDC `correlationId`) —
+reused from an incoming `X-Correlation-Id` (or, failing that, `X-Request-Id`)
+header if the caller supplied a valid one, otherwise a fresh UUID. It's echoed back on the `X-Correlation-Id` response header and
 placed in MDC, so it appears on every plain log line for that request
 (`logging.pattern.level` in `application.yml`) without grepping timestamps
 across concurrent traffic to reconstruct one request's story.
@@ -287,6 +288,61 @@ To trace a specific slow/failing request end to end:
    `{"detail": "..."}` shape (`GlobalExceptionHandler`) — the caller can
    already always find the correlation ID for a failed call on the
    `X-Correlation-Id` response header regardless.
+
+### Request ids across file-service, core-service and the Istio gateway
+
+- **One id per request, across both services.** hsm-file-service takes `X-Request-Id`
+  (MDC `requestId`) and forwards it on its calls to hsm-core-service (or the bulk
+  release) as `X-Correlation-Id`, so core's **log lines** for that call carry the same
+  id: `[correlationId=<id>]`, e.g. on `component_call_completed … method=unwrapDek`.
+  core's **audit** events (`dek_unwrapped`) do **not** carry a correlation id — match
+  them by time/app instead (see step 1 above).
+- **Only cache misses reach core.** file-service keeps unwrapped DEKs in memory for
+  `dekCache.ttl` (default 15 min, swept every 60 s). The first download of a file calls
+  `/dek/unwrap` and shows up in core with that request's id; later downloads within the
+  TTL are served from the cache and make **no** call to core — so there is no core log
+  line for their ids. Don't shorten the TTL for tracing: it is the revocation lag and
+  the HSM-call/latency dial. file-service's own log and audit line has every
+  request's `request_id`.
+- **Blank `[correlationId=]` on core lines is normal outside requests:** the CEK poll,
+  rotation jobs, Azure SDK and Splunk-batcher threads aren't serving a request.
+- **The Istio ingress gateway replaces external request ids.** Envoy treats requests
+  arriving from outside the mesh as untrusted: it drops any incoming `x-request-id`
+  and generates its own UUID before the request reaches file-service. A caller who
+  sends `X-Request-Id: my-id` through the gateway gets back `x-request-id: <uuid>`,
+  and that UUID — not `my-id` — is what file-service and core log. This is Envoy's
+  default, not a service bug. (Verified 2026-10-12.)
+  - **To trace a gateway request:** use the `x-request-id` the response returned and
+    grep that in file-service and core.
+  - **To test with your own id:** call from inside the mesh as the BFF identity (e.g.
+    a temporary pod with the BFF's ServiceAccount and the sidecar injected). Inside
+    the mesh Envoy keeps the caller's id; real BFF → file-service traffic is in-mesh.
+  - **Keeping external ids** needs `preserve_external_request_id: true` on the
+    gateway (an EnvoyFilter on the gateway's HTTP connection manager). It affects
+    **every** service behind that gateway — a gateway-owner decision, tracked as
+    GW-1 in [`ACTION_ITEMS.md`](ACTION_ITEMS.md).
+- **`X-End-User` is caller-supplied, audit only.** Envoy passes it through unchanged,
+  and file-service records whatever value arrives in its audit line (`end_user`). It
+  is never used for authorization, by design — but the audit value is only as
+  trustworthy as whoever set it. From the BFF (the only intended caller) that's fine;
+  if outside callers can reach `/files/…` through the external gateway, they can put
+  any name there. Tracked as SEC-1 in [`ACTION_ITEMS.md`](ACTION_ITEMS.md).
+
+### Audit events: correlation and Splunk HEC delivery
+
+- Every hsm-core-service audit event carries `service` (which release emitted it) and,
+  inside a request, `request_id` (that request's correlation id); file-service's
+  `file_access` carries `request_id`, `service` and `host`. To follow a file download
+  into core's audit trail: take file-service's `request_id` and search core's audit
+  events for the same `request_id` (only DEK-cache misses produce a core record).
+- Direct Splunk HEC delivery (`SPLUNK_ENABLED`, off everywhere as of 2026-10-12) is
+  best-effort; stdout (`audit.json`) is always the complete record. If enabled:
+  - `splunk_hec_events_dropped count=… max_queue_size=…` — the in-memory queue hit its
+    bound (`SPLUNK_MAX_QUEUE_SIZE`, default 10000) and the oldest events were dropped
+    from HEC delivery (still on stdout). Usually Splunk unreachable or too slow.
+  - `splunk_hec_delivery_failed …` — a batch failed and is retried next flush.
+  - `splunk_hec_shutdown_undelivered count=…` — events still queued when the
+    shutdown budget (`SPLUNK_SHUTDOWN_FLUSH_SECONDS`, default 10) ran out.
 
 ## HTTP client and Netty stack (all Java services)
 

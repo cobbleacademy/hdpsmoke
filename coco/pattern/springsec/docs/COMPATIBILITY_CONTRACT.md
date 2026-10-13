@@ -28,7 +28,7 @@ phase) must leave all of it unchanged.
 | [C9 Encrypted file format](#c9-encrypted-file-format) | rescue decrypt of a chunk | writes, reads | — | — |
 | [C10 HTTP API](#c10-http-api) | serves | calls | calls | — |
 | [C11 Caller identity](#c11-caller-identity) | enforces | presents | presents | — |
-| [C12 Audit events](#c12-audit-events) | emits | — | — | emits |
+| [C12 Audit events](#c12-audit-events) | emits | file-service emits `file_access` | — | — |
 | [C13 Job lock keys](#c13-job-lock-keys) | ✓ | — | — | — |
 
 Out of scope: the legacy Python service (`app/`, `scheduler/`, `migrations/`, `tests/`)
@@ -188,16 +188,29 @@ the incoming id like file-service does: before, any non-blank value was echoed a
 logged verbatim (log injection); now an id outside `[A-Za-z0-9._:-]{1,128}` is replaced
 with a UUID. hsm-file-service forwards its request id on every call to hsm-core-service
 as `X-Correlation-Id` (hsm-crypto-client `SvcClient`, via `HsmCryptoClient.Builder
-.correlationId(...)`), so one user request carries one id in both services' logs and
-audit records. Clients that don't set it (hsm-bulk-client, the Spark adapter) send no
+.correlationId(...)`), so one user request carries one id in both services' log lines
+(core's audit events do not carry a correlation id). Only calls file-service actually
+makes reach core: DEKs served from its cache (`dekCache.ttl`) make none. Clients that don't set it (hsm-bulk-client, the Spark adapter) send no
 correlation header, as before.
 
 ## C12 Audit events
 
-Every audit record carries `event_type`; stdout lines add `event`, `level`,
+Every hsm-core-service audit record carries `event_type`; its stdout lines add `event`, `level`,
 `logger=audit`, `host`, `timestamp` (`yyyy-MM-ddTHH:mm:ssZ`); Splunk records add
 `_epoch`. `splunkSource` distinguishes releases (`hsm-core-service`,
 `hsm-bulk-service`; give a v2 release its own).
+
+Producers: hsm-core-service (`AuditLogger`, the events below; optionally also sent
+directly to Splunk HEC) and hsm-file-service (`AccessAuditLogger`, one event
+`file_access` with `request_id`, `outcome`, `error_code`, `mode`, `path`, `end_user`,
+`caller`, `file_id`, `format_version`, `bytes`, `duration_ms`). No other component emits
+audit events. The two envelopes differ; see [`OBS-2_AUDIT_EVALUATION.md`](OBS-2_AUDIT_EVALUATION.md).
+
+Common context (OBS-2 step 1, additive): every hsm-core-service event has `service`
+(the release: `hsm-core-service`, `hsm-bulk-service`, …, from `config.splunkSource`)
+and, when emitted inside a request, `request_id` (the request's correlation id — the
+id hsm-file-service forwards). hsm-file-service's `file_access` adds `service` and
+`host`. So `request_id` joins a file-service request to core's audit records.
 
 Event names in use (Java): `access_denied`, `app_keys_updated`,
 `app_mtls_cert_updated`, `app_status_changed`, `auth_failure`, `batch_decrypt`,
