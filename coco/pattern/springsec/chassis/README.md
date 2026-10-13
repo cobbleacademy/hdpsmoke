@@ -11,6 +11,7 @@ dependency. The formats that must not change while that happens are in
 | [`hsm-crypto-core`](hsm-crypto-core) | The one implementation of the shared crypto formats: `FipsBootstrap`, `DekManager` (v1 token), `IvFactory`, `TransportWrapper` (RSA-OAEP DEK transport), `DekCacheCodec` (Redis DEK cache). Plain Java, no Spring — safe on a Spark executor. | `bc-fips` only |
 | [`hsm-chassis-core`](hsm-chassis-core) | Spring Boot auto-configuration for every Spring service, web or headless: BC-FIPS registered before any bean exists, a startup check that refuses to start outside approved-only mode, the `bc_fips_native` status line, a `fips` health component (when actuator is present), and a cross-pod `JobLock` (when there is a `DataSource`). | `hsm-crypto-core`, Spring Boot |
 | [`hsm-chassis-web`](hsm-chassis-web) | Servlet-web auto-configuration on top of `hsm-chassis-core`: a configurable request-id filter (header, MDC key, accepted fallback headers; unsafe ids replaced) registered first in the chain, and the relative `<api-prefix>/docs` Swagger UI redirect. Error formats stay per service (contract C10). | `hsm-chassis-core`, Spring Web MVC |
+| [`hsm-chassis-audit`](hsm-chassis-audit) | One audit implementation (OBS-2 option B): the `AuditLog` API adding `request_id` (from the request-id MDC key) and `service` to every event, the stdout `audit.json` sink (each service's timestamp format kept), optional bounded Splunk HEC delivery, and pluggable `AuditSink` beans. Additive to what services emitted before. | Spring Boot, Jackson |
 | [`test-vectors`](test-vectors) | `crypto-v1.json`: language-neutral vectors every Java and Python implementation runs. Generated from the spec by `generate_crypto_v1.py`; never edited by hand. | — |
 
 Not planned: a shared error-response format (needs a client migration first) and a
@@ -22,8 +23,8 @@ Helm library chart (Phase 5 skipped: core and bulk keep separate charts).
 |---|---|---|
 | hsm-cache-key-rotator | ✓ `hsm-chassis-core` | Phase 3. Own `FipsBootstrap` and cache codec removed; no `JobLock` (no database; single pod via `replicaCount: 1` + `Recreate`). |
 | hsm-crypto-client (→ file-service, bulk-client, Spark adapter) | ✓ `hsm-crypto-core` | Phase 4. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` removed; consumers import `com.hsm.crypto.*`. The Spark adapter jar bundles `hsm-crypto-core` and still excludes bc-fips (provided on the cluster). |
-| hsm-file-service | ✓ `hsm-chassis-web` (+ core) | Phase 6. Own `BcFipsStatusLogger`, `RequestIdFilter`, `ApiDocsEntryController` and FIPS static block removed; request-id contract kept (`X-Request-Id`, MDC `requestId`). Gains a `fips` health component (not in the liveness/readiness probes). |
-| hsm-core-service (+ bulk release) | ✓ `hsm-chassis-web` (+ core, crypto-core) | Phase 7. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` (and its two static blocks), `JobLock` + `JobLockConfig`, `CorrelationIdFilter`, `ApiDocsEntryController` and Redis cache codec removed. Contracts kept: `X-Correlation-Id`/`correlationId`, lock keys, admin error texts, API shapes (`ApiContractBaselineTest`). Rollout: RUNBOOK "Rolling out a new hsm-core-service build (v1/v2)". |
+| hsm-file-service | ✓ `hsm-chassis-web`, `hsm-chassis-audit` (+ core) | Phase 6. Own `BcFipsStatusLogger`, `RequestIdFilter`, `ApiDocsEntryController` and FIPS static block removed; request-id contract kept (`X-Request-Id`, MDC `requestId`). Gains a `fips` health component (not in the liveness/readiness probes). |
+| hsm-core-service (+ bulk release) | ✓ `hsm-chassis-web`, `hsm-chassis-audit` (+ core, crypto-core) | Phase 7. Own `DekManager`, `IvFactory`, `TransportWrapper`, `FipsBootstrap` (and its two static blocks), `JobLock` + `JobLockConfig`, `CorrelationIdFilter`, `ApiDocsEntryController` and Redis cache codec removed. Contracts kept: `X-Correlation-Id`/`correlationId`, lock keys, admin error texts, API shapes (`ApiContractBaselineTest`). Rollout: RUNBOOK "Rolling out a new hsm-core-service build (v1/v2)". |
 
 Images: a module on the chassis needs the chassis **sources** copied in its
 Dockerfile (`COPY chassis/<module>/src …`), not just the poms every Dockerfile
@@ -64,4 +65,7 @@ behaviour defines its own bean and the chassis steps aside.
 | `hsm.chassis.web.request-id.mdc-key` | `requestId` | MDC key every log line of the request carries |
 | `hsm.chassis.web.request-id.also-accept` | (none) | Comma-separated fallback headers to take an id from when the primary is absent |
 | `hsm.chassis.web.api-prefix` | (none) | Prefix for the `/docs` redirect; without it (or with Swagger UI off) no redirect is registered |
+| `hsm.chassis.audit.service` | `spring.application.name` | `service` field on every audit event (core sets its per-release Splunk source) |
+| `hsm.chassis.audit.timestamp-format` | `iso-instant` | `seconds` keeps hsm-core-service's whole-second audit timestamps |
+| `hsm.chassis.audit.hec.enabled` | `false` | Splunk HEC delivery (`url`, `token`, `index`, `source`, `sourcetype`, `batch-size`, `flush-interval-seconds`, `max-queue-size`, `shutdown-flush-seconds`). hsm-core-service keeps its own `hsm.splunk.*` / `SPLUNK_*` settings |
 | `hsm.chassis.fips.enforce` | `true` | `false` turns the startup check into an ERROR log line. Local experiments only — never in a deployed environment. |
