@@ -18,6 +18,7 @@ import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * HTTP client for SVC (hsm-core-service)'s POST /dek/issue and POST /dek/unwrap --
@@ -39,9 +40,27 @@ public class SvcClient {
     private final SvcConfig config;
     /** Null only for authMode=MTLS -- that mode authenticates at the TLS handshake, not via a bearer token, so no Authorization header is sent at all. */
     private final TokenProvider tokenProvider;
+    /** Null when the caller has no request of its own to correlate with -- see the two-arg constructor. */
+    private final Supplier<String> correlationId;
+
+    /** Header SVC (hsm-core-service) reads its correlation id from, and echoes back. */
+    public static final String CORRELATION_ID_HEADER = "X-Correlation-Id";
 
     public SvcClient(SvcConfig config) {
+        this(config, null);
+    }
+
+    /**
+     * {@code correlationId}, when it returns a non-blank value at call time, is sent
+     * as {@value #CORRELATION_ID_HEADER} on every call to SVC, so SVC logs and audits
+     * the call under the caller's own request id instead of minting a new one: one
+     * user request, one id, across both services. Called on the thread making the
+     * call -- e.g. a supplier reading the caller's MDC. SVC validates the value
+     * ({@code [A-Za-z0-9._:-]{1,128}}) and replaces anything else with a UUID.
+     */
+    public SvcClient(SvcConfig config, Supplier<String> correlationId) {
         this.config = config;
+        this.correlationId = correlationId;
         this.tokenProvider = switch (config.authMode() == null ? SvcConfig.AuthMode.STATIC : config.authMode()) {
             case STATIC -> new StaticTokenProvider(config.token());
             case AZURE_AD -> new AzureAdTokenProvider(config.azureTokenScope());
@@ -147,6 +166,10 @@ public class SvcClient {
             // established at the TLS handshake, no bearer token needed or sent.
             if (tokenProvider != null) {
                 requestBuilder.header("Authorization", "Bearer " + tokenProvider.getBearerToken());
+            }
+            String id = correlationId == null ? null : correlationId.get();
+            if (id != null && !id.isBlank()) {
+                requestBuilder.header(CORRELATION_ID_HEADER, id);
             }
             HttpRequest request = requestBuilder.POST(HttpRequest.BodyPublishers.ofString(json)).build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
