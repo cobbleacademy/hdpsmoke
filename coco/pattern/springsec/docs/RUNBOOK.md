@@ -335,8 +335,10 @@ To trace a specific slow/failing request end to end:
   `file_access` carries `request_id`, `service` and `host`. To follow a file download
   into core's audit trail: take file-service's `request_id` and search core's audit
   events for the same `request_id` (only DEK-cache misses produce a core record).
-- Direct Splunk HEC delivery (`SPLUNK_ENABLED`, off everywhere as of 2026-10-12) is
-  best-effort; stdout (`audit.json`) is always the complete record. If enabled:
+- Direct Splunk HEC delivery is best-effort; stdout (`audit.json`) is always the
+  complete record. hsm-core-service turns it on with `SPLUNK_ENABLED` (off everywhere as
+  of 2026-10-12); hsm-file-service, now on the same hsm-chassis-audit implementation,
+  with `hsm.chassis.audit.hec.*` (off). If enabled:
   - `splunk_hec_events_dropped count=… max_queue_size=…` — the in-memory queue hit its
     bound (`SPLUNK_MAX_QUEUE_SIZE`, default 10000) and the oldest events were dropped
     from HEC delivery (still on stdout). Usually Splunk unreachable or too slow.

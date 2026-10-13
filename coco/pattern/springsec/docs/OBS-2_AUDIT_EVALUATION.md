@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Item** | OBS-2 in [`ACTION_ITEMS.md`](ACTION_ITEMS.md) |
-| **Status** | Decided 2026-10-12: recommendation accepted — step 1 (A + HEC fixes) implemented on branch `feature/obs-2-step1-audit-context`; then B; C only on request |
+| **Status** | Decided 2026-10-12: recommendation accepted — step 1 (A + HEC fixes) merged (`28bf1ec`); step 2 (B, `hsm-chassis-audit`) implemented on branch `feature/obs-2-step2-chassis-audit`; C only on request |
 | **Date** | 2026-10-12 |
 | **Scope** | Audit events only (the `audit.json` stream). Plain application logging is OBS-1 |
 

@@ -211,6 +211,11 @@ Common context (OBS-2 step 1, additive): every hsm-core-service event has `servi
 and, when emitted inside a request, `request_id` (the request's correlation id — the
 id hsm-file-service forwards). hsm-file-service's `file_access` adds `service` and
 `host`. So `request_id` joins a file-service request to core's audit records.
+Since OBS-2 step 2 both services emit through hsm-chassis-audit (`AuditLog`), so every
+event shares the envelope `event`, `event_type`, `level`, `logger`, `host`, `timestamp`,
+`request_id` (inside a request), `service`; `file_access` gained `event_type`, `level`
+and `logger` (additive). core's line is unchanged byte for byte (`AuditLineFormatTest`);
+each service keeps its timestamp format.
 
 Event names in use (Java): `access_denied`, `app_keys_updated`,
 `app_mtls_cert_updated`, `app_status_changed`, `auth_failure`, `batch_decrypt`,
