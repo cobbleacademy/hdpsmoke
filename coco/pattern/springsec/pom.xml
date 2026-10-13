@@ -16,6 +16,7 @@
         <module>chassis/hsm-crypto-core</module>
         <module>chassis/hsm-chassis-core</module>
         <module>chassis/hsm-chassis-web</module>
+        <module>chassis/hsm-chassis-audit</module>
         <module>hsm-core-service</module>
         <module>hsm-cache-key-rotator</module>
         <module>hsm-crypto-client</module>
