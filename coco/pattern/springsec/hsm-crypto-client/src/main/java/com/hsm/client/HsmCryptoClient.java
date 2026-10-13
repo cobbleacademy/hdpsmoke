@@ -319,8 +319,20 @@ public class HsmCryptoClient implements AutoCloseable {
         private String mtlsKeyPem;
         private int dekCacheMaxSize = 1000;
         private Duration dekCacheTtl = Duration.ofMinutes(30);
+        private Supplier<String> correlationId;
 
         private Builder() {
+        }
+
+        /**
+         * Optional: the id of the caller's current request (e.g. from its MDC), sent to
+         * SVC as X-Correlation-Id so SVC logs/audits each call under the same id as the
+         * caller -- see SvcClient. Read on the calling thread at every call; blank or
+         * null sends nothing. Unset (the default) leaves requests exactly as before.
+         */
+        public Builder correlationId(Supplier<String> correlationId) {
+            this.correlationId = correlationId;
+            return this;
         }
 
         public Builder baseUrl(String baseUrl) {
@@ -441,7 +453,7 @@ public class HsmCryptoClient implements AutoCloseable {
                     1, // dekBatchMaxItems -- unused: this client always issues exactly one item per call
                     privateKeyPem, signingKeyPem, selfSignedAudience,
                     mtlsCertPem, mtlsKeyPem);
-            SvcClient svcClient = new SvcClient(config);
+            SvcClient svcClient = new SvcClient(config, correlationId);
             return new HsmCryptoClient(svcClient, privateKey, appId, dekCacheMaxSize, dekCacheTtl);
         }
     }
