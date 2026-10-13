@@ -33,6 +33,13 @@ logging:
 # bodies' correlation_id). also-accept: an X-Request-Id from a caller that sends only that
 # (e.g. hsm-file-service) is adopted instead of minting a new id, so one request keeps one id.
 # api-prefix: where the <prefix>/docs Swagger UI redirect is served.
+hsm.chassis.audit:
+  # Audit events name the release that emitted them -- the per-release Splunk source
+  # (chart config.splunkSource: hsm-core-service / hsm-bulk-service / …), set even when
+  # HEC is off. Timestamps stay in this service's existing whole-second format.
+  service: ${hsm.splunk.source}
+  timestamp-format: seconds
+
 hsm.chassis.web:
   api-prefix: ${hsm.service.api-v1-prefix}
   request-id:
