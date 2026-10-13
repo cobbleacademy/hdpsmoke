@@ -93,6 +93,12 @@
             <artifactId>hsm-chassis-web</artifactId>
             <version>1.0.0</version>
         </dependency>
+        <!-- Audit: AuditLog + stdout audit.json + optional Splunk HEC (OBS-2 step 2). -->
+        <dependency>
+            <groupId>com.hsm</groupId>
+            <artifactId>hsm-chassis-audit</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
         <dependency>
             <groupId>com.nimbusds</groupId>
