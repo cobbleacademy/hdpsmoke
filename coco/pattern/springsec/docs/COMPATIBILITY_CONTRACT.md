@@ -186,9 +186,11 @@ configured for its own contract (`X-Correlation-Id` in/out, MDC `correlationId`,
 `correlation_id`), with `X-Request-Id` accepted as a fallback. Since Phase 7 it validates
 the incoming id like file-service does: before, any non-blank value was echoed and
 logged verbatim (log injection); now an id outside `[A-Za-z0-9._:-]{1,128}` is replaced
-with a UUID. Not yet done: hsm-file-service does not forward its request id on
-its calls to hsm-core-service (hsm-crypto-client `SvcClient`), so one user request
-appears under two ids.
+with a UUID. hsm-file-service forwards its request id on every call to hsm-core-service
+as `X-Correlation-Id` (hsm-crypto-client `SvcClient`, via `HsmCryptoClient.Builder
+.correlationId(...)`), so one user request carries one id in both services' logs and
+audit records. Clients that don't set it (hsm-bulk-client, the Spark adapter) send no
+correlation header, as before.
 
 ## C12 Audit events
 

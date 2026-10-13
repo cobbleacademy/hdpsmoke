@@ -402,6 +402,9 @@ whatever DEKs were cached at the time -- the same reasoning
 
 ## Deploying into an existing cluster
 
+> **Upgrading an existing cluster's jar** (and the BC-FIPS approved-only flag every
+> cluster should carry): see RUNBOOK.md, "Spark adapter: FIPS flag and redeploying the jar".
+
 `mvn package` produces one self-contained, shaded jar (`maven-shade-plugin`,
 ~37MB -- most of that size is `netty-tcnative-boringssl-static`'s per-platform
 native binaries, pulled in transitively for every OS/architecture, not this

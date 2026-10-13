@@ -396,6 +396,83 @@ non-approved algorithms. JVM-wide mode comes only from the system property
   the mode regardless of class-loading order, and it is what protected a pre-chassis
   image. `--set bcFips.approvedOnly=false` removes it.
 
+## Spark adapter: FIPS flag and redeploying the jar
+
+**Open item** -- tracked as SPARK-1 / SPARK-2 in [`ACTION_ITEMS.md`](ACTION_ITEMS.md).
+
+`hsm-spark-adapter-1.0.0.jar` is a **shaded jar**: at build time Maven copies
+`hsm-crypto-client` (and, since Phase 4, `hsm-crypto-core`) *into* it, and a cluster
+runs only what is inside that file. Library changes in this repository reach a
+cluster only when the jar is rebuilt and redeployed. A jar built before the chassis
+work keeps working -- the token, transport and cache formats are unchanged and pinned
+by the test vectors -- but it lacks the JVM-wide FIPS fix: **approved-only mode holds
+only on the thread that registered BC-FIPS, not on executor task threads** (see
+"BC-FIPS approved-only mode" above).
+
+Not to be confused with the Python Databricks UDF (`hsm-databricks-udf`), which needs
+none of this.
+
+### Option 1 -- FIPS flag only, no rebuild (SPARK-1)
+
+Closes the FIPS gap even with the old jar.
+
+1. Add to the driver and executor JVM options:
+   ```
+   spark.driver.extraJavaOptions    -Dorg.bouncycastle.fips.approved_only=true
+   spark.executor.extraJavaOptions  -Dorg.bouncycastle.fips.approved_only=true
+   ```
+   - `spark-submit` / `spark-defaults.conf`: the two lines above.
+   - Databricks: Cluster → Edit → Advanced options → Spark → Spark config.
+   - **If a key already has a value, append the flag after a space -- don't replace it**,
+     e.g. `-Dsome.existing=x -Dorg.bouncycastle.fips.approved_only=true`.
+2. Restart the cluster (or resubmit the job) -- JVM options apply to new JVMs only.
+3. Verify (Scala notebook cell or `spark-shell`):
+   ```scala
+   spark.range(8).repartition(8).mapPartitions(_ =>
+     Iterator(System.getProperty("org.bouncycastle.fips.approved_only"))).collect()
+   // expect: every element "true"
+   ```
+   Then one `hsm_encrypt` → `hsm_decrypt` round trip, and `hsm_decrypt` on an
+   existing (pre-change) value.
+4. Rollback: remove the flag, restart.
+
+### Option 2 -- rebuild and redeploy the jar (SPARK-2)
+
+Brings the cluster onto the shared `hsm-crypto-core` code. Keep the Option 1 flag.
+
+1. Build from `main`:
+   ```bash
+   cd java && mvn -B -pl hsm-spark-adapter -am package -DskipTests
+   cp hsm-spark-adapter/target/hsm-spark-adapter-1.0.0.jar \
+      hsm-spark-adapter-1.0.0-$(git rev-parse --short HEAD).jar
+   ```
+   The version is still `1.0.0`: the commit suffix gives the new file a distinct name.
+2. Upload it **next to** the old jar, wherever you keep it today (DBFS / Volume /
+   workspace files, HDFS / S3 / ADLS, or the container image). **Don't overwrite the old
+   jar** -- it is the rollback, and managed platforms cache libraries by path, so an
+   overwrite in place may not even take effect.
+3. Point the cluster at the new file -- change only the adapter path:
+   ```
+   spark.jars  <path>/hsm-spark-adapter-1.0.0-<sha>.jar,<path>/bc-fips-2.1.1.jar
+   ```
+   - Databricks: Cluster → Libraries: install the new jar, uninstall the old one.
+   - **`bc-fips-2.1.1.jar` stays exactly as it is, as its own separate jar** -- BC-FIPS
+     checks its own integrity and fails (`Module checksum failed`) if bundled.
+   - Unchanged: `spark.sql.extensions=com.hsm.spark.HsmUdfExtension`, every `spark.hsm.*`
+     setting, and the Option 1 flag.
+4. Restart the cluster (or resubmit the job).
+5. Verify:
+   ```scala
+   Class.forName("com.hsm.crypto.FipsBootstrap")             // throws on the OLD jar, succeeds on the new one
+   com.hsm.crypto.FipsBootstrap.isApprovedOnlyJvmWide()       // driver: true
+   spark.range(8).repartition(8).mapPartitions(_ =>
+     Iterator(com.hsm.crypto.FipsBootstrap.isApprovedOnlyJvmWide())).collect()   // executors: all true
+   ```
+   - `hsm_encrypt` → `hsm_decrypt` round trip returns the original values.
+   - `hsm_decrypt` on values encrypted **before** the change returns the originals.
+   - Executor logs: no `ClassNotFoundException`, `NoSuchAlgorithm`, `Module checksum failed`.
+6. Rollback: point `spark.jars` / the cluster library back at the old jar, restart.
+
 ## BC-FIPS native libraries (all Java services)
 
 Applies to `hsm-core-service` (including the `hsm-bulk-service` release),
