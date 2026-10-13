@@ -8,6 +8,8 @@ import com.hsm.filestore.FileStore;
 import com.hsm.filestore.LocalFileStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.tomcat.servlet.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -29,7 +31,8 @@ public class FileServiceConfig {
      * connection to hsm-core-service. Closed on shutdown, which zeroes every cached DEK.
      */
     @Bean(destroyMethod = "close")
-    public HsmCryptoClient hsmCryptoClient(FileServiceProperties props) {
+    public HsmCryptoClient hsmCryptoClient(FileServiceProperties props,
+                                           @Value("${hsm.chassis.web.request-id.mdc-key:requestId}") String requestIdMdcKey) {
         FileServiceProperties.Core core = props.core();
         require(core.baseUrl(), "hsm.file-service.core.base-url");
         require(core.appId(), "hsm.file-service.core.app-id");
@@ -39,7 +42,11 @@ public class FileServiceConfig {
                 .appId(core.appId())
                 .privateKeyPem(readPem(core.privateKeyPemFile(), "hsm.file-service.core.private-key-pem-file"))
                 .dekCacheTtl(props.dekCache().ttl())
-                .dekCacheMaxSize(props.dekCache().maxSize());
+                .dekCacheMaxSize(props.dekCache().maxSize())
+                // Forward this request's X-Request-Id to hsm-core-service (as its
+                // X-Correlation-Id), so one user request carries one id in both services'
+                // logs and audit records. Read from the MDC the chassis RequestIdFilter fills.
+                .correlationId(() -> MDC.get(requestIdMdcKey));
         switch (core.authMode()) {
             case STATIC -> b.staticToken(require(core.staticToken(), "hsm.file-service.core.static-token"));
             case AZURE_AD -> b.azureAdToken(require(core.azureTokenScope(), "hsm.file-service.core.azure-token-scope"));
