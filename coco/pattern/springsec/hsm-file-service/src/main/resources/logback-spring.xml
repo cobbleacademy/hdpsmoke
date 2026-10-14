@@ -1,26 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logging comes from the chassis (hsm-chassis-core, OBS-1): application logs as text
+  (default) or JSON, chosen per deployment by HSM_LOG_FORMAT / hsm.chassis.logging.format,
+  and the audit.json stream passed through unchanged. See java/chassis/README.md.
+-->
 <configuration>
-    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
-
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-        </encoder>
-    </appender>
-
-    <!-- Same convention as hsm-core-service: AccessAuditLogger builds the whole JSON
-         line itself, so this appender passes the message through unchanged. -->
-    <appender name="AUDIT_JSON" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%msg%n</pattern>
-        </encoder>
-    </appender>
-
-    <logger name="audit.json" level="INFO" additivity="false">
-        <appender-ref ref="AUDIT_JSON"/>
-    </logger>
-
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-    </root>
+    <include resource="hsm/chassis/logback/base.xml"/>
 </configuration>
