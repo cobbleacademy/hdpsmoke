@@ -10,6 +10,7 @@ data:
   SERVER_PORT: {{ .Values.service.port | quote }}
   MANAGEMENT_PORT: {{ .Values.service.managementPort | quote }}
   SHUTDOWN_GRACE: {{ .Values.config.shutdownGrace | quote }}
+  HSM_LOG_FORMAT: {{ (.Values.logging).format | default "text" | quote }}
   FILE_SERVICE_API_PREFIX: {{ .Values.config.server.apiPrefix | quote }}
   HSM_CORE_BASE_URL: {{ .Values.config.core.baseUrl | quote }}
   HSM_CORE_API_V1_PREFIX: {{ .Values.config.core.apiV1Prefix | quote }}
