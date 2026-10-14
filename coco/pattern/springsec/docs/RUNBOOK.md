@@ -346,6 +346,35 @@ To trace a specific slow/failing request end to end:
   - `splunk_hec_shutdown_undelivered count=…` — events still queued when the
     shutdown budget (`SPLUNK_SHUTDOWN_FLUSH_SECONDS`, default 10) ran out.
 
+### Application log format: text or JSON (OBS-1)
+
+core/bulk, file-service and the cache-key-rotator take their logging from the chassis
+(`hsm-chassis-core`). Each chart has one value:
+
+```yaml
+logging:
+  format: text    # text (default) | json  -> HSM_LOG_FORMAT
+```
+
+- `text`: Spring Boot's default line, the same as before the chassis
+  (`… INFO [correlationId=…] 1 --- [hsm-core-service] [thread] logger : message`).
+- `json`: one JSON object per line, field names aligned with the audit lines:
+  `timestamp`, `message` (same text as before), `logger`, `thread`, `level`,
+  `request_id` (core/bulk's correlation id, file-service's request id), `service`,
+  `host` (pod name), and `stack_trace` (whole trace in one event, max 4000 chars).
+  No banner, nothing else on stdout.
+- The audit lines (`{"event":…}`) are identical in both formats.
+- Switch one release at a time: change the value, `helm upgrade`, pods restart. No rebuild.
+  Roll back by setting `text` again. Quick test without Helm:
+  `kubectl set env deploy/<name> -n <ns> HSM_LOG_FORMAT=json` (restarts the pods; the next
+  `helm upgrade` resets it).
+- Before turning `json` on, check the Splunk questions Q1–Q4 in
+  `OBS-1_LOGGING_EVALUATION.md` (searches/alerts on the text layout, sourcetype JSON
+  extraction, event time, truncation).
+- Check after the switch: `kubectl logs <pod> | head` shows only `{…}` lines; in Splunk
+  `request_id="<id>"` returns the request's application and audit lines together.
+- An unknown value logs `logging_format_invalid value=…` at startup and stays on `text`.
+
 ## HTTP client and Netty stack (all Java services)
 
 **Current setup:**

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Item** | OBS-1 in [`ACTION_ITEMS.md`](ACTION_ITEMS.md) |
-| **Status** | Evaluated 2026-10-14, decision needed (section 8). No code changed |
+| **Status** | Option C chosen 2026-10-14 (D1–D4, D6 as recommended). Step 1 merged to main, deploy pending; step 2 waits on Q1–Q4 |
 | **Date** | 2026-10-14 |
 | **Scope** | Plain application logs (`log.info/warn/error(...)` → the `CONSOLE` appender). The audit stream (`audit.json`) is OBS-2 and does **not** change |
 
@@ -97,7 +97,7 @@ difference is almost entirely stack-trace and Hibernate continuation lines.
    `/actuator/health` in core returns **500** and logs an **ERROR with a full stack
    trace** (`NoHandlerFoundException` reaches the catch-all handler; only
    `NoResourceFoundException` is mapped to 404). Every scanner or mistyped URL adds an
-   ERROR and ~90 lines today. Proposed as a separate item, CORE-2 (section 8, D6).
+   ERROR and ~90 lines today. Tracked as CORE-2 (section 8, D6).
 
 ## 4. What Splunk depends on — unknown, to confirm
 
@@ -125,7 +125,8 @@ recommended.
    `hsm/chassis/logback/base.xml`: Boot's defaults, CONSOLE chosen by
    `hsm.chassis.logging.format` (`text` default | `json`), and the `audit.json` →
    `%msg%n` route. Each service's `logback-spring.xml` shrinks to a 3-line include;
-   the rotator and bulk-client get the same file.
+   the rotator gets the same file. (As built: bulk-client is not on the chassis and keeps
+   Boot's default text logging, D4.)
 2. With `json`, the chassis sets the field defaults (each overridable):
 
    | Property | Value |
@@ -153,7 +154,7 @@ Option C, in two steps, the same pattern as OBS-2:
 
 | Step | What | Visible change on deploy |
 |---|---|---|
-| **1** | Chassis include + switch (default `text`), the services' `logback-spring.xml` reduced to the include, rotator and bulk-client get it, unused dependency removed, chart value added. Tests: text output identical to today; JSON output has the agreed fields; audit lines unchanged | **None.** Text lines identical, verified by a test that compares the line layout |
+| **1** | Chassis include + switch (default `text`), the services' `logback-spring.xml` reduced to the include, the rotator gets it (bulk-client stays on Boot's default, D4), unused dependency removed, chart value added. Tests: text output identical to today; JSON output has the agreed fields; audit lines unchanged | **None.** Text lines identical, verified by a test that compares the line layout |
 | **2** | After Q1–Q4 are answered: set `logging.format: json` on **one release** (bulk or core v2), check Splunk, then the others one by one. bulk-client stays text (people read its output directly) unless wanted | Application lines become JSON for that release only. Rollback: the value back to `text` |
 
 Effort: step 1 is about a day including tests and Dockerfile checks. Step 2 is values
