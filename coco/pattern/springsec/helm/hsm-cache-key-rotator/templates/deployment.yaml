@@ -12,6 +12,11 @@ spec:
   # Singleton — two replicas writing to the same AKV slot simultaneously
   # would race.  Keep this fixed at 1; do not wire up an HPA for this chart.
   replicas: {{ .Values.replicaCount }}
+  # Recreate, not the default RollingUpdate: a rolling update starts the new
+  # pod before stopping the old one, briefly running two rotators against the
+  # same alpha/beta Key Vault slots.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "hsm-cache-key-rotator.selectorLabels" . | nindent 6 }}
@@ -56,6 +61,8 @@ spec:
               value: {{ .Values.config.redisPostRotationMode | quote }}
             - name: DEK_CACHE_TTL_SECONDS
               value: {{ .Values.config.dekCacheTtlSeconds | quote }}
+            - name: HSM_LOG_FORMAT
+              value: {{ (.Values.logging).format | default "text" | quote }}
             {{- if .Values.config.redisUrl }}
             - name: REDIS_URL
               value: {{ .Values.config.redisUrl | quote }}

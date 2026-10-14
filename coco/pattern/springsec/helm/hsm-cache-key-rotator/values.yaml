@@ -78,6 +78,14 @@ bcFips:
   nativeMode: native        # native | java
   nativeVolumeSizeLimit: 32Mi
 
+# Application-log format (hsm-chassis-core, OBS-1) -> HSM_LOG_FORMAT.
+#   text: Spring Boot's default line, unchanged (default)
+#   json: one JSON object per line (timestamp, level, logger, message, request_id,
+#         service, host, stack_trace); the audit lines are the same either way.
+# A values change and a restart switches it; no rebuild. See RUNBOOK "Application log format".
+logging:
+  format: text
+
 # ── Application configuration ──────────────────────────────────────────────
 config:
   # Azure Key Vault URL (regular vault, not Managed HSM — CEK secrets live here)
