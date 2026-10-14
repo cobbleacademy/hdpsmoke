@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
@@ -32,9 +33,14 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(Map.of("detail", detail));
     }
 
-    /** Unknown path: without this the catch-all below turned every mistyped URL into a 500 (and an ERROR log line). */
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(NoResourceFoundException e) {
+    /**
+     * Unknown path: without this the catch-all below turned every mistyped URL into a 500 (and an
+     * ERROR log line with a stack trace). Spring raises NoResourceFoundException when a static
+     * resource handler was tried (the demo UI's, under the API prefix) and NoHandlerFoundException
+     * when nothing matched at all (every path outside it, and all paths when demo mode is off).
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<Map<String, String>> handleNotFound(Exception e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("detail", "Not found"));
     }
 
