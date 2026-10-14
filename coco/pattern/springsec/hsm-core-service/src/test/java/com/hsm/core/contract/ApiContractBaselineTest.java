@@ -201,6 +201,13 @@ class ApiContractBaselineTest {
         check("error-404-path", post("/no-such-endpoint", Map.of(), auth("payments-svc")));
     }
 
+    /** Outside the API prefix nothing matches at all (NoHandlerFoundException): a 404 too, not a 500 (CORE-2). */
+    @Test
+    void errorUnknownPathOutsidePrefix() throws IOException {
+        check("error-404-path-outside-prefix",
+                rest.exchange("/no-such-endpoint", HttpMethod.GET, new HttpEntity<>(auth("payments-svc")), String.class));
+    }
+
     // ── Shape extraction and comparison ─────────────────────────────────────────
 
     private void check(String name, ResponseEntity<String> response) throws IOException {
