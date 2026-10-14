@@ -34,6 +34,7 @@ data:
   SPLUNK_HEC_URL: {{ .Values.config.splunkHecUrl | quote }}
   SPLUNK_INDEX: {{ .Values.config.splunkIndex | quote }}
   SPLUNK_SOURCE: {{ .Values.config.splunkSource | quote }}
+  HSM_LOG_FORMAT: {{ (.Values.logging).format | default "text" | quote }}
   SPLUNK_SOURCETYPE: {{ .Values.config.splunkSourcetype | quote }}
   SPLUNK_VERIFY_SSL: {{ .Values.config.splunkVerifySsl | quote }}
   SPLUNK_BATCH_SIZE: {{ .Values.config.splunkBatchSize | quote }}
