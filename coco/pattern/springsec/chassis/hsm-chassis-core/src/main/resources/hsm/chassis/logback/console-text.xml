@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CONSOLE as Spring Boot's default text line (hsm.chassis.logging.format=text). -->
+<included>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+</included>

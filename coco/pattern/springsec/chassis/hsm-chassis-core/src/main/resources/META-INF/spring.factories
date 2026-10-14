@@ -1,3 +1,5 @@
 # Registers BC-FIPS before any bean exists -- see FipsEnvironmentPostProcessor.
+# Chooses the application-log format before logging starts -- see LoggingFormatEnvironmentPostProcessor.
 org.springframework.boot.EnvironmentPostProcessor=\
-com.hsm.chassis.fips.FipsEnvironmentPostProcessor
+com.hsm.chassis.fips.FipsEnvironmentPostProcessor,\
+com.hsm.chassis.logging.LoggingFormatEnvironmentPostProcessor

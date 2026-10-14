@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CONSOLE as one JSON object per line (hsm.chassis.logging.format=json); fields set by
+     LoggingFormatEnvironmentPostProcessor through logging.structured.*. -->
+<included>
+    <include resource="org/springframework/boot/logging/logback/structured-console-appender.xml"/>
+</included>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shared logback configuration for every HSM Spring service (hsm-chassis-core, OBS-1).
+  A service's logback-spring.xml is just:
+
+    <configuration>
+        <include resource="hsm/chassis/logback/base.xml"/>
+    </configuration>
+
+  CONSOLE: application logs. Text (Spring Boot's default line) or JSON (Boot's structured
+  logging), chosen by hsm.chassis.logging.format / HSM_LOG_FORMAT; see
+  LoggingFormatEnvironmentPostProcessor, which resolves the value to "text" or "json".
+
+  AUDIT_JSON: the audit stream (hsm-chassis-audit). The audit sink builds each JSON line
+  itself, so the line is passed through unchanged ("%msg%n") whatever the CONSOLE format.
+-->
+<included>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProperty name="HSM_LOG_FORMAT" source="hsm.chassis.logging.resolved-format" defaultValue="text"/>
+    <include resource="hsm/chassis/logback/console-${HSM_LOG_FORMAT}.xml"/>
+
+    <appender name="AUDIT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%msg%n</pattern>
+        </encoder>
+    </appender>
+    <logger name="audit.json" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT_JSON"/>
+    </logger>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</included>
