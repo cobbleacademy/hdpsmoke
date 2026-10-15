@@ -14,3 +14,21 @@ A shared, browser-based tool — open it, pick a payload, hit Run.
 
 The Net Effect
 What used to be individual tribal knowledge scattered across laptops becomes a shared, searchable, zero-setup testing tool — anyone on the team can test any entity type against any environment in under 30 seconds, with no credential risk.
+---------------------------------------------------------
+- name: "Customer Profile"
+  category: "Retail"
+  payload: |
+    { ... }
+  fields:
+    - { key: name,     label: "Name",    sensitive: true, example: "Jane Whitaker" }
+    - { key: email,    label: "Email",   sensitive: true, example: "jane@example.com" }
+    - { key: card,     label: "Card",    sensitive: true, example: "4111111111114242" }
+    - { key: phone,    label: "Phone",   sensitive: true, example: "415-555-0172" }
+    - { key: seq_id,   label: "Seq ID",                   example: "100245" }
+  sampleResponse: |
+    { "response": [ { "access": [
+        { "path": "name",  "actions": [ { "action": "FULL" } ] },
+        { "path": "email", "actions": [ { "action": "FULL" } ] },
+        { "path": "card",  "actions": [ { "action": "PARTIAL" } ] }
+    ] } ] }
+---------------------------------------------------------
