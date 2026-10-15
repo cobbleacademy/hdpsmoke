@@ -26,6 +26,33 @@ describe('resolveFields', () => {
     expect(warnings).toEqual([]);
   });
 
+  it('merges decisions spread across several response[] elements (real provider layout)', () => {
+    const body = { response: [
+      { access: [entry('name', 'FULL')] },
+      { access: [entry('email', 'FULL')] },
+      { access: [entry('card', 'FULL')] },
+    ] };
+    const { rows, warnings } = resolveFields(FIELDS, body);
+    const r = byKey(rows);
+    expect(r.name).toMatchObject({ access: FULL, display: 'Jane Whitaker' });
+    expect(r.email).toMatchObject({ access: FULL, display: 'jane@example.com' });
+    expect(r.card).toMatchObject({ access: FULL, display: '4111111111114242' });
+    expect(r.phone.access).toBe(DENY);
+    expect(warnings).toEqual([]);
+  });
+
+  it('most restrictive wins for the same path across response[] elements', () => {
+    const body = { response: [{ access: [entry('card', 'FULL')] }, { access: [entry('card', 'PARTIAL')] }] };
+    expect(byKey(resolveFields(FIELDS, body).rows).card.access).toBe(PARTIAL);
+  });
+
+  it('ignores response[] elements without an access list, with a warning', () => {
+    const body = { response: [{ foo: 1 }, { access: [entry('name', 'FULL')] }] };
+    const { rows, warnings } = resolveFields(FIELDS, body);
+    expect(byKey(rows).name.access).toBe(FULL);
+    expect(warnings.some(w => w.includes('no "access" list'))).toBe(true);
+  });
+
   it('most restrictive wins within one actions list', () => {
     const r = byKey(resolveFields(FIELDS, access(entry('name', 'FULL', 'PARTIAL'))).rows);
     expect(r.name.access).toBe(PARTIAL);

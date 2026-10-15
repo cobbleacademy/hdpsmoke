@@ -2,7 +2,8 @@
 // Pure functions, no React. See docs/adr/0020-payload-sample-app-view.md.
 //
 // The provider response carries per-field access decisions (not data):
-//   { response: [ { access: [ { path, actions: [ { action } ] } ] } ] }
+//   { response: [ { access: [ { path, actions: [ { action } ] } ] }, ... ] }
+// Decisions from every response[] element are merged (single entity).
 // The payload YAML's `fields:` block supplies the full field list, which of
 // them are sensitive, and fake example values. Rules:
 //   - non-sensitive field         → always shown
@@ -46,18 +47,26 @@ export function collectDecisions(body) {
     catch { data = null; }
   }
 
-  const access = data?.response?.[0]?.access;
-  if (!Array.isArray(access)) {
+  // The provider splits one entity's decisions across several response[]
+  // elements (typically one access entry each), so collect from all of them.
+  const groups = Array.isArray(data?.response)
+    ? data.response.filter(g => Array.isArray(g?.access))
+    : [];
+  if (groups.length === 0) {
     return {
       recognised: false,
       decisions: new Map(),
-      warnings: ['Response shape not recognised (expected response[0].access[]) — all sensitive fields treated as restricted.'],
+      warnings: ['Response shape not recognised (expected response[].access[]) — all sensitive fields treated as restricted.'],
     };
   }
 
   const decisions = new Map();
   const warnings  = [];
-  for (const entry of access) {
+  const skipped   = data.response.length - groups.length;
+  if (skipped > 0) {
+    warnings.push(`${skipped} response element(s) have no "access" list — ignored.`);
+  }
+  for (const entry of groups.flatMap(g => g.access)) {
     const path = typeof entry?.path === 'string' ? entry.path : '';
     if (!path) {
       warnings.push('An access entry has no "path" — ignored.');
