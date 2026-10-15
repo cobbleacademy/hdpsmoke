@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import SampleAppView from './SampleAppView.jsx';
 import jsYaml from 'js-yaml';
 
 const MAX_HISTORY = 20;
@@ -68,6 +69,7 @@ function makeTabState(env) {
     runState: 'idle',
     runResult: null,
     responseCopied: false,
+    responseView: 'sample',    // 'sample' | 'raw' — only used when the payload has a `fields:` block (ADR-020)
     history: [],
     historyOpen: true,
     viewingEntry: null,
@@ -782,6 +784,22 @@ export default function PayloadLibrary() {
   const canRun          = ts.runState === 'idle' && activeUrl.length > 0 && payloadIsValid;
   const isModified      = ts.editedPayload !== null;
   const displayedResult = ts.viewingEntry || ts.runResult;
+  // ── Sample App view (ADR-020) — payload whose response is on screen ──────────
+  // History entries may belong to another payload, so look it up by name.
+  const viewPayload  = ts.viewingEntry
+    ? ts.payloads.find(p => p.name === ts.viewingEntry.payloadName)
+    : selected;
+  const sampleFields = Array.isArray(viewPayload?.fields) && viewPayload.fields.length > 0
+    ? viewPayload.fields
+    : null;
+  const savedSample  = !displayedResult && ts.runState !== 'running' && sampleFields && viewPayload?.sampleResponse
+    ? viewPayload.sampleResponse
+    : null;
+  const canShowSample = !!sampleFields && (savedSample !== null || (displayedResult && !displayedResult.error));
+  const showSample    = canShowSample && ts.responseView === 'sample';
+  const sampleSource  = ts.viewingEntry
+    ? `History · ${ts.viewingEntry.requestedAt}`
+    : displayedResult ? 'Live' : 'Saved sample';
   const isSearching     = ts.searchQuery.trim().length > 0;
   const filteredPayloads = getFilteredPayloads();
   const grouped         = isSearching ? null : getGrouped(filteredPayloads);
@@ -1329,15 +1347,30 @@ export default function PayloadLibrary() {
             </div>
 
             {/* ── Response card ────────────────────────────────────────── */}
-            {(ts.runState === 'running' || displayedResult) && (
+            {(ts.runState === 'running' || displayedResult || savedSample !== null) && (
               <div style={s.card} ref={responseCardRef}>
                 <div style={s.cardTopRow}>
                   <span style={s.sectionLabel}>
                     {ts.viewingEntry
                       ? `History · ${ts.viewingEntry.payloadName} · ${ts.viewingEntry.requestedAt}`
-                      : 'Provider Response'}
+                      : displayedResult || ts.runState === 'running'
+                        ? 'Provider Response'
+                        : 'Saved Sample Response'}
                   </span>
                   <div style={s.responseMetaRow}>
+                    {canShowSample && (
+                      <div style={s.viewToggle}>
+                        {[['raw', 'Raw JSON'], ['sample', 'Sample App']].map(([id, label]) => (
+                          <button
+                            key={id}
+                            onClick={() => upd({ responseView: id })}
+                            style={{ ...s.viewToggleBtn, ...(ts.responseView === id ? s.viewToggleBtnActive : {}) }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {ts.viewingEntry && (
                       <button onClick={() => upd({ viewingEntry: null })} style={s.ghostBtn}>
                         ← Current
@@ -1382,6 +1415,20 @@ export default function PayloadLibrary() {
                       {errorHint(displayedResult.code, displayedResult.error)}
                     </p>
                   </div>
+                ) : showSample ? (
+                  <SampleAppView
+                    fields={sampleFields}
+                    body={displayedResult ? displayedResult.body : savedSample}
+                    title={viewPayload.name}
+                    sourceLabel={sampleSource}
+                  />
+                ) : savedSample !== null ? (
+                  <pre style={s.pre}>
+                    {(() => {
+                      try { return JSON.stringify(JSON.parse(savedSample), null, 2); }
+                      catch { return savedSample; }
+                    })()}
+                  </pre>
                 ) : (
                   <pre style={s.pre}>
                     {(() => {
@@ -2079,6 +2126,27 @@ const s = {
   },
 
   // ── Response section ──────────────────────────────────────────────────────
+  // Raw JSON | Sample App segmented toggle (ADR-020)
+  viewToggle: {
+    display: 'inline-flex',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    overflow: 'hidden',
+  },
+  viewToggleBtn: {
+    padding: '0.3rem 0.7rem',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-secondary)',
+    fontFamily: 'inherit',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  viewToggleBtnActive: {
+    background: 'var(--accent)',
+    color: '#fff',
+  },
   responseMetaRow: {
     display: 'flex',
     alignItems: 'center',
