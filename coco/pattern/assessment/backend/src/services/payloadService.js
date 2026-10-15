@@ -269,6 +269,29 @@ function validateYaml(yaml) {
     if (typeof entry.payload !== 'string' || !entry.payload.trim()) {
       throw new Error(`payloads[${i}] ("${entry.name}") is missing a required "payload" field`);
     }
+    // Optional Sample App blocks (ADR-020)
+    if (entry.fields !== undefined) {
+      if (!Array.isArray(entry.fields)) {
+        throw new Error(`payloads[${i}] ("${entry.name}") "fields" must be a list`);
+      }
+      const seen = new Set();
+      for (const [j, f] of entry.fields.entries()) {
+        const key = typeof f?.key === 'string' ? f.key.trim() : '';
+        if (!key) {
+          throw new Error(`payloads[${i}] ("${entry.name}") fields[${j}] is missing a required "key"`);
+        }
+        if (seen.has(key)) {
+          throw new Error(`payloads[${i}] ("${entry.name}") has duplicate field key "${key}"`);
+        }
+        seen.add(key);
+      }
+    }
+    if (entry.sampleResponse !== undefined) {
+      try { JSON.parse(entry.sampleResponse); }
+      catch (e) {
+        throw new Error(`payloads[${i}] ("${entry.name}") "sampleResponse" is not valid JSON: ${e.message}`);
+      }
+    }
   }
 }
 
