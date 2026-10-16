@@ -112,16 +112,17 @@ router.post('/run-payload', async (req, res) => {
   } catch (err) {
     if (err.code === 'TIMEOUT') {
       console.error(
-        `[run-payload] Provider call timed out after ${err.durationMs}ms: url=${url} authType=${authType} envId=${envId || 'n/a'}`
+        `[run-payload] Provider call timed out after ${err.durationMs}ms: url=${url} authType=${authType} envId=${envId || 'n/a'} correlationId=${err.correlationId}`
       );
       return res.status(504).json({
         error: err.message,
         code: 'TIMEOUT',
         durationMs: err.durationMs,
+        correlationId: err.correlationId,
       });
     }
     console.error(
-      `[run-payload] Provider call failed: url=${url} authType=${authType} envId=${envId || 'n/a'} code=${err.code || 'NETWORK'} durationMs=${err.durationMs ?? 'n/a'}`,
+      `[run-payload] Provider call failed: url=${url} authType=${authType} envId=${envId || 'n/a'} code=${err.code || 'NETWORK'} durationMs=${err.durationMs ?? 'n/a'} correlationId=${err.correlationId ?? 'n/a'}`,
       `\n  message: ${err.message}`,
       err.cause ? `\n  cause: ${err.cause.message || err.cause}` : '',
       err.stack ? `\n  stack: ${err.stack}` : ''
@@ -130,6 +131,7 @@ router.post('/run-payload', async (req, res) => {
       error: `Provider call failed: ${err.message}`,
       code: err.code || 'NETWORK',
       durationMs: err.durationMs,
+      correlationId: err.correlationId,
     });
   }
 });
