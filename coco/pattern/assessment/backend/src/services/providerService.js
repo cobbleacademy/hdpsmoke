@@ -1,8 +1,10 @@
 'use strict';
 
+const crypto = require('crypto');
 const https = require('https');
 const http  = require('http');
 const entraAuth = require('./entraAuthService');
+const { filterHeaders, extractTraceIds } = require('./traceHeaders');
 
 // Reusable insecure HTTPS agent — created once, used for all skipTlsVerify requests.
 // rejectUnauthorized: false bypasses certificate validation for self-signed /
@@ -108,6 +110,7 @@ async function makeRequest({ url, headers, body, signal, skipTlsVerify }) {
                 const val = res.headers[name.toLowerCase()];
                 return Array.isArray(val) ? val.join(', ') : (val ?? null);
               },
+              entries: () => Object.entries(res.headers),
             },
             text: () => Promise.resolve(rawText),
           });
@@ -221,8 +224,11 @@ async function buildAuthHeaders(authType, creds) {
  *                                  provider call. Use only for dev/internal endpoints with
  *                                  self-signed certificates. Falls back to the global
  *                                  PROVIDER_SKIP_TLS_VERIFY env var if not supplied.
- * @returns {{ status: number, body: any, durationMs: number }}
- * @throws Error with .code = 'TIMEOUT' | 'NETWORK' on hard failures
+ * @returns {{ status: number, body: any, durationMs: number, headers: object,
+ *            traceIds: Array<{label, header, value}>, correlationId: string }}
+ *          `headers` has sensitive headers removed; `traceIds` are matched on a
+ *          normalised name (requestid / x-request-id / request_id → Request ID).
+ * @throws Error with .code = 'TIMEOUT' | 'NETWORK' and .correlationId on hard failures
  */
 async function callProvider(url, payload, authType, envId, skipTlsVerify = false) {
   const resolvedAuthType = authType || process.env.PROVIDER_AUTH_TYPE || 'none';
@@ -240,12 +246,17 @@ async function callProvider(url, payload, authType, envId, skipTlsVerify = false
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   const startMs = Date.now();
+  // Our own ID on every call — survives timeouts/network errors that return no
+  // headers. Deliberately not x-request-id: some gateways would adopt it as the
+  // request ID and hide the provider's own (ADR-021).
+  const correlationId = crypto.randomUUID();
 
   try {
     const resp = await makeRequest({
       url,
       headers: {
         'Content-Type': 'application/json',
+        'x-correlation-id': correlationId,
         ...authHeaders,
       },
       body:         JSON.stringify(payload),
@@ -276,7 +287,15 @@ async function callProvider(url, payload, authType, envId, skipTlsVerify = false
       body = rawText;
     }
 
-    return { status: resp.status, body, durationMs };
+    const headers = filterHeaders(resp.headers.entries());
+    return {
+      status: resp.status,
+      body,
+      durationMs,
+      headers,
+      traceIds: extractTraceIds(headers),
+      correlationId,
+    };
   } catch (err) {
     clearTimeout(timeoutId);
     const durationMs = Date.now() - startMs;
@@ -285,6 +304,7 @@ async function callProvider(url, payload, authType, envId, skipTlsVerify = false
       const e = new Error(`Request timed out after ${secs}s`);
       e.code = 'TIMEOUT';
       e.durationMs = durationMs;
+      e.correlationId = correlationId;
       throw e;
     }
     // Node's fetch throws a generic "fetch failed" TypeError for DNS, connection,
@@ -296,6 +316,7 @@ async function callProvider(url, payload, authType, envId, skipTlsVerify = false
     }
     err.code = err.code || 'NETWORK';
     err.durationMs = durationMs;
+    err.correlationId = correlationId;
     throw err;
   }
 }
