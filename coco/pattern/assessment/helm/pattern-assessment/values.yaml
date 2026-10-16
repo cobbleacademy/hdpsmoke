@@ -156,6 +156,9 @@ backend:
     # Provider request timeout in milliseconds (minimum 10 000; default 15 000)
     PROVIDER_SKIP_TLS_VERIFY: "false"
     PROVIDER_TIMEOUT_MS: "15000"
+    # Trace-ID response headers (ADR-021) — base names, any spelling matches.
+    # Blank = requestid,transactionid,correlationid
+    PROVIDER_TRACE_HEADERS: ""
     # For api-key auth — set via --set backend.env.PROVIDER_API_KEY=<key>
     PROVIDER_API_KEY: ""
     # For entraid-apigee auth — set all six via --set
