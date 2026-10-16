@@ -203,6 +203,8 @@ spec:
               value: {{ .Values.backend.env.PROVIDER_SKIP_TLS_VERIFY | default "false" | quote }}
             - name: PROVIDER_TIMEOUT_MS
               value: {{ .Values.backend.env.PROVIDER_TIMEOUT_MS | quote }}
+            - name: PROVIDER_TRACE_HEADERS
+              value: {{ .Values.backend.env.PROVIDER_TRACE_HEADERS | default "" | quote }}
             - name: PROVIDER_API_KEY
               value: {{ .Values.backend.env.PROVIDER_API_KEY | quote }}
             - name: PROVIDER_ENTRA_TENANT_ID
