@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import SampleAppView from './SampleAppView.jsx';
 import jsYaml from 'js-yaml';
+import { TraceIdStrip, HeadersPanel } from './ProviderTraceInfo.jsx';
 
 const MAX_HISTORY = 20;
 const MAX_HISTORY_BODY_CHARS = 50_000; // cap stored response body size per history entry
@@ -84,7 +85,7 @@ function makeTabState(env) {
     saveError: '',
     // ── Per-tab batch selection ───────────────────────────────────────────────
     batchChecked: new Set(),   // Set of originalIndex values checked in this tab
-    batchResults: [],          // [{index, name, status, httpStatus, durationMs, body, error, code}]
+    batchResults: [],          // [{index, name, status, httpStatus, durationMs, body, error, code, traceIds, correlationId}]
   };
 }
 
@@ -507,7 +508,7 @@ export default function PayloadLibrary() {
       const data = await resp.json();
       const result = resp.ok
         ? data
-        : { error: data.error, code: data.code, durationMs: data.durationMs };
+        : { error: data.error, code: data.code, durationMs: data.durationMs, correlationId: data.correlationId };
 
       updSnap({ runResult: result, runState: 'idle' });
       addHistorySnap({ payloadName, url, requestedAt, ...result });
@@ -689,12 +690,13 @@ export default function PayloadLibrary() {
         const ok   = resp.ok && !data.error;
         setTabStates(prev => {
           const cur = prev[envIdSnap] ?? {};
-          const entry = truncateHistoryEntry(ok ? data : { error: data.error, code: data.code, durationMs: data.durationMs });
+          const entry = truncateHistoryEntry(ok ? data : { error: data.error, code: data.code, durationMs: data.durationMs, correlationId: data.correlationId });
           return { ...prev, [envIdSnap]: { ...cur,
             batchResults: (cur.batchResults ?? []).map(r => r.index === idx ? {
               ...r, status: ok ? 'ok' : 'fail',
               httpStatus: data.status, durationMs: data.durationMs,
               body: data.body, error: data.error, code: data.code,
+              traceIds: data.traceIds, correlationId: data.correlationId,
             } : r),
             historyOpen: true,
             history: [{ id: Date.now() + idx, payloadName: payload.name, url, requestedAt, ...entry }, ...(cur.history ?? [])].slice(0, MAX_HISTORY),
@@ -1250,6 +1252,7 @@ export default function PayloadLibrary() {
                             {isOk      && <span style={{ ...s.chip, background: '#f0fdf4', color: '#15803d', fontWeight: 700 }}>✓ passed</span>}
                             {isFail    && <span style={{ ...s.chip, background: '#fef2f2', color: '#b91c1c', fontWeight: 700 }}>✕ failed</span>}
                             {r.durationMs != null && <span style={{ ...s.chip, fontSize: '0.68rem' }}>{r.durationMs} ms</span>}
+                            {(isOk || isFail) && <TraceIdStrip traceIds={r.traceIds} correlationId={r.correlationId} compact />}
                             {(isOk || isFail) && (
                               <button
                                 onClick={() => handleBatchDrilldown(r.index)}
@@ -1398,6 +1401,10 @@ export default function PayloadLibrary() {
                   </div>
                 </div>
 
+                {displayedResult && (
+                  <TraceIdStrip traceIds={displayedResult.traceIds} correlationId={displayedResult.correlationId} />
+                )}
+
                 {ts.runState === 'running' && !displayedResult ? (
                   <div style={s.responseLoading}>
                     <div style={s.spinner} />
@@ -1442,6 +1449,7 @@ export default function PayloadLibrary() {
                     })()}
                   </pre>
                 )}
+                {displayedResult && !displayedResult.error && <HeadersPanel headers={displayedResult.headers} />}
               </div>
             )}
 
