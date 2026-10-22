@@ -98,6 +98,64 @@ Decrypt/batch-decrypt also accept the legacy 4-field form (edek_id, iv_b64, ciph
 <host> is whatever you're reaching the service through in K8s (in-cluster service DNS, port-forward, or ingress); <token> must satisfy whatever JwtValidator is configured for in that environment — in demo mode it's the fixed demo-token-<app-id> pattern (e.g. demo-token-payments-svc), in a real deployment it's a JWT the caller app mints against your real JWKS/public key with the right app_id claim matching X-App-ID.
 GET /api/sensec/hsm/v1/admin/health needs no auth — good first smoke check before hitting the encrypt/decrypt paths.
 ----------------------------------------------------------------------------------------------------------
+DEK transportation pub/pri key pair registration with app
+
+1.Generate the key pair (OpenSSL)
+APP_ID=payments-svc
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out ${APP_ID}-dek-transport-private.pem
+openssl pkey -in ${APP_ID}-dek-transport-private.pem -pubout -out ${APP_ID}-dek-transport-public.pem
+
+Check them:
+head -1 ${APP_ID}-dek-transport-private.pem
+Expect -----BEGIN PRIVATE KEY-----.
+
+openssl pkey -pubin -in ${APP_ID}-dek-transport-public.pem -noout -text | head -1
+Expect Public-Key: (3072 bit).
+
+If you have an existing private key in the old BEGIN RSA PRIVATE KEY format, convert it to PKCS#8:
+openssl pkcs8 -topk8 -nocrypt -in old-rsa-private.pem -out ${APP_ID}-dek-transport-private.pem
+
+2. Register the public key (curl)
+
+UPDATE app_registrations SET public_key_pem = $pem$
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
+-----END PUBLIC KEY-----
+$pem$,
+       updated_at     = now()
+WHERE app_id = 'payments-svc';
+
+or
+
+BASE=https://<host>/api/sensec/hsm/v1
+jq --rawfile builds the JSON body and escapes the PEM newlines for you:
+
+jq -n --arg app "$APP_ID" --rawfile pem ${APP_ID}-dek-transport-public.pem '{app_id: $app, encryption_public_key_pem: $pem}' > keys-body.json
+curl -sS -X POST "$BASE/admin/apps/keys" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" -H "Content-Type: application/json" --data @keys-body.json
+Expected response: no key material is returned, only flags.
+
+{"app_id":"payments-svc","has_encryption_key":true,"has_signing_key":false,"updated_at":"2026-10-21T..."}
+
+3. Update or rotate later
+To update, run the same call with the new public key. It replaces the old one immediately, so:
+
+Generate the new pair (step 1).
+Put the new private key where the client reads it (step 4), but don’t restart the client yet.
+Register the new public key (step 2).
+Restart the client so it picks up the new private key.
+
+Between steps 3 and 4, /dek/issue and /dek/unwrap responses are wrapped to the new key and the running client can’t unwrap them. Keep that window short, or do it in a quiet period.
+
+4.Optional: check the pair works end to end
+
+This only works for an app with the dek_issue scope. It creates a real DEK record, so do it in a lower environment, or use the client’s normal traffic as the test instead (e.g. a file-service download).
+
+curl -sS -X POST "$BASE/dek/issue" -H "Authorization: Bearer $APP_TOKEN" -H "X-App-ID: $APP_ID" -H "Content-Type: application/json" -d '{"items":[{"key":"keytest-1"}]}' | jq -r '.items[0].wrapped_dek_b64' | base64 -d > wrapped.bin
+openssl pkeyutl -decrypt -inkey ${APP_ID}-dek-transport-private.pem -in wrapped.bin -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -pkeyopt rsa_mgf1_md:sha256 | wc -c
+
+Expect 32, a 256-bit DEK. That proves core wrapped to the public key you registered and the private key unwraps it.
+----------------------------------------------------------------------------------------------------------
+
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
 openssl rsa -in private.pem -pubout -out public.pem
 
