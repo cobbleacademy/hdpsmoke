@@ -155,6 +155,50 @@ openssl pkeyutl -decrypt -inkey ${APP_ID}-dek-transport-private.pem -in wrapped.
 
 Expect 32, a 256-bit DEK. That proves core wrapped to the public key you registered and the private key unwraps it.
 ----------------------------------------------------------------------------------------------------------
+SELF_SIGNED_JWT pub/pri key pair registration with app
+
+1. Generate the signing key pair (OpenSSL)
+Use a separate pair from the DEK transport key.
+
+APP_ID=payments-svc
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out ${APP_ID}-signing-private.pem
+openssl pkey -in ${APP_ID}-signing-private.pem -pubout -out ${APP_ID}-signing-public.pem
+2a. Register the public key with the admin API
+jq -n --arg app "$APP_ID" --rawfile pem ${APP_ID}-signing-public.pem '{app_id: $app, signing_public_key_pem: $pem}' > signing-body.json
+curl -sS -X POST "$BASE/admin/apps/keys" -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" -H "Content-Type: application/json" --data @signing-body.json
+Expect "has_signing_key": true. The encryption key isn’t touched.
+
+2b. Or register it with SQL
+psql "$PG" -v ON_ERROR_STOP=1 -v app_id="$APP_ID" -v pem="$(cat ${APP_ID}-signing-public.pem)" <<'SQL'
+BEGIN;
+UPDATE public.app_registrations
+   SET signing_public_key_pem = :'pem',
+       updated_at             = now()
+ WHERE app_id = :'app_id'
+RETURNING app_id, left(signing_public_key_pem, 26) AS pem_start, updated_at;
+COMMIT;
+SQL
+Check that the stored key matches your file; the two hashes must be equal:
+
+psql "$PG" -At -c "SELECT signing_public_key_pem FROM public.app_registrations WHERE app_id = '$APP_ID';" | openssl pkey -pubin -outform DER | openssl sha256
+openssl pkey -pubin -in ${APP_ID}-signing-public.pem -outform DER | openssl sha256
+3. Restart core and bulk after a rotation
+The signing key has the same per-pod cache with no expiry. After replacing an existing key, whether by API or SQL, restart every core and bulk release. Otherwise some pods reject the new tokens with Invalid token signature.
+
+4. Mint a test token with OpenSSL and call core
+This does what the Java and Python clients do: a 2-minute token signed with the private key.
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+NOW=$(date +%s); EXP=$((NOW + 120))
+HEADER=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+CLAIMS=$(printf '{"iss":"%s","sub":"%s","aud":"hsm-core-service","iat":%d,"exp":%d,"jti":"%s"}' "$APP_ID" "$APP_ID" "$NOW" "$EXP" "$(uuidgen)" | b64url)
+SIG=$(printf '%s.%s' "$HEADER" "$CLAIMS" | openssl dgst -sha256 -sign ${APP_ID}-signing-private.pem -binary | b64url)
+TOKEN="$HEADER.$CLAIMS.$SIG"
+
+Call any endpoint the app normally uses, for example:
+
+curl -sS -i -X POST "$BASE/encrypt" -H "Authorization: Bearer $TOKEN" -H "X-App-ID: $APP_ID" -H "Content-Type: application/json" -d '{"plaintext":"selfsigned-test"}'
+----------------------------------------------------------------------------------------------------------
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
 openssl rsa -in private.pem -pubout -out public.pem
