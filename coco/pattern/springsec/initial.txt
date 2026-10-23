@@ -136,6 +136,12 @@ Expected response: no key material is returned, only flags.
 
 {"app_id":"payments-svc","has_encryption_key":true,"has_signing_key":false,"updated_at":"2026-10-21T..."}
 
+UPDATE public.app_registrations
+   SET allowed_scopes = allowed_scopes || ',provision_app_keys',
+       updated_at     = now()
+ WHERE app_id = 'ops-admin'
+   AND NOT ('provision_app_keys' = ANY (string_to_array(replace(allowed_scopes, ' ', ''), ',')))
+
 3. Update or rotate later
 To update, run the same call with the new public key. It replaces the old one immediately, so:
 
