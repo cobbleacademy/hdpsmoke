@@ -29,6 +29,15 @@ API shapes' ciphertext is genuinely, mutually interoperable: `FileBulkJob`'s
 own `reconstructCoreServiceToken()` method is what makes this possible, and
 this module is a straight port of that same logic.
 
+## `run_bulk_file_job.py` — run `hsm-bulk-client.jar` on a whole folder (Azure or local)
+
+A launcher, not a reimplementation: it builds the job configuration from environment
+variables, runs the real `hsm-bulk-client.jar` (BULK File job, `/dek/issue` or
+`/dek/unwrap` against hsm-bulk-service / hsm-core-service, AES-256-GCM per chunk
+locally), streams its log and exits 0/1. Use it to encrypt every file under an Azure
+Blob / ADLS Gen2 folder into another folder, or to decrypt them back. Standard library
+only. Full details: [Running a bulk file job from Python](#running-a-bulk-file-job-from-python-run_bulk_file_jobpy).
+
 ## Setup
 
 ```bash
@@ -168,3 +177,92 @@ with — it says nothing about whether reassembly dropped, duplicated, or
 reordered a chunk. `decrypt_file` writes to a temp file, verifies the
 SHA-256 against the manifest, and only renames into place on a match —
 `target_path` is never left holding a partially-wrong file.
+
+## Running a bulk file job from Python (`run_bulk_file_job.py`)
+
+### What you need
+
+| | |
+|---|---|
+| Jar | **`hsm-bulk-client.jar` only.** It is self-contained: hsm-crypto-client, hsm-crypto-core, `bc-fips-2.1.1`, hsm-file-store and the Azure Storage/Identity SDKs are inside. Build it from `java/`: `mvn -q -pl hsm-bulk-client -am package -DskipTests` → `java/hsm-bulk-client/target/hsm-bulk-client.jar` |
+| Java | 21 |
+| Python | 3.9+, no packages |
+| hsm-core-service | the app has scope `dek_issue` (encrypt) / `dek_unwrap` (decrypt) in `allowed_scopes`, and its DEK-transport **public** key registered (`POST /admin/apps/keys`, `ADMIN_OPERATIONS.md`). The matching **private** key, PKCS#8 (`-----BEGIN PRIVATE KEY-----`), is `CLIENT_PRIVATE_KEY_FILE` |
+| Azure Storage | the identity the jar runs as: **Storage Blob Data Reader** on the source, **Storage Blob Data Contributor** on the target. Sign-in order: Workload Identity (AKS) → `AZURE_CLIENT_ID` + `AZURE_TENANT_ID` + `AZURE_CLIENT_SECRET` → Managed Identity → `az login` |
+
+### Variables
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `SVC_BASE_URL` | ✓ | | Host of hsm-bulk-service (or hsm-core-service), **without** the API prefix |
+| `SVC_APP_ID` | ✓ | | Sent as `X-App-ID` |
+| `SVC_AUTH_MODE` | | `AZURE_AD` | `AZURE_AD` or `STATIC` (`SELF_SIGNED_JWT` is not supported by the jar) |
+| `SVC_AZURE_TOKEN_SCOPE` | `AZURE_AD` | | e.g. `api://<core-app-id>/.default` |
+| `SVC_TOKEN` | `STATIC` | | Bearer token as-is; a real Azure AD token expires (~1 h) — prefer `AZURE_AD` for long runs |
+| `SVC_API_V1_PREFIX` | | `/api/sensec/hsm/v1` | Must match the service's prefix |
+| `CLIENT_PRIVATE_KEY_FILE` | ✓ | | Path to the PKCS#8 private key; passed to the jar in memory, never sent anywhere |
+| `FILE_SOURCE_ROOT` | ✓ | | Blob: `https://<acct>.blob.core.windows.net/<container>/<folder>`; ADLS Gen2: `abfss://<container>@<acct>.dfs.core.windows.net/<folder>`; or a local path |
+| `FILE_TARGET_ROOT` | ✓ | | Same forms; must **not** be the source folder or inside it |
+| `FILE_SOURCE_TYPE` / `FILE_TARGET_TYPE` | | `AZURE_BLOB` | `AZURE_BLOB`, `ADLS` (hierarchical namespace accounts only) or `LOCAL` |
+| `JOB_MODE` | | `ENCRYPT` | `DECRYPT` to reverse (source = the encrypted folder) |
+| `FILE_TYPES` | | all files | Comma-separated extensions, e.g. `.pdf,.csv` |
+| `FILE_DEK_NAME` | | unset | One named DEK for the whole job (and later runs with the same name) instead of one DEK per file. Encrypt only |
+| `FILE_PARALLELISM` | | `1` | Files processed concurrently |
+| `FILE_CHUNK_SIZE_BYTES` | | `8388608` | `1048576` if hsm-file-service will serve the files |
+| `FILE_FORMAT_VERSION` | | `1` | `2` only once every reader of the output supports v2 (`FILE_FORMAT.md`) |
+| `FILE_COMPRESS_BEFORE_ENCRYPT` | | `false` | Decrypt needs no matching setting |
+| `BULK_CLIENT_JAR` | | `hsm-bulk-client.jar` | Path to the jar |
+| `JAVA_BIN` | | `java` | Java 21 |
+| `FIPS_APPROVED_ONLY` | | `true` | `-Dorg.bouncycastle.fips.approved_only` for the whole JVM |
+
+`FILE_SOURCE_ACCOUNT_KEY` / `FILE_TARGET_ACCOUNT_KEY` (shared-key storage auth) are passed
+through to the jar if set — local testing only, never in a real deployment.
+
+### Encrypt an Azure folder
+
+```bash
+az login     # dev machine only; in AKS the pod's Workload Identity is used
+export BULK_CLIENT_JAR=java/hsm-bulk-client/target/hsm-bulk-client.jar
+export SVC_BASE_URL=https://<bulk-service-host>
+export SVC_APP_ID=payments-svc
+export SVC_AUTH_MODE=AZURE_AD
+export SVC_AZURE_TOKEN_SCOPE=api://<core-app-id>/.default
+export CLIENT_PRIVATE_KEY_FILE=$HOME/keys/payments-svc-dek-transport-private.pem
+export FILE_SOURCE_ROOT=https://<acct>.blob.core.windows.net/<container>/incoming
+export FILE_TARGET_ROOT=https://<acct>.blob.core.windows.net/<container>/encrypted
+export FILE_TYPES=.pdf,.csv          # optional
+python3 java/hsm-bulk-client/examples/python/run_bulk_file_job.py
+```
+
+Decrypt them back later (needs `dek_unwrap`):
+
+```bash
+JOB_MODE=DECRYPT \
+FILE_SOURCE_ROOT=https://<acct>.blob.core.windows.net/<container>/encrypted \
+FILE_TARGET_ROOT=https://<acct>.blob.core.windows.net/<container>/decrypted \
+python3 java/hsm-bulk-client/examples/python/run_bulk_file_job.py
+```
+
+### What happens
+
+- Every file under the source folder, subfolders included, that matches `FILE_TYPES` is
+  written to the **same relative path** under the target folder. Source files are not
+  changed or deleted.
+- One `/dek/issue` per file by default (one per job with `FILE_DEK_NAME`); decrypt calls
+  `/dek/unwrap` with the `edek_id` stored in each file.
+- Success = the jar exits 0 **and** logs `hsm_bulk_client_complete`; the script then
+  prints `RESULT: SUCCESS` and exits 0. Anything else prints `RESULT: FAILED …` and
+  exits 1, so it can be used from a scheduler or pipeline step.
+- With format v2 (or `FILE_WRITE_RESULTS=true`) a per-batch results file (path,
+  `file_id`, `edek_id`, sizes) is written under `<target>/.hsm_bulk_results/`.
+
+### Common failures
+
+| Symptom | Cause |
+|---|---|
+| `error: CLIENT_PRIVATE_KEY_FILE must be a PKCS#8 PEM` | Key is `BEGIN RSA PRIVATE KEY`; convert: `openssl pkcs8 -topk8 -nocrypt -in old.pem -out new.pem` |
+| `403 … Scope 'dek_issue' not permitted` | Scope missing in `allowed_scopes`; add it, then restart core/bulk (scopes are cached per pod) |
+| `RSA-OAEP-256 transport unwrap failed` | Private key doesn't match the registered public key — or core/bulk pods still cache the old key after a rotation (restart them) |
+| Azure `AuthorizationPermissionMismatch` (403) | Missing Storage Blob Data Reader / Contributor role |
+| `401` part-way through a long run | `STATIC` token expired; use `AZURE_AD` |
+| Every call 404 | `SVC_API_V1_PREFIX` wrong, or the prefix was put into `SVC_BASE_URL` |
