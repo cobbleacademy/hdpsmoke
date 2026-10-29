@@ -1,0 +1,1006 @@
+# DRAFT - hsm-core-service v2 (camelCase) contract for platform/Apigee standards review.
+# Generated from the live v1 spec (springdoc) by renaming JSON fields snake_case -> camelCase.
+# Not served by the service yet; no code has changed.
+openapi: 3.1.0
+info:
+  title: hsm-core-service
+  description: |-
+    Centralised AES-256-GCM envelope encryption backed by Azure Key Vault Managed HSM.
+    All JSON fields are camelCase. DRAFT v2 contract, served under /api/sensec/hsm/v2 (v1 under /api/sensec/hsm/v1 keeps snake_case). Batch endpoints return HTTP 200 with a per-item
+    `status`; check each item. Authorization per endpoint is configured in
+    `hsm.security.access-rules` (scopes such as encrypt, decrypt, dek_issue, dek_unwrap,
+    grant). Narrative docs: java/docs/ (AUTHORIZATION.md, BULK_OPERATIONS.md,
+    ADMIN_OPERATIONS.md). mTLS client-certificate auth (AUTHORIZATION.md §1b) replaces
+    the bearer token when enabled and cannot be exercised from Swagger UI.
+  version: 2.0.0-draft
+servers:
+- url: .
+  description: The API prefix this document was fetched from
+security:
+- bearerAuth: []
+  appId: []
+tags:
+- name: DEK (Tier 3)
+  description: Issue or unwrap DEKs, RSA-OAEP-wrapped to the caller's registered public key, for local encryption
+    (hsm-crypto-client, hsm-bulk-client, hsm-file-service).
+- name: Encrypt
+  description: Encrypt one value or a batch; the service does AES-256-GCM server-side and returns v1.* tokens.
+- name: Admin
+  description: KEK rotation/rekey, cross-app grants, classifications, kek_registry, app status/keys/mTLS certs,
+    health. See ADMIN_OPERATIONS.md.
+- name: Decrypt
+  description: Decrypt v1.* tokens (single or batch). Cross-app tokens need a decrypt grant.
+paths:
+  /encrypt:
+    post:
+      tags:
+      - Encrypt
+      operationId: encrypt
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EncryptRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptResponse'
+  /encrypt/batch:
+    post:
+      tags:
+      - Encrypt
+      operationId: encryptBatch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchEncryptRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchEncryptResponse'
+  /dek/unwrap:
+    post:
+      tags:
+      - DEK (Tier 3)
+      operationId: unwrap
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DekUnwrapRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DekUnwrapResponse'
+  /dek/issue:
+    post:
+      tags:
+      - DEK (Tier 3)
+      operationId: issue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DekIssueRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DekIssueResponse'
+  /decrypt:
+    post:
+      tags:
+      - Decrypt
+      operationId: decrypt
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecryptRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecryptResponse'
+  /decrypt/batch:
+    post:
+      tags:
+      - Decrypt
+      operationId: decryptBatch
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchDecryptRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchDecryptResponse'
+  /admin/rotate-kek:
+    post:
+      tags:
+      - Admin
+      operationId: rotateKek
+      parameters:
+      - name: kekName
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateKekResponse'
+  /admin/rekey-kek:
+    post:
+      tags:
+      - Admin
+      operationId: rekeyKek
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RekeyRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RekeyResponse'
+  /admin/rekey-kek/revert:
+    post:
+      tags:
+      - Admin
+      operationId: revertRekeyKek
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevertRekeyRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RekeyResponse'
+  /admin/kek-registry:
+    get:
+      tags:
+      - Admin
+      operationId: listKekRegistryEntries
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KekRegistryEntryListResponse'
+    post:
+      tags:
+      - Admin
+      operationId: addKekRegistryEntry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KekRegistryEntryRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KekRegistryEntryResponse'
+    delete:
+      tags:
+      - Admin
+      operationId: removeKekRegistryEntry
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KekRegistryEntryRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+  /admin/grants:
+    get:
+      tags:
+      - Admin
+      operationId: listGrants
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantListResponse'
+    post:
+      tags:
+      - Admin
+      operationId: addGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantResponse'
+    delete:
+      tags:
+      - Admin
+      operationId: removeGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+  /admin/dek-grants:
+    get:
+      tags:
+      - Admin
+      operationId: listDekGrants
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DekGrantListResponse'
+    post:
+      tags:
+      - Admin
+      operationId: addDekGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DekGrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DekGrantResponse'
+    delete:
+      tags:
+      - Admin
+      operationId: removeDekGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DekGrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+  /admin/apps/status:
+    post:
+      tags:
+      - Admin
+      operationId: setAppStatus
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppStatusRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppStatusResponse'
+  /admin/apps/mtls-cert:
+    post:
+      tags:
+      - Admin
+      operationId: setMtlsCert
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MtlsCertRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MtlsCertResponse'
+  /admin/apps/keys:
+    post:
+      tags:
+      - Admin
+      operationId: setAppKeys
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppKeysRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppKeysResponse'
+  /admin/apps/classifications:
+    get:
+      tags:
+      - Admin
+      operationId: listClassificationGrants
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassificationGrantListResponse'
+    post:
+      tags:
+      - Admin
+      operationId: addClassificationGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassificationGrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassificationGrantResponse'
+    delete:
+      tags:
+      - Admin
+      operationId: removeClassificationGrant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassificationGrantRequest'
+        required: true
+      responses:
+        '200':
+          description: OK
+  /admin/health:
+    get:
+      tags:
+      - Admin
+      operationId: health
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+      security: []
+  /admin/edek/{edekId}:
+    get:
+      tags:
+      - Admin
+      operationId: getEdekMetadata
+      parameters:
+      - name: edekId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdekMetadataResponse'
+components:
+  schemas:
+    EncryptRequest:
+      properties:
+        plaintext:
+          type: string
+          maxLength: 1048576
+          minLength: 0
+        encoding:
+          type: string
+        dataClassification:
+          type: string
+        endUserId:
+          type: string
+        context:
+          type: object
+          additionalProperties:
+            type: string
+        dekName:
+          type: string
+          maxLength: 256
+          minLength: 0
+      required:
+      - plaintext
+    EncryptResponse:
+      properties:
+        ciphertext:
+          type: string
+        edekId:
+          type: string
+          format: uuid
+        ownerAppId:
+          type: string
+        algorithm:
+          type: string
+        encoding:
+          type: string
+        kekVersion:
+          type: string
+        reused:
+          type: boolean
+        status:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+        correlationId:
+          type: string
+    BatchEncryptItem:
+      properties:
+        key:
+          type: string
+          maxLength: 256
+          minLength: 0
+        plaintext:
+          type: string
+          maxLength: 1048576
+          minLength: 0
+        encoding:
+          type: string
+        dataClassification:
+          type: string
+        endUserId:
+          type: string
+        context:
+          type: object
+          additionalProperties:
+            type: string
+        dekName:
+          type: string
+          maxLength: 256
+          minLength: 0
+      required:
+      - key
+      - plaintext
+    BatchEncryptRequest:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchEncryptItem'
+          minItems: 1
+      required:
+      - items
+    BatchEncryptResponse:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchEncryptResultItem'
+    BatchEncryptResultItem:
+      properties:
+        key:
+          type: string
+        status:
+          type: string
+        result:
+          $ref: '#/components/schemas/EncryptResponse'
+        detail:
+          type: string
+    DekUnwrapItem:
+      properties:
+        key:
+          type: string
+          maxLength: 256
+          minLength: 0
+        edekId:
+          type: string
+          format: uuid
+      required:
+      - edekId
+      - key
+    DekUnwrapRequest:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DekUnwrapItem'
+          minItems: 1
+      required:
+      - items
+    DekUnwrapResponse:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DekUnwrapResultItem'
+    DekUnwrapResultItem:
+      properties:
+        key:
+          type: string
+        status:
+          type: string
+        edekId:
+          type: string
+          format: uuid
+        wrappedDekB64:
+          type: string
+        ownerAppId:
+          type: string
+        detail:
+          type: string
+    DekIssueItem:
+      properties:
+        key:
+          type: string
+          maxLength: 256
+          minLength: 0
+        dataClassification:
+          type: string
+        name:
+          type: string
+          maxLength: 256
+          minLength: 0
+      required:
+      - key
+    DekIssueRequest:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DekIssueItem'
+          minItems: 1
+      required:
+      - items
+    DekIssueResponse:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DekIssueResultItem'
+    DekIssueResultItem:
+      properties:
+        key:
+          type: string
+        status:
+          type: string
+        edekId:
+          type: string
+          format: uuid
+        wrappedDekB64:
+          type: string
+        ownerAppId:
+          type: string
+        detail:
+          type: string
+        reused:
+          type: boolean
+    DecryptRequest:
+      properties:
+        ciphertext:
+          type: string
+        edekId:
+          type: string
+          format: uuid
+        ivB64:
+          type: string
+        ciphertextB64:
+          type: string
+        tagB64:
+          type: string
+        endUserId:
+          type: string
+    DecryptResponse:
+      properties:
+        plaintext:
+          type: string
+        ownerAppId:
+          type: string
+        algorithm:
+          type: string
+        encoding:
+          type: string
+        status:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+        correlationId:
+          type: string
+    BatchDecryptItem:
+      properties:
+        key:
+          type: string
+          maxLength: 256
+          minLength: 0
+        ciphertext:
+          type: string
+        edekId:
+          type: string
+          format: uuid
+        ivB64:
+          type: string
+        ciphertextB64:
+          type: string
+        tagB64:
+          type: string
+        endUserId:
+          type: string
+      required:
+      - key
+    BatchDecryptRequest:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchDecryptItem'
+          minItems: 1
+      required:
+      - items
+    BatchDecryptResponse:
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchDecryptResultItem'
+    BatchDecryptResultItem:
+      properties:
+        key:
+          type: string
+        status:
+          type: string
+        result:
+          $ref: '#/components/schemas/DecryptResponse'
+        detail:
+          type: string
+    KekRotationResult:
+      properties:
+        kekName:
+          type: string
+        newKekVersion:
+          type: string
+        recordsRotated:
+          type: integer
+          format: int32
+    RotateKekResponse:
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/KekRotationResult'
+        recordsQueued:
+          type: integer
+          format: int32
+    RekeyRequest:
+      properties:
+        fromKekName:
+          type: string
+          minLength: 1
+        toKekName:
+          type: string
+          minLength: 1
+      required:
+      - fromKekName
+      - toKekName
+    RekeyResponse:
+      properties:
+        fromKekName:
+          type: string
+        toKekName:
+          type: string
+        newKekVersion:
+          type: string
+        recordsAffected:
+          type: integer
+          format: int32
+    RevertRekeyRequest:
+      properties:
+        kekName:
+          type: string
+          minLength: 1
+      required:
+      - kekName
+    KekRegistryEntryRequest:
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        dekName:
+          type: string
+        dataClassification:
+          type: string
+        kekName:
+          type: string
+      required:
+      - appId
+    KekRegistryEntryResponse:
+      properties:
+        appId:
+          type: string
+        dekName:
+          type: string
+        dataClassification:
+          type: string
+        kekName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    GrantRequest:
+      properties:
+        granteeAppId:
+          type: string
+          minLength: 1
+        ownerAppId:
+          type: string
+          minLength: 1
+        scope:
+          type: string
+          minLength: 1
+      required:
+      - granteeAppId
+      - ownerAppId
+      - scope
+    GrantResponse:
+      properties:
+        granteeAppId:
+          type: string
+        ownerAppId:
+          type: string
+        scope:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    DekGrantRequest:
+      properties:
+        granteeAppId:
+          type: string
+          minLength: 1
+        ownerAppId:
+          type: string
+          minLength: 1
+        dekName:
+          type: string
+          minLength: 1
+        scope:
+          type: string
+          minLength: 1
+      required:
+      - dekName
+      - granteeAppId
+      - ownerAppId
+      - scope
+    DekGrantResponse:
+      properties:
+        granteeAppId:
+          type: string
+        ownerAppId:
+          type: string
+        dekName:
+          type: string
+        scope:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AppStatusRequest:
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        active:
+          type: boolean
+      required:
+      - appId
+    AppStatusResponse:
+      properties:
+        appId:
+          type: string
+        active:
+          type: boolean
+    MtlsCertRequest:
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        certPem:
+          type: string
+          minLength: 1
+      required:
+      - appId
+      - certPem
+    MtlsCertResponse:
+      properties:
+        appId:
+          type: string
+        fingerprint:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+    AppKeysRequest:
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        encryptionPublicKeyPem:
+          type: string
+        signingPublicKeyPem:
+          type: string
+      required:
+      - appId
+    AppKeysResponse:
+      properties:
+        appId:
+          type: string
+        hasEncryptionKey:
+          type: boolean
+        hasSigningKey:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    ClassificationGrantRequest:
+      properties:
+        appId:
+          type: string
+          minLength: 1
+        dataClassification:
+          type: string
+          minLength: 1
+      required:
+      - appId
+      - dataClassification
+    ClassificationGrantResponse:
+      properties:
+        appId:
+          type: string
+        dataClassification:
+          type: string
+        grantedBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    KekRegistryEntryListResponse:
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/KekRegistryEntryResponse'
+    HealthResponse:
+      properties:
+        status:
+          type: string
+        vaultReachable:
+          type: boolean
+        dbReachable:
+          type: boolean
+    GrantListResponse:
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrantResponse'
+    EdekMetadataResponse:
+      properties:
+        edekId:
+          type: string
+          format: uuid
+        ownerAppId:
+          type: string
+        dataClassification:
+          type: string
+        algorithm:
+          type: string
+        encoding:
+          type: string
+        kekName:
+          type: string
+        kekVersion:
+          type: string
+        rotationStatus:
+          type: string
+          enum:
+          - CURRENT
+          - PENDING
+          - ROTATED
+        dekName:
+          type: string
+        currentDekName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        rotatedAt:
+          type: string
+          format: date-time
+    DekGrantListResponse:
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/DekGrantResponse'
+    ClassificationGrantListResponse:
+      properties:
+        grants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassificationGrantResponse'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      description: Entra ID access token, self-signed app JWT, or (demo only) a demo token
+      scheme: bearer
+      bearerFormat: JWT
+    appId:
+      type: apiKey
+      description: The calling application's ID; must match the token's app_id / appid claim
+      name: X-App-ID
+      in: header
