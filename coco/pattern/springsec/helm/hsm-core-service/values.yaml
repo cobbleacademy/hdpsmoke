@@ -214,7 +214,6 @@ config:
   # plain HTTP today -- see templates/deployment.yaml). Leave false unless
   # you're also doing that additional setup.
   mtlsEnabled: "false"
-  dbSchema: ""          # Postgres schema name; empty = default "public"
   cryptoSchema: "hsm_crypto"   # schema for edek_records (hsm_crypto in production, empty = public)
   accessSchema: "hsm_access"   # schema for app_registrations / app_decrypt_grants (hsm_access in production, empty = public)
   serviceEnv: "production"
