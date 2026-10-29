@@ -172,7 +172,6 @@ config:
   # server.ssl.* (a mounted keystore Secret, not wired here) and a probe
   # scheme change to HTTPS once enabled. Leave false unless doing that too.
   mtlsEnabled: "false"
-  dbSchema: ""
   cryptoSchema: "hsm_crypto"
   accessSchema: "hsm_access"
   serviceEnv: "production"
