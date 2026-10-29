@@ -11,7 +11,6 @@ data:
   DB_SSL_ENABLED: {{ .Values.config.dbSslEnabled | quote }}
   DB_SSL_CA_CERT: {{ .Values.config.dbSslCaCert | quote }}
   MTLS_ENABLED: {{ .Values.config.mtlsEnabled | quote }}
-  DB_SCHEMA: {{ .Values.config.dbSchema | quote }}
   CRYPTO_SCHEMA: {{ .Values.config.cryptoSchema | quote }}
   ACCESS_SCHEMA: {{ .Values.config.accessSchema | quote }}
   SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
