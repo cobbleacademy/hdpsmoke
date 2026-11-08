@@ -277,6 +277,33 @@ function* — not restarting a cluster/warehouse, not dropping and
 recreating, not the arity issue — see §5's troubleshooting table for the
 confirmed root cause and fix.
 
+### Switching to API v2
+
+The functions call hsm-core-service's API v1 unless told otherwise. The version is
+a field in `credentials_json`, so setting `HSM_API_VERSION` as a cluster environment
+variable has no effect on them.
+
+1. Upload a wheel built from this version of the package. An older wheel ignores
+   `HSM_API_VERSION` and sends snake_case, which `/v2` rejects with a 400.
+2. In `sql/create_functions.sql`, change **both** values below in all three places
+   (`hsm_credentials()`, `hsm_encrypt()`, `hsm_decrypt()`). Callers that build their
+   own `credentials_json` for the `_detail` functions change the same two values.
+
+   ```sql
+   'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v2',
+   'HSM_API_VERSION',      'V2',
+   ```
+
+3. Re-run the whole file. It drops and recreates `hsm_encrypt` and `hsm_decrypt`, and
+   its `GRANT` lines are commented out, so check their `EXECUTE` grants afterwards and
+   re-apply them if needed.
+
+To go back, set both values to v1 and re-run the file. Tokens encrypted through either
+version decrypt through the other, and no data migration is involved.
+
+If the two values disagree, the function fails with a `ConfigError` rather than
+calling the service. See [`java/docs/API_VERSIONS.md`](../java/docs/API_VERSIONS.md).
+
 ## 2. Run it
 
 Pure SQL, no notebook or `dbutils` required — the simplified wrappers cover
@@ -364,6 +391,8 @@ above.
 | `ValueError: RSA-OAEP unwrap failed -- the private key in use does not match the public_key_pem currently registered ...` (raised from `cache.get_or_unwrap_for_decrypt`, after `/dek/issue` or `/dek/unwrap` already succeeded) | The key **parses** fine but is the **wrong** key — hsm-core-service wraps every DEK against whatever `public_key_pem` is *currently* registered for this `app_id`. Most often: the private key was regenerated/re-exported (e.g. while fixing a base64 issue) without re-running step 0.3/`POST /admin/apps/keys` with the matching new public key, or `databricks-udf-private-key` and `databricks-udf-signing-key` got swapped in the secret scope. Fix: `openssl pkey -in <the exact private key file you're using> -pubout` and re-register that public key — this guarantees a match |
 | `ConfigError: credentials_json is not valid JSON: ...` | The `to_json(named_struct(...))` output (inlined in `hsm_encrypt`/`hsm_decrypt`, or `hsm_credentials()`'s output if calling the `_detail` functions directly) isn't reaching the function correctly, or something else is being passed as the last argument |
 | `ConfigError: HSM_SERVICE_BASE_URL is not set (expected as a credentials_json field)` | A required field is missing from the `named_struct(...)` — remember it now appears in three places (`hsm_credentials()`, `hsm_encrypt()`, `hsm_decrypt()`); check whichever one you actually called |
+| `ConfigError: HSM_API_VERSION is V2 but HSM_SERVICE_BASE_URL ends in /v1` (or the reverse) | The two values must change together. Omitting `HSM_API_VERSION` means V1. See "Switching to API v2" |
+| `SvcClientError: /dek/issue -> 400: Unknown field 'data_classification'` | The wheel is older than this feature, or is calling a `/v2` URL as V1. Upload the current wheel and see "Switching to API v2" |
 | `SvcClientError: /dek/issue -> 403: ...` | App not registered, wrong scope, or (for a cross-app `dek_name`) no grant — see [`java/docs/ADMIN_OPERATIONS.md`](../java/docs/ADMIN_OPERATIONS.md)'s `GET /admin/edek/{edekId}` support workflow |
 | `SvcClientError: /dek/issue -> 422: App '...' has no public_key_pem registered` | Step 0.3 (register the public key) wasn't done for this `HSM_APP_ID` |
 | `ConfigError: HSM_AUTH_MODE=SELF_SIGNED_JWT requires HSM_SIGNING_PRIVATE_KEY_PEM ...` | `HSM_AUTH_MODE` is `SELF_SIGNED_JWT` in the credentials expression but `HSM_SIGNING_PRIVATE_KEY_PEM` (or `HSM_PRIVATE_KEY_PEM` as a fallback) wasn't included — check every place the expression appears, not just the one you last edited |
