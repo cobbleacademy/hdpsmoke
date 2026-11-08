@@ -49,6 +49,12 @@ import java.util.Map;
  *                           own spark.hsm.apiV1Prefix default -- only set this if
  *                           the target hsm-core-service's hsm.service.api-v1-prefix
  *                           was itself overridden away from that default.
+ *   HSM_API_VERSION         V1 (default, snake_case) or V2 (camelCase) -- passed
+ *                           through as spark.hsm.apiVersion. Same endpoints and
+ *                           data (java/docs/API_VERSIONS.md). To switch: set
+ *                           HSM_API_VERSION=V2; to switch back: V1 or unset.
+ *   HSM_API_V2_PREFIX       default /api/sensec/hsm/v2 (spark.hsm.apiV2Prefix);
+ *                           only used with HSM_API_VERSION=V2.
  *
  * One of, depending on HSM_AUTH_MODE:
  *   HSM_STATIC_TOKEN                  (STATIC)
@@ -112,6 +118,15 @@ public final class LocalSparkSessionManualVerification {
         String apiV1Prefix = System.getenv("HSM_API_V1_PREFIX");
         if (apiV1Prefix != null && !apiV1Prefix.isBlank()) {
             builder.config("spark.hsm.apiV1Prefix", apiV1Prefix);
+        }
+        // Optional -- unset means V1, HsmSparkConfig's own default.
+        String apiVersion = System.getenv("HSM_API_VERSION");
+        if (apiVersion != null && !apiVersion.isBlank()) {
+            builder.config("spark.hsm.apiVersion", apiVersion);
+        }
+        String apiV2Prefix = System.getenv("HSM_API_V2_PREFIX");
+        if (apiV2Prefix != null && !apiV2Prefix.isBlank()) {
+            builder.config("spark.hsm.apiV2Prefix", apiV2Prefix);
         }
 
         switch (requireEnv("HSM_AUTH_MODE").trim().toUpperCase()) {
