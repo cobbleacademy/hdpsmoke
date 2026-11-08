@@ -1,11 +1,14 @@
 package com.hsm.chassis.web;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springdoc.core.properties.SwaggerUiConfigProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 
@@ -29,6 +32,8 @@ public class ChassisWebAutoConfiguration {
 
     static final String REQUEST_ID_PREFIX = "hsm.chassis.web.request-id.";
     static final String API_PREFIX_PROPERTY = "hsm.chassis.web.api-prefix";
+    /** Optional: the service's API v2 prefix. Set, Swagger UI offers both versions -- see {@link ApiV2Docs}. */
+    static final String API_V2_PREFIX_PROPERTY = "hsm.chassis.web.api-v2-prefix";
 
     @Bean
     @ConditionalOnMissingBean(name = "chassisRequestIdFilter")
@@ -49,6 +54,24 @@ public class ChassisWebAutoConfiguration {
     @ConditionalOnProperty(name = API_PREFIX_PROPERTY)
     public ApiDocsEntryController apiDocsEntryController() {
         return new ApiDocsEntryController();
+    }
+
+    /** Both API versions in one Swagger UI (version dropdown) and {@code <api-v2-prefix>/docs}. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(SwaggerUiConfigProperties.class)
+    @ConditionalOnProperty(prefix = "springdoc.swagger-ui", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(name = {API_PREFIX_PROPERTY, API_V2_PREFIX_PROPERTY})
+    static class ApiV2DocsConfiguration {
+
+        ApiV2DocsConfiguration(SwaggerUiConfigProperties swaggerUi, Environment env) {
+            ApiV2Docs.configure(swaggerUi, env.getRequiredProperty(API_PREFIX_PROPERTY), env.getRequiredProperty(API_V2_PREFIX_PROPERTY));
+        }
+
+        @Bean
+        @ConditionalOnMissingBean(ApiV2Docs.EntryController.class)
+        ApiV2Docs.EntryController apiV2DocsEntryController(Environment env) {
+            return new ApiV2Docs.EntryController(env.getRequiredProperty(API_PREFIX_PROPERTY), env.getRequiredProperty(API_V2_PREFIX_PROPERTY));
+        }
     }
 
     private static List<String> list(String commaSeparated) {
