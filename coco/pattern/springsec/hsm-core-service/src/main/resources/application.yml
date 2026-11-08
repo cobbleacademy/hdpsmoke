@@ -42,6 +42,8 @@ hsm.chassis.audit:
 
 hsm.chassis.web:
   api-prefix: ${hsm.service.api-v1-prefix}
+  # Swagger UI offers both versions (dropdown), and <v2 prefix>/docs opens it on v2.
+  api-v2-prefix: ${hsm.service.api-v2-prefix}
   request-id:
     header: X-Correlation-Id
     mdc-key: correlationId
@@ -121,7 +123,8 @@ springdoc:
     # against whatever external prefix it used. Together with the relative spec
     # (OpenApiConfig) and <prefix>/docs (ApiDocsEntryController) this lets one image serve
     # Swagger correctly as demo, core or bulk behind a path-rewriting gateway, with no
-    # per-environment setting. Open Swagger via <prefix>/docs.
+    # per-environment setting. Open Swagger via <prefix>/docs. hsm-chassis-web replaces the
+    # single url below with a v1/v2 dropdown (hsm.chassis.web.api-v2-prefix, ApiV2Docs).
     config-url: ../openapi/swagger-config
     url: ../openapi
   # Only the service's own API -- not Spring's /error or the demo UI.
@@ -165,6 +168,12 @@ hsm:
     env: ${SERVICE_ENV:development}
     log-level: ${LOG_LEVEL:INFO}
     api-v1-prefix: ${API_V1_PREFIX:/api/sensec/hsm/v1}
+    # Same endpoints with camelCase JSON fields (v1 stays snake_case) -- ApiVersionJsonConfig.
+    api-v2-prefix: ${API_V2_PREFIX:/api/sensec/hsm/v2}
+    # v1 retirement dates (ISO, e.g. 2027-03-31). Blank = no headers. When set, every v1
+    # response carries Deprecation + Link (successor v2) and/or Sunset -- V1DeprecationHeaders.
+    api-v1-deprecated-at: ${API_V1_DEPRECATED_AT:}
+    api-v1-sunset-at: ${API_V1_SUNSET_AT:}
     # Conservative starting point -- no measured HSM throughput numbers exist
     # yet (see java/docs/CACHING_AND_ROTATION.md and the "Performance testing"
     # backlog item). Raise once real numbers justify it.
@@ -255,7 +264,7 @@ hsm:
     # Read by both JwtAppIdAuthenticationFilter (which requests need a bearer
     # token at all) and SecurityConfig's authorizeHttpRequests (whether the
     # caller's scopes satisfy this endpoint). Patterns are relative to
-    # hsm.service.api-v1-prefix. Anything not listed here (GET /admin/health,
+    # EACH of hsm.service.api-v1-prefix and api-v2-prefix. Anything not listed here (GET /admin/health,
     # /demo/**, the demo UI) stays public -- matches today's behavior; the
     # health check must stay open for Kubernetes liveness/readiness probes.
     access-rules:
