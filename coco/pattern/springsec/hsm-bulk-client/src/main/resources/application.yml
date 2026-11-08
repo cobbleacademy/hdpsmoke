@@ -26,6 +26,11 @@ client:
     # configured independently, not auto-synced, so if SVC's is ever changed
     # this needs to change to match or every call 404s.
     api-v1-prefix: ${SVC_API_V1_PREFIX:/api/sensec/hsm/v1}
+    # V1 (default): api-v1-prefix, snake_case JSON -- unchanged. V2: api-v2-prefix,
+    # camelCase JSON. Same endpoints and data either way; see COMPATIBILITY_CONTRACT.md.
+    api-version: ${SVC_API_VERSION:V1}
+    # Only used when api-version=V2 -- must match SVC's own API_V2_PREFIX.
+    api-v2-prefix: ${SVC_API_V2_PREFIX:/api/sensec/hsm/v2}
     app-id: ${SVC_APP_ID:payments-svc}
     # STATIC (default): token below is sent as-is, unchanged -- fine for demo/mock-mode
     # tokens (MockJwtValidator's fixed strings never expire) but a real Azure AD JWT
