@@ -219,6 +219,16 @@ config:
   serviceEnv: "production"
   logLevel: "INFO"
   apiV1Prefix: "/api/sensec/hsm/v1"
+  # API v2: the same endpoints and data in camelCase (java/docs/API_VERSIONS.md). Served
+  # by every pod alongside v1. External traffic reaches it only once the platform's
+  # VirtualService routes the external v2 prefix here (e.g. /api/dsec/core/v2 ->
+  # /api/sensec/hsm/v2) -- that route is not part of this chart.
+  apiV2Prefix: "/api/sensec/hsm/v2"
+  # Retiring v1 (API_VERSIONS.md "Retiring v1"). ISO dates, e.g. "2027-01-01". Empty
+  # (default) = v1 responses unchanged. Set: every v1 response carries Deprecation +
+  # Link (successor v2) and/or Sunset headers; v2 responses never do.
+  apiV1DeprecatedAt: ""
+  apiV1SunsetAt: ""
   # Bounds concurrent item-level work WITHIN a batch, via one shared
   # ExecutorService used across every /encrypt/batch and /decrypt/batch
   # request in the pod -- an aggregate cap on concurrent HSM-bound calls,
