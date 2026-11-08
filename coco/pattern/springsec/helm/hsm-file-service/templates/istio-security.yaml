@@ -40,10 +40,14 @@ spec:
         - operation:
             ports: [{{ .Values.service.port | quote }}]
             methods: ["GET"]
-            paths: [{{ printf "%s/files/*" .Values.config.server.apiPrefix | quote }}]
+            # API v1 and v2: the same endpoint (java/docs/API_VERSIONS.md).
+            paths:
+              - {{ printf "%s/files/*" .Values.config.server.apiPrefix | quote }}
+              - {{ printf "%s/files/*" .Values.config.server.apiV2Prefix | quote }}
     {{- if .Values.docs.enabled }}
     # Developer docs through the ingress gateway (docs.enabled; never in production).
     {{- $p := .Values.config.server.apiPrefix }}
+    {{- $p2 := .Values.config.server.apiV2Prefix }}
     - from:
         - source:
             principals:
@@ -59,8 +63,12 @@ spec:
               - {{ printf "%s/openapi" $p | quote }}
               - {{ printf "%s/openapi/*" $p | quote }}
               - {{ printf "%s/swagger-ui/*" $p | quote }}
+              # v2 entry point (opens the same Swagger UI on v2) and the v2 spec.
+              - {{ printf "%s/docs" $p2 | quote }}
+              - {{ printf "%s/openapi" $p2 | quote }}
               {{- if .Values.docs.tryItOut }}
               - {{ printf "%s/files/*" $p | quote }}
+              - {{ printf "%s/files/*" $p2 | quote }}
               {{- end }}
     {{- end }}
     {{- if .Values.istio.authorizationPolicy.monitoringNamespaces }}

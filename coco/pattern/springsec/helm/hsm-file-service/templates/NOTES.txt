@@ -3,6 +3,7 @@ hsm-file-service {{ .Chart.AppVersion }} installed as {{ include "hsmfs.fullname
 The BFF calls:
   GET http://{{ include "hsmfs.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}{{ .Values.config.server.apiPrefix }}/files/<path>
   Optional headers: X-Expected-File-Id, X-End-User, X-Request-Id
+  API v2 (same endpoint, camelCase error body): {{ .Values.config.server.apiV2Prefix }}/files/<path>
 
 Before first use (APP_ONBOARDING.md "hsm-file-service"):
   1. app_id "{{ .Values.config.core.appId }}" is registered in hsm-core-service with scope dek_unwrap
@@ -14,7 +15,7 @@ Smoke test from the BFF pod:
   curl -sS -o /dev/null -w '%{http_code} %header{x-hsm-delivery}\n' \
     http://{{ include "hsmfs.fullname" . }}:{{ .Values.service.port }}{{ .Values.config.server.apiPrefix }}/files/<known-path>
 
-Every failure returns {"error_code": "FS-..."}; look the code up in RUNBOOK.md "hsm-file-service".
+Every failure returns {"error_code": "FS-..."} ({"errorCode": ...} on v2); look the code up in RUNBOOK.md "hsm-file-service".
 
 Quick test without the BFF (needs pods/portforward RBAC; in sidecar mode this skips the
 AuthorizationPolicy, so treat that permission as access to decrypted files):

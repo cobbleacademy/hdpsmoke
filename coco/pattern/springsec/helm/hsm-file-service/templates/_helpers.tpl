@@ -48,6 +48,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (regexMatch "^(/[A-Za-z0-9._~-]+)+$" $prefix) -}}
 {{- fail (printf "config.server.apiPrefix must look like /api/sensec/file/v1 (leading /, no trailing /, no spaces or wildcards), got: %q" $prefix) -}}
 {{- end -}}
+{{- $v2prefix := .Values.config.server.apiV2Prefix | default "" -}}
+{{- if not (regexMatch "^(/[A-Za-z0-9._~-]+)+$" $v2prefix) -}}
+{{- fail (printf "config.server.apiV2Prefix must look like /api/sensec/file/v2 (leading /, no trailing /, no spaces or wildcards), got: %q" $v2prefix) -}}
+{{- end -}}
+{{- if eq $prefix $v2prefix -}}
+{{- fail "config.server.apiV2Prefix must differ from config.server.apiPrefix" -}}
+{{- end -}}
+{{- if not (has (.Values.config.core.apiVersion | default "V1" | toString) (list "V1" "V2")) -}}
+{{- fail (printf "config.core.apiVersion must be V1 or V2, got %q" (.Values.config.core.apiVersion | toString)) -}}
+{{- end -}}
 {{- if not .Values.config.access.allowedPathPrefixes -}}
 {{- fail "config.access.allowedPathPrefixes must list at least one prefix (use [\"*\"] to allow every path explicitly)" -}}
 {{- end -}}

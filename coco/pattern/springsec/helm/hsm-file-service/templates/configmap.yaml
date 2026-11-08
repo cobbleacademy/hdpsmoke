@@ -12,8 +12,11 @@ data:
   SHUTDOWN_GRACE: {{ .Values.config.shutdownGrace | quote }}
   HSM_LOG_FORMAT: {{ (.Values.logging).format | default "text" | quote }}
   FILE_SERVICE_API_PREFIX: {{ .Values.config.server.apiPrefix | quote }}
+  FILE_SERVICE_API_V2_PREFIX: {{ .Values.config.server.apiV2Prefix | quote }}
   HSM_CORE_BASE_URL: {{ .Values.config.core.baseUrl | quote }}
   HSM_CORE_API_V1_PREFIX: {{ .Values.config.core.apiV1Prefix | quote }}
+  HSM_CORE_API_VERSION: {{ .Values.config.core.apiVersion | default "V1" | quote }}
+  HSM_CORE_API_V2_PREFIX: {{ .Values.config.core.apiV2Prefix | quote }}
   HSM_CORE_APP_ID: {{ .Values.config.core.appId | quote }}
   HSM_CORE_AUTH_MODE: {{ .Values.config.core.authMode | quote }}
   HSM_CORE_AZURE_TOKEN_SCOPE: {{ .Values.config.core.azureTokenScope | quote }}
