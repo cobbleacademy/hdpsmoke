@@ -4,12 +4,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
 import java.util.Map;
 
@@ -31,6 +33,20 @@ public class GlobalExceptionHandler {
                 .map(fe -> fe.getField() + ": " + fe.getDefaultMessage())
                 .orElse("Validation failed");
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT).body(Map.of("detail", detail));
+    }
+
+    /**
+     * Body that could not be read: malformed JSON, a wrong value type, or (v2 only --
+     * ApiVersionJsonConfig) a field the endpoint does not know. Previously the catch-all
+     * below answered all of these with a 500. The unknown-field message names the field,
+     * since on v2 that is almost always a snake_case name sent to the camelCase API.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleUnreadableBody(HttpMessageNotReadableException e) {
+        String detail = e.getMostSpecificCause() instanceof UnrecognizedPropertyException unknown
+                ? "Unknown field '" + unknown.getPropertyName() + "'"
+                : "Malformed request body";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("detail", detail));
     }
 
     /**

@@ -5,6 +5,7 @@ import com.hsm.core.dto.BatchDecryptResponse;
 import com.hsm.core.dto.DecryptRequest;
 import com.hsm.core.dto.DecryptResponse;
 import com.hsm.core.service.DecryptionService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -30,7 +31,7 @@ public class DecryptController {
         this.decryptionService = decryptionService;
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/decrypt")
+    @PostMapping({"${hsm.service.api-v1-prefix}/decrypt", "${hsm.service.api-v2-prefix}/decrypt"})
     public DecryptResponse decrypt(
             @RequestBody DecryptRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,
@@ -46,7 +47,8 @@ public class DecryptController {
      * partial-failure semantics as POST /encrypt/batch. X-Response-Detail
      * applies to every item's embedded DecryptResponse -- see ResponseDetailBodyAdvice.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/decrypt/batch")
+    @Operation(summary = "Decrypt a batch of tokens", description = BatchContract.DESCRIPTION)
+    @PostMapping({"${hsm.service.api-v1-prefix}/decrypt/batch", "${hsm.service.api-v2-prefix}/decrypt/batch"})
     public BatchDecryptResponse decryptBatch(
             @Valid @RequestBody BatchDecryptRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,

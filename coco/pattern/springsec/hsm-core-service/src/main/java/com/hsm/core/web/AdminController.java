@@ -42,6 +42,7 @@ import com.hsm.core.service.KekRegistryService;
 import com.hsm.core.service.RotationService;
 import com.hsm.crypto.TransportWrapper;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -106,7 +107,7 @@ public class AdminController {
         this.healthCheckKekName = hsmProperties.azure().kekName();
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/rotate-kek")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/rotate-kek", "${hsm.service.api-v2-prefix}/admin/rotate-kek"})
     public RotateKekResponse rotateKek(@RequestParam(required = false) String kekName,
                                        @AuthenticationPrincipal AuthenticatedCaller caller) {
         // Demo HSM stand-in must mint a new key version itself; Azure does this via
@@ -132,20 +133,20 @@ public class AdminController {
      * of any schedule. Moves every current EDEK under fromKekName to
      * toKekName; see RotationService.rekey.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/rekey-kek")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/rekey-kek", "${hsm.service.api-v2-prefix}/admin/rekey-kek"})
     public RekeyResponse rekeyKek(@Valid @RequestBody RekeyRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         return rotationService.rekey(body.fromKekName(), body.toKekName(), "api:" + caller.sub());
     }
 
     /** Undoes the most recent rekey into kekName -- see RotationService.revertRekey. */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/rekey-kek/revert")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/rekey-kek/revert", "${hsm.service.api-v2-prefix}/admin/rekey-kek/revert"})
     public RekeyResponse revertRekeyKek(@Valid @RequestBody RevertRekeyRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         return rotationService.revertRekey(body.kekName(), "api:" + caller.sub());
     }
 
     // Public (no token, no X-App-ID): empty requirement overrides the global one in the spec.
     @SecurityRequirements
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/health")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/health", "${hsm.service.api-v2-prefix}/admin/health"})
     public HealthResponse health() {
         boolean vaultOk = false;
         boolean dbOk = false;
@@ -183,7 +184,8 @@ public class AdminController {
         }
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/grants")
+    @ApiResponse(responseCode = "201", description = "Created")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/grants", "${hsm.service.api-v2-prefix}/admin/grants"})
     public ResponseEntity<GrantResponse> addGrant(@Valid @RequestBody GrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         requireKnownScope(body.scope());
         AppGrant grant = appRegistry.addGrant(body.granteeAppId(), body.ownerAppId(), body.scope());
@@ -193,7 +195,7 @@ public class AdminController {
                 .body(new GrantResponse(grant.getGranteeAppId(), grant.getOwnerAppId(), grant.getScope(), grant.getCreatedAt()));
     }
 
-    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/grants")
+    @DeleteMapping({"${hsm.service.api-v1-prefix}/admin/grants", "${hsm.service.api-v2-prefix}/admin/grants"})
     public ResponseEntity<Void> removeGrant(@Valid @RequestBody GrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         appRegistry.removeGrant(body.granteeAppId(), body.ownerAppId(), body.scope());
         auditLogger.log("grant_removed", "app_id", caller.appId(), "sub", caller.sub(),
@@ -201,7 +203,7 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/grants")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/grants", "${hsm.service.api-v2-prefix}/admin/grants"})
     public GrantListResponse listGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
         List<GrantResponse> grants = appRegistry.listGrants().stream()
                 .map(g -> new GrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getScope(), g.getCreatedAt()))
@@ -212,7 +214,8 @@ public class AdminController {
     /** Fine-grained counterpart to the coarse endpoints above -- same 'grant' scope, since
      * managing cross-app authorization relationships is one admin capability regardless of
      * whether a given grant happens to be coarse or fine-grained. */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    @ApiResponse(responseCode = "201", description = "Created")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/dek-grants", "${hsm.service.api-v2-prefix}/admin/dek-grants"})
     public ResponseEntity<DekGrantResponse> addDekGrant(@Valid @RequestBody DekGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         requireKnownScope(body.scope());
         AppDekGrant grant = appRegistry.addDekGrant(body.granteeAppId(), body.ownerAppId(), body.dekName(), body.scope());
@@ -223,7 +226,7 @@ public class AdminController {
                 .body(new DekGrantResponse(grant.getGranteeAppId(), grant.getOwnerAppId(), grant.getDekName(), grant.getScope(), grant.getCreatedAt()));
     }
 
-    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    @DeleteMapping({"${hsm.service.api-v1-prefix}/admin/dek-grants", "${hsm.service.api-v2-prefix}/admin/dek-grants"})
     public ResponseEntity<Void> removeDekGrant(@Valid @RequestBody DekGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         appRegistry.removeDekGrant(body.granteeAppId(), body.ownerAppId(), body.dekName(), body.scope());
         auditLogger.log("dek_grant_removed", "app_id", caller.appId(), "sub", caller.sub(),
@@ -232,7 +235,7 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/dek-grants")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/dek-grants", "${hsm.service.api-v2-prefix}/admin/dek-grants"})
     public DekGrantListResponse listDekGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
         List<DekGrantResponse> grants = appRegistry.listDekGrants().stream()
                 .map(g -> new DekGrantResponse(g.getGranteeAppId(), g.getOwnerAppId(), g.getDekName(), g.getScope(), g.getCreatedAt()))
@@ -249,7 +252,8 @@ public class AdminController {
      * java/docs/ADMIN_OPERATIONS.md for the phased (shadow-mode, then
      * enforced) rollout this feeds.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    @ApiResponse(responseCode = "201", description = "Created")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/apps/classifications", "${hsm.service.api-v2-prefix}/admin/apps/classifications"})
     public ResponseEntity<ClassificationGrantResponse> addClassificationGrant(
             @Valid @RequestBody ClassificationGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         AppClassificationGrant grant = classificationGovernance.addGrant(body.appId(), body.dataClassification(), "api:" + caller.sub());
@@ -259,7 +263,7 @@ public class AdminController {
                 .body(new ClassificationGrantResponse(grant.getAppId(), grant.getDataClassification(), grant.getGrantedBy(), grant.getCreatedAt()));
     }
 
-    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    @DeleteMapping({"${hsm.service.api-v1-prefix}/admin/apps/classifications", "${hsm.service.api-v2-prefix}/admin/apps/classifications"})
     public ResponseEntity<Void> removeClassificationGrant(
             @Valid @RequestBody ClassificationGrantRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         classificationGovernance.removeGrant(body.appId(), body.dataClassification());
@@ -268,7 +272,7 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/apps/classifications")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/apps/classifications", "${hsm.service.api-v2-prefix}/admin/apps/classifications"})
     public ClassificationGrantListResponse listClassificationGrants(@AuthenticationPrincipal AuthenticatedCaller caller) {
         List<ClassificationGrantResponse> grants = classificationGovernance.listGrants().stream()
                 .map(g -> new ClassificationGrantResponse(g.getAppId(), g.getDataClassification(), g.getGrantedBy(), g.getCreatedAt()))
@@ -284,7 +288,8 @@ public class AdminController {
      * API instead of a direct DB write -- see DekNameReservationService and
      * java/docs/ADMIN_OPERATIONS.md for the phased rollout this feeds.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    @ApiResponse(responseCode = "201", description = "Created")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/kek-registry", "${hsm.service.api-v2-prefix}/admin/kek-registry"})
     public ResponseEntity<KekRegistryEntryResponse> addKekRegistryEntry(
             @Valid @RequestBody KekRegistryEntryRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         KekRegistryEntry entry = kekRegistryService.addOrUpdateEntry(body.appId(), body.dekName(), body.dataClassification(), body.kekName());
@@ -296,7 +301,7 @@ public class AdminController {
                 entry.getCreatedAt(), entry.getUpdatedAt()));
     }
 
-    @DeleteMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    @DeleteMapping({"${hsm.service.api-v1-prefix}/admin/kek-registry", "${hsm.service.api-v2-prefix}/admin/kek-registry"})
     public ResponseEntity<Void> removeKekRegistryEntry(
             @Valid @RequestBody KekRegistryEntryRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         kekRegistryService.removeEntry(body.appId(), body.dekName(), body.dataClassification());
@@ -305,7 +310,7 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/kek-registry")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/kek-registry", "${hsm.service.api-v2-prefix}/admin/kek-registry"})
     public KekRegistryEntryListResponse listKekRegistryEntries(@AuthenticationPrincipal AuthenticatedCaller caller) {
         List<KekRegistryEntryResponse> entries = kekRegistryService.listEntries().stream()
                 .map(e -> new KekRegistryEntryResponse(e.getAppId(), e.getDekName(), e.getDataClassification(), e.getKekName(), e.getCreatedAt(), e.getUpdatedAt()))
@@ -323,7 +328,7 @@ public class AdminController {
      * owns it," never "what does it decrypt to," which is what makes it safe to grant
      * this scope to support tooling that must never see plaintext-adjacent material.
      */
-    @GetMapping("${hsm.service.api-v1-prefix}/admin/edek/{edekId}")
+    @GetMapping({"${hsm.service.api-v1-prefix}/admin/edek/{edekId}", "${hsm.service.api-v2-prefix}/admin/edek/{edekId}"})
     public EdekMetadataResponse getEdekMetadata(@PathVariable UUID edekId, @AuthenticationPrincipal AuthenticatedCaller caller) {
         EdekRecord record = edekRecordRepository.findById(edekId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EDEK not found"));
@@ -343,7 +348,7 @@ public class AdminController {
      * a decrypt relationship and disabling another app's ability to act entirely are
      * different powers, and an incident response workflow shouldn't need both by default.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/status")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/apps/status", "${hsm.service.api-v2-prefix}/admin/apps/status"})
     public AppStatusResponse setAppStatus(@Valid @RequestBody AppStatusRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         try {
             appRegistry.setActive(body.appId(), body.active());
@@ -368,7 +373,7 @@ public class AdminController {
      * confidentiality, a meaningfully bigger blast radius than the
      * active/inactive toggle above.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/keys")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/apps/keys", "${hsm.service.api-v2-prefix}/admin/apps/keys"})
     public AppKeysResponse setAppKeys(@Valid @RequestBody AppKeysRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         if (body.encryptionPublicKeyPem() == null && body.signingPublicKeyPem() == null) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
@@ -424,7 +429,7 @@ public class AdminController {
      * manage_apps): this is another authentication-trust-boundary credential,
      * the same blast-radius category as the signing key above, not a new one.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/admin/apps/mtls-cert")
+    @PostMapping({"${hsm.service.api-v1-prefix}/admin/apps/mtls-cert", "${hsm.service.api-v2-prefix}/admin/apps/mtls-cert"})
     public MtlsCertResponse setMtlsCert(@Valid @RequestBody MtlsCertRequest body, @AuthenticationPrincipal AuthenticatedCaller caller) {
         String fingerprint = fingerprintOrReject(body.certPem());
 

@@ -6,6 +6,7 @@ import com.hsm.core.dto.DekUnwrapRequest;
 import com.hsm.core.dto.DekUnwrapResponse;
 import com.hsm.core.service.DekIssueService;
 import com.hsm.core.service.DekUnwrapService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -32,7 +33,8 @@ public class DekController {
         this.dekUnwrapService = dekUnwrapService;
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/dek/issue")
+    @Operation(summary = "Issue DEKs for a batch of items", description = BatchContract.DESCRIPTION)
+    @PostMapping({"${hsm.service.api-v1-prefix}/dek/issue", "${hsm.service.api-v2-prefix}/dek/issue"})
     public DekIssueResponse issue(
             @Valid @RequestBody DekIssueRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,
@@ -42,7 +44,8 @@ public class DekController {
         return dekIssueService.issue(body, caller.appId(), caller.sub(), callerIp);
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/dek/unwrap")
+    @Operation(summary = "Unwrap DEKs for a batch of items", description = BatchContract.DESCRIPTION)
+    @PostMapping({"${hsm.service.api-v1-prefix}/dek/unwrap", "${hsm.service.api-v2-prefix}/dek/unwrap"})
     public DekUnwrapResponse unwrap(
             @Valid @RequestBody DekUnwrapRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,

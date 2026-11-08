@@ -5,6 +5,8 @@ import com.hsm.core.dto.BatchEncryptResponse;
 import com.hsm.core.dto.EncryptRequest;
 import com.hsm.core.dto.EncryptResponse;
 import com.hsm.core.service.EncryptionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -31,7 +33,8 @@ public class EncryptController {
         this.encryptionService = encryptionService;
     }
 
-    @PostMapping("${hsm.service.api-v1-prefix}/encrypt")
+    @ApiResponse(responseCode = "201", description = "Created")
+    @PostMapping({"${hsm.service.api-v1-prefix}/encrypt", "${hsm.service.api-v2-prefix}/encrypt"})
     public ResponseEntity<EncryptResponse> encrypt(
             @Valid @RequestBody EncryptRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,
@@ -51,7 +54,8 @@ public class EncryptController {
      * X-Response-Detail applies to every item's embedded EncryptResponse the
      * same as the single-item endpoint -- see ResponseDetailBodyAdvice.
      */
-    @PostMapping("${hsm.service.api-v1-prefix}/encrypt/batch")
+    @Operation(summary = "Encrypt a batch of values", description = BatchContract.DESCRIPTION)
+    @PostMapping({"${hsm.service.api-v1-prefix}/encrypt/batch", "${hsm.service.api-v2-prefix}/encrypt/batch"})
     public BatchEncryptResponse encryptBatch(
             @Valid @RequestBody BatchEncryptRequest body,
             @AuthenticationPrincipal AuthenticatedCaller caller,
