@@ -27,14 +27,18 @@ import java.util.function.Supplier;
  * into typed request/response records instead of raw JSON node manipulation, since
  * this is the real client module, not a benchmark script.
  *
- * <p>Wire format is snake_case (SVC's spring.jackson.property-naming-strategy), so
- * this client's own ObjectMapper is configured the same way -- request/response
- * records serialize/deserialize directly, no manual field-name mapping needed.
+ * <p>Wire format follows {@link SvcConfig#apiVersion()}: snake_case on v1 (SVC's
+ * spring.jackson.property-naming-strategy), camelCase -- the record component names
+ * themselves -- on v2. Request/response records serialize/deserialize directly either
+ * way, no manual field-name mapping needed.
  */
 public class SvcClient {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
+    private static final ObjectMapper V1_MAPPER = new ObjectMapper()
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+    private static final ObjectMapper V2_MAPPER = new ObjectMapper();
+
+    private final ObjectMapper mapper;
 
     private final HttpClient http;
     private final SvcConfig config;
@@ -60,6 +64,7 @@ public class SvcClient {
      */
     public SvcClient(SvcConfig config, Supplier<String> correlationId) {
         this.config = config;
+        this.mapper = config.apiVersion() == SvcConfig.ApiVersion.V2 ? V2_MAPPER : V1_MAPPER;
         this.correlationId = correlationId;
         this.tokenProvider = switch (config.authMode() == null ? SvcConfig.AuthMode.STATIC : config.authMode()) {
             case STATIC -> new StaticTokenProvider(config.token());
@@ -157,8 +162,8 @@ public class SvcClient {
 
     private <T, R> List<R> post(String path, ItemsRequest<T> body, Class<R> resultType) {
         try {
-            String json = MAPPER.writeValueAsString(body);
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiV1Prefix() + path))
+            String json = mapper.writeValueAsString(body);
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(config.baseUrl() + config.apiPrefix() + path))
                     .timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/json")
                     .header("X-App-ID", config.appId());
@@ -176,8 +181,8 @@ public class SvcClient {
             if (response.statusCode() >= 300) {
                 throw new SvcClientException("POST " + path + " -> HTTP " + response.statusCode() + ": " + response.body());
             }
-            var responseType = MAPPER.getTypeFactory().constructParametricType(ItemsResponse.class, resultType);
-            ItemsResponse<R> parsed = MAPPER.readValue(response.body(), responseType);
+            var responseType = mapper.getTypeFactory().constructParametricType(ItemsResponse.class, resultType);
+            ItemsResponse<R> parsed = mapper.readValue(response.body(), responseType);
             return parsed.items();
         } catch (SvcClientException e) {
             throw e;

@@ -39,13 +39,40 @@ public record SvcConfig(
         // Only used when authMode=MTLS -- PKCS#8 PEM, the private key matching
         // mtlsCertPem. Never sent anywhere; used only to complete the TLS handshake
         // locally, proving possession of the certificate's private key.
-        String mtlsKeyPem
+        String mtlsKeyPem,
+        // Which SVC API version to call. V1 (default when unset): apiV1Prefix, snake_case
+        // JSON -- exactly the behavior before v2 existed. V2: apiV2Prefix, camelCase JSON
+        // (SVC rejects unknown fields there with 400). Same endpoints, same data.
+        ApiVersion apiVersion,
+        // Only used when apiVersion=V2 -- must match SVC's own API_V2_PREFIX
+        // (hsm.service.api-v2-prefix). Blank/unset defaults to /api/sensec/hsm/v2.
+        String apiV2Prefix
 ) {
+    public static final String DEFAULT_API_V1_PREFIX = "/api/sensec/hsm/v1";
+    public static final String DEFAULT_API_V2_PREFIX = "/api/sensec/hsm/v2";
+
     public SvcConfig {
         if (selfSignedAudience == null || selfSignedAudience.isBlank()) {
             selfSignedAudience = "hsm-core-service";
         }
+        if (apiV1Prefix == null || apiV1Prefix.isBlank()) {
+            apiV1Prefix = DEFAULT_API_V1_PREFIX;
+        }
+        if (apiV2Prefix == null || apiV2Prefix.isBlank()) {
+            apiV2Prefix = DEFAULT_API_V2_PREFIX;
+        }
+        if (apiVersion == null) {
+            apiVersion = ApiVersion.V1;
+        }
+    }
+
+    /** The prefix every call goes to: apiV1Prefix or apiV2Prefix, per apiVersion. */
+    public String apiPrefix() {
+        return apiVersion == ApiVersion.V2 ? apiV2Prefix : apiV1Prefix;
     }
 
     public enum AuthMode { STATIC, AZURE_AD, SELF_SIGNED_JWT, MTLS }
+
+    /** SVC's API versions: V1 snake_case (default), V2 camelCase. */
+    public enum ApiVersion { V1, V2 }
 }
