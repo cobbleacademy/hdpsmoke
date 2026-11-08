@@ -3,6 +3,7 @@ package com.hsm.fileservice;
 import com.hsm.client.fileformat.EncryptedFileWriter;
 import com.hsm.crypto.DekManager;
 import com.hsm.crypto.FipsBootstrap;
+import com.hsm.fileservice.web.ErrorCode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -175,7 +176,11 @@ class FileServiceIntegrationTest {
     }
 
     private HttpResponse<byte[]> get(String path, String... headers) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/sensec/file/v1/files/" + path)).GET();
+        return getUnder("/api/sensec/file/v1", path, headers);
+    }
+
+    private HttpResponse<byte[]> getUnder(String prefix, String path, String... headers) throws Exception {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create("http://localhost:" + port + prefix + "/files/" + path)).GET();
         for (int i = 0; i < headers.length; i += 2) {
             b.header(headers[i], headers[i + 1]);
         }
@@ -191,6 +196,41 @@ class FileServiceIntegrationTest {
         assertTrue(body(r).contains("\"error_code\":\"" + code + "\""), body(r));
         assertTrue(r.headers().firstValue("X-Request-Id").isPresent(), "request id echoed on errors");
         assertEquals("no-store", r.headers().firstValue("Cache-Control").orElse(null));
+    }
+
+    // ---- API v2 ----
+
+    @Test
+    void v2_servesTheSameBytesAndHeaders() throws Exception {
+        HttpResponse<byte[]> v1 = get("tenant-a/report.pdf", "X-End-User", "alice@example.com");
+        HttpResponse<byte[]> v2 = getUnder("/api/sensec/file/v2", "tenant-a/report.pdf", "X-End-User", "alice@example.com");
+        assertEquals(200, v2.statusCode());
+        assertArrayEquals(SMALL, v2.body());
+        for (String h : List.of("Content-Type", "Content-Length", "X-HSM-Format-Version", "X-HSM-File-Id", "X-HSM-Delivery", "Cache-Control")) {
+            assertEquals(v1.headers().firstValue(h), v2.headers().firstValue(h), h);
+        }
+    }
+
+    @Test
+    void v2_errorBodyIsCamelCase_v1StaysSnakeCase() throws Exception {
+        HttpResponse<byte[]> v2 = getUnder("/api/sensec/file/v2", "tenant-a/missing.pdf", "X-Request-Id", "req-v2");
+        assertEquals(404, v2.statusCode(), body(v2));
+        assertEquals("{\"errorCode\":\"FS-404-NOT-FOUND\",\"message\":\"" + ErrorCode.NOT_FOUND.message()
+                + "\",\"requestId\":\"req-v2\"}", body(v2));
+        assertEquals("req-v2", v2.headers().firstValue("X-Request-Id").orElseThrow());
+
+        HttpResponse<byte[]> v1 = get("tenant-a/missing.pdf", "X-Request-Id", "req-v1");
+        assertEquals("{\"error_code\":\"FS-404-NOT-FOUND\",\"message\":\"" + ErrorCode.NOT_FOUND.message()
+                + "\",\"request_id\":\"req-v1\"}", body(v1));
+    }
+
+    @Test
+    void v2_appliesTheSameAccessRules() throws Exception {
+        assertEquals(404, getUnder("/api/sensec/file/v2", "other-tenant/secret.pdf", "X-End-User", "alice@example.com").statusCode(),
+                "allowed-path-prefixes apply under v2 too");
+        HttpResponse<byte[]> traversal = getUnder("/api/sensec/file/v2", "tenant-a%2F..%2Fother-tenant%2Fsecret.pdf");
+        assertEquals(400, traversal.statusCode());
+        assertTrue(body(traversal).contains("\"errorCode\":\"FS-400-BAD-PATH\""), body(traversal));
     }
 
     // ---- happy paths ----

@@ -123,8 +123,8 @@ class ApiPrefixTest {
     @Test
     void malformedPrefixesAreRejectedAtStartup() {
         for (String bad : List.of("api/no-leading-slash", "/trailing/", "/a//b", "/a/*", "/a/{x}", "/a b")) {
-            assertThrows(IllegalArgumentException.class, () -> new FileServiceProperties.Server(bad), bad);
+            assertThrows(IllegalArgumentException.class, () -> new FileServiceProperties.Server(bad, null), bad);
         }
-        assertEquals(FileServiceProperties.Server.DEFAULT_API_PREFIX, new FileServiceProperties.Server(null).apiPrefix());
+        assertEquals(FileServiceProperties.Server.DEFAULT_API_PREFIX, new FileServiceProperties.Server(null, null).apiPrefix());
     }
 }

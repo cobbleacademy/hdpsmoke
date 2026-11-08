@@ -111,12 +111,41 @@ class DocsProfileTest {
     void swaggerUiUrlsAreRelativeAndGetOnly() throws Exception {
         Map<String, Object> cfg = new ObjectMapper().readValue(get(port, PREFIX + "/openapi/swagger-config").body(), Map.class);
         assertEquals("../openapi/swagger-config", cfg.get("configUrl"));
-        assertEquals("../openapi", cfg.get("url"));
+        assertEquals(null, cfg.get("url"), "replaced by the v1/v2 urls list");
         assertEquals(List.of("get"), cfg.get("supportedSubmitMethods"));
         // oauth2RedirectUrl is always absolute (springdoc builds it from the request) but is
         // used only by an OAuth2 login, and this API has no OAuth security scheme.
         String initializer = get(port, PREFIX + "/swagger-ui/swagger-initializer.js").body();
         assertFalse(initializer.contains(PREFIX), "initializer must not embed the internal prefix");
+    }
+
+    static final String V2_PREFIX = "/api/sensec/file/v2";
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void swaggerUiOffersBothVersions_andV2DocsOpensOnV2() throws Exception {
+        Map<String, Object> cfg = new ObjectMapper().readValue(get(port, PREFIX + "/openapi/swagger-config").body(), Map.class);
+        assertEquals(List.of(Map.of("name", "v1", "url", "../openapi"), Map.of("name", "v2", "url", "../../v2/openapi")),
+                cfg.get("urls"));
+        assertEquals("v1", cfg.get("urls.primaryName"));
+
+        HttpResponse<String> docs = get(port, V2_PREFIX + "/docs");
+        assertEquals(302, docs.statusCode());
+        assertEquals("../v1/swagger-ui/index.html?urls.primaryName=v2", docs.headers().firstValue("Location").orElse(null));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void v2SpecOnApiPortIsDerivedFromV1() throws Exception {
+        HttpResponse<String> r = get(port, V2_PREFIX + "/openapi");
+        assertEquals(200, r.statusCode(), r.body());
+        Map<String, Object> spec = new ObjectMapper().readValue(r.body(), Map.class);
+        assertEquals("2.0.0", ((Map<String, Object>) spec.get("info")).get("version"));
+        assertEquals(List.of("/files/{path}"), List.copyOf(((Map<String, Object>) spec.get("paths")).keySet()));
+        assertEquals(".", ((List<Map<String, Object>>) spec.get("servers")).get(0).get("url"), "resolves to the v2 prefix");
+        Map<String, Object> error = (Map<String, Object>) ((Map<String, Object>) ((Map<String, Object>) spec.get("components"))
+                .get("schemas")).get("ErrorResponse");
+        assertEquals(List.of("errorCode", "message", "requestId"), List.copyOf(((Map<String, Object>) error.get("properties")).keySet()));
     }
 
     @Test

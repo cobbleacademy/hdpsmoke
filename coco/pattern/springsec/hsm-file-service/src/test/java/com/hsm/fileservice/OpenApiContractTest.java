@@ -3,6 +3,8 @@ package com.hsm.fileservice;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hsm.crypto.FipsBootstrap;
+import com.hsm.fileservice.config.FileServiceApiV2Spec;
+import com.hsm.fileservice.config.FileServiceProperties;
 import com.hsm.fileservice.web.ErrorCode;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,8 @@ class OpenApiContractTest {
 
     static final Path COMMITTED = Path.of("..", "..", "helm", "hsm-file-service", "openapi.yaml").toAbsolutePath().normalize();
     static final Path GENERATED = Path.of("target", "generated-openapi.yaml");
+    static final Path COMMITTED_V2 = Path.of("..", "..", "helm", "hsm-file-service", "openapi-v2.yaml").toAbsolutePath().normalize();
+    static final Path GENERATED_V2 = Path.of("target", "generated-openapi-v2.yaml");
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -107,28 +111,62 @@ class OpenApiContractTest {
 
     @Test
     void committedSpecMatchesWhatTheServiceGenerates() throws Exception {
-        Map<String, Object> generated = generated();
+        assertCommitted(generated(), COMMITTED, GENERATED);
+    }
+
+    /** v2 is derived from the generated v1 document (FileServiceApiV2Spec); /actuator/openapi stays v1. */
+    private Map<String, Object> generatedV2() throws Exception {
+        return FileServiceApiV2Spec.fromV1(generated(), FileServiceProperties.Server.DEFAULT_API_V2_PREFIX);
+    }
+
+    @Test
+    void committedV2SpecMatchesWhatTheServiceGenerates() throws Exception {
+        assertCommitted(generatedV2(), COMMITTED_V2, GENERATED_V2);
+    }
+
+    /** v2: the same endpoint, server variable defaulting to the v2 prefix, camelCase error body. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void v2SpecIsTheSameEndpointWithACamelCaseErrorBody() throws Exception {
+        Map<String, Object> v1 = generated();
+        Map<String, Object> v2 = generatedV2();
+        assertEquals("2.0.0", ((Map<String, Object>) v2.get("info")).get("version"));
+        assertEquals(List.of("/files/{path}"), List.copyOf(((Map<String, Object>) v2.get("paths")).keySet()));
+        Map<String, Object> server = ((List<Map<String, Object>>) v2.get("servers")).get(0);
+        assertEquals("/api/sensec/file/v2", ((Map<String, Map<String, Object>>) server.get("variables")).get("apiPrefix").get("default"));
+        assertEquals(((Map<String, Object>) v1.get("paths")).get("/files/{path}"), ((Map<String, Object>) v2.get("paths")).get("/files/{path}"),
+                "identical operation: parameters, headers, status codes");
+
+        Map<String, Object> error = (Map<String, Object>) ((Map<String, Object>) ((Map<String, Object>) v2.get("components"))
+                .get("schemas")).get("ErrorResponse");
+        assertEquals(List.of("errorCode", "message", "requestId"), List.copyOf(((Map<String, Object>) error.get("properties")).keySet()));
+        assertEquals(Arrays.stream(ErrorCode.values()).map(ErrorCode::code).toList(),
+                ((Map<String, Object>) ((Map<String, Object>) error.get("properties")).get("errorCode")).get("enum"));
+        assertTrue(((List<String>) error.get("required")).containsAll(List.of("errorCode", "message", "requestId")));
+    }
+
+    private void assertCommitted(Map<String, Object> generated, Path committedFile, Path generatedFile) throws Exception {
         DumperOptions opts = new DumperOptions();
         opts.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
         opts.setWidth(120);
         String yaml = "# GENERATED from hsm-file-service by OpenApiContractTest -- do not edit by hand.\n"
                 + "# This is the published contract shipped with the chart; see FILE_SERVICE.md \"API\".\n"
                 + new Yaml(opts).dump(generated);
-        Files.createDirectories(GENERATED.getParent());
-        Files.writeString(GENERATED, yaml, StandardCharsets.UTF_8);
+        Files.createDirectories(generatedFile.getParent());
+        Files.writeString(generatedFile, yaml, StandardCharsets.UTF_8);
         if (Boolean.getBoolean("openapi.update")) {
-            Files.writeString(COMMITTED, yaml, StandardCharsets.UTF_8);
+            Files.writeString(committedFile, yaml, StandardCharsets.UTF_8);
         }
 
-        if (!Files.exists(COMMITTED)) {
-            fail("No committed spec at " + COMMITTED + ". Review " + GENERATED.toAbsolutePath() + " and copy it there.");
+        if (!Files.exists(committedFile)) {
+            fail("No committed spec at " + committedFile + ". Review " + generatedFile.toAbsolutePath() + " and copy it there.");
         }
-        Object committed = new Yaml().load(Files.readString(COMMITTED));
+        Object committed = new Yaml().load(Files.readString(committedFile));
         JsonNode want = JSON.valueToTree(committed);
         JsonNode got = JSON.valueToTree(generated);
         if (!want.equals(got)) {
-            fail("helm/hsm-file-service/openapi.yaml is out of date with the service. If the API change is intentional, "
-                    + "review " + GENERATED.toAbsolutePath() + ", copy it over the committed file (or rerun with "
+            fail(committedFile + " is out of date with the service. If the API change is intentional, "
+                    + "review " + generatedFile.toAbsolutePath() + ", copy it over the committed file (or rerun with "
                     + "-Dopenapi.update=true) and bump the chart version.");
         }
     }
