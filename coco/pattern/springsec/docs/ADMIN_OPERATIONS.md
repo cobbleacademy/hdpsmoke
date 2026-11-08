@@ -22,6 +22,10 @@ Spring Boot 4.1.0.
 - The spec shows the real wire format: snake_case fields, bearer + `X-App-ID` on
   every call except `GET /admin/health`, and no demo-only endpoints.
   `OpenApiSpecTest` pins all three.
+- **API v2** (camelCase, the same endpoints) has its own spec at `<v2 prefix>/openapi`,
+  and its committed copy is `java/docs/oas/hsm-core-service-v2.yaml`. Swagger UI has a
+  v1/v2 dropdown, and `<v2 prefix>/docs` opens it on v2. Every admin endpoint exists
+  under both prefixes, with the same access rules. See [`API_VERSIONS.md`](API_VERSIONS.md).
 - It is documentation only. Every call made from Swagger UI goes through the
   normal authentication and `access-rules`, like any other client. mTLS client
   certificates can be described but not exercised from the UI.
@@ -36,6 +40,8 @@ prefix onto the same internal one:
 | `/api/dsec/core/v1/*` | `/api/sensec/hsm/v1/*` |
 | `/api/dsec/bulk/v1/*` | `/api/sensec/hsm/v1/*` |
 | `/api/sensec/hsm/v1/*` (demo) | unchanged |
+| `/api/dsec/core/v2/*`, `/api/dsec/bulk/v2/*` (API v2, **to be added** by the platform) | `/api/sensec/hsm/v2/*` |
+| `/api/sensec/hsm/v2/*` (demo, API v2) | unchanged |
 
 Swagger works through all three with **no per-environment setting**, because
 nothing the service sends the browser contains its own path:

@@ -245,6 +245,11 @@ endpoints `hsm-bulk-client` already uses:
   decrypting rows whose `edek_id` is already known (e.g., re-processing
   previously-encrypted data).
 
+The field names above are API v1's (snake_case). With `HSM_API_VERSION=V2`, and
+`HSM_SERVICE_BASE_URL` ending in the v2 prefix, the package calls the same endpoints
+with camelCase fields (`dataClassification`, `edekId`, `wrappedDekB64`). The rest of
+the package is unchanged. See [`API_VERSIONS.md`](API_VERSIONS.md).
+
 Auth: reuses the existing `X-App-ID` + Bearer JWT model. The most natural fit
 for a Databricks worker process is **`SELF_SIGNED_JWT`** (a local keypair, no
 network round-trip to mint a token, matching `AUTHORIZATION.md` §1a) or

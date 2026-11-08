@@ -63,7 +63,9 @@ The central encryption service; everything else depends on it.
 | **demo** | `/api/sensec/hsm/v1` | Same image with `DEMO_MODE=true`: H2, mock HSM, demo tokens, demo UI, Swagger on. No Azure needed. |
 
 The VirtualService rewrites the external prefixes to the internal
-`/api/sensec/hsm/v1`. Swagger works through every prefix because the service
+`/api/sensec/hsm/v1`. API v2 (camelCase) is served alongside it at
+`/api/sensec/hsm/v2`; its external `…/v2` routes are still to be added
+([`API_VERSIONS.md`](API_VERSIONS.md)). Swagger works through every prefix because the service
 emits only relative URLs (`<prefix>/docs`).
 
 **Docs:** `AUTHORIZATION.md`, `ADMIN_OPERATIONS.md`, `APP_ONBOARDING.md`,

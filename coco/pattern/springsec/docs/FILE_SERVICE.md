@@ -80,6 +80,14 @@ This is the only data endpoint: no upload, list or delete. The prefix is
 inbound only; `config.core.apiV1Prefix` is the prefix of hsm-core-service,
 which this service calls.
 
+**API v2:** the same endpoint is also served at `GET <apiV2Prefix>/files/{path}`
+(default `/api/sensec/file/v2`, env `FILE_SERVICE_API_V2_PREFIX`). File bytes,
+headers, status codes and access checks are identical. The only difference is the
+error body's field names, which are camelCase on v2:
+`{"errorCode","message","requestId"}`. Its contract is
+`helm/hsm-file-service/openapi-v2.yaml`, also pinned by `OpenApiContractTest`. The
+chart's AuthorizationPolicy allows both prefixes. See [`API_VERSIONS.md`](API_VERSIONS.md).
+
 ### Developer docs (Swagger UI)
 
 For the developers who support and debug the service, in dev/test only. Set
@@ -96,6 +104,8 @@ prefix:
 | `/api/sensec/file/v1/docs` | Entry point; relative redirect to `swagger-ui/index.html` |
 | `/api/sensec/file/v1/swagger-ui/index.html` | Swagger UI |
 | `/api/sensec/file/v1/openapi` | The spec it loads (server `.`, so Try it out calls `./files/{path}`) |
+| `/api/sensec/file/v2/docs` | The same Swagger UI with **v2** selected (the UI has a v1/v2 dropdown) |
+| `/api/sensec/file/v2/openapi` | The v2 spec (camelCase error body), derived from v1 |
 
 Every URL is relative, as in hsm-core-service, so the docs work under any
 external prefix or rewrite. **The chart does not create a VirtualService**;
@@ -235,10 +245,12 @@ each maps to an environment variable and a property under
 | values.yaml | Default | Notes |
 |---|---|---|
 | `config.server.apiPrefix` | `/api/sensec/file/v1` | This service's own prefix (inbound). Endpoint `<apiPrefix>/files/{path}`; also drives the AuthorizationPolicy path. Leading `/`, no trailing `/`. Env `FILE_SERVICE_API_PREFIX`. |
+| `config.server.apiV2Prefix` | `/api/sensec/file/v2` | API v2 of the same endpoint (camelCase error body); must differ from `apiPrefix`. Also in the AuthorizationPolicy. Env `FILE_SERVICE_API_V2_PREFIX`. |
 | `config.core.baseUrl` | **required** | hsm-core-service URL |
 | `config.core.appId` | **required** | This service's own app_id, not the encrypting app's |
 | `config.core.authMode` | `AZURE_AD` | `AZURE_AD` / `SELF_SIGNED_JWT` / `MTLS` / `STATIC` (dev) |
 | `config.core.azureTokenScope` | required for AZURE_AD | |
+| `config.core.apiVersion` / `config.core.apiV2Prefix` | `V1` / `/api/sensec/hsm/v2` | Which hsm-core-service API version this service calls (`V1` snake_case, `V2` camelCase). Env `HSM_CORE_API_VERSION` / `HSM_CORE_API_V2_PREFIX`. |
 | `config.store.type` / `root` | `AZURE_BLOB` / **required** | Same URI forms as bulk-client |
 | `config.access.allowedPathPrefixes` | **required** | `["*"]` allows everything, explicitly |
 | `config.access.requireExpectedFileId` | `false` | Recommended `true` where files belong to specific users |
@@ -338,6 +350,7 @@ The chart version and the app version move together.
 | hsm-file-service | Reads formats | hsm-core-service API |
 |---|---|---|
 | 1.0.x | v1, v2 | `/api/sensec/hsm/v1` `POST /dek/unwrap` |
+| next (unreleased) | v1, v2 | `/api/sensec/hsm/v1` (default) or `/v2` (`HSM_CORE_API_VERSION=V2`) `POST /dek/unwrap`; serves its own API v2 at `/api/sensec/file/v2` |
 
 ## Release and supply chain
 

@@ -52,6 +52,10 @@ strategy, manifest, stitch-back) — not a new deployable on our side.
 
 ## What's implemented: `POST /encrypt/batch` and `POST /decrypt/batch`
 
+> Field names in this document are API v1's (snake_case). API v2 (`/api/sensec/hsm/v2`)
+> has the same endpoints and batch rules with camelCase fields. hsm-bulk-client switches
+> with `SVC_API_VERSION=V2`; see [`API_VERSIONS.md`](API_VERSIONS.md).
+
 Multiple plaintexts, one authenticated call, each item correlated back by a
 caller-supplied `key` (not array position) so the calling app can track a
 result to its own row/record identifier:

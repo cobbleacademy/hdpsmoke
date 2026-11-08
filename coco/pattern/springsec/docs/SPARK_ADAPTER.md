@@ -361,6 +361,8 @@ Two categories, delivered two different ways -- **do not** mix them:
 |---|---|---|
 | hsm-core-service base URL | `spark.hsm.baseUrl` | plain `--conf`, non-secret |
 | API path prefix (default `/api/sensec/hsm/v1`) | `spark.hsm.apiV1Prefix` | plain `--conf`, non-secret |
+| API version: `V1` (default, snake_case) \| `V2` (camelCase); see `API_VERSIONS.md` | `spark.hsm.apiVersion` | plain `--conf`, non-secret |
+| API v2 path prefix (default `/api/sensec/hsm/v2`), used only with `apiVersion=V2` | `spark.hsm.apiV2Prefix` | plain `--conf`, non-secret |
 | App identity | `spark.hsm.appId` | plain `--conf`, non-secret |
 | Auth mode: `STATIC` \| `AZURE_AD` \| `SELF_SIGNED_JWT` \| `MTLS` | `spark.hsm.authMode` | plain `--conf`, non-secret |
 | Static bearer token (authMode=STATIC) | `spark.hsm.staticToken` | plain `--conf` -- fine for demo tokens only; a real static value here is itself credential-shaped |

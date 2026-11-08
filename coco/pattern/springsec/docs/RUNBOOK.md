@@ -404,6 +404,10 @@ only, never a single Netty artifact.
 
 ## Rolling out a new hsm-core-service build (v1/v2)
 
+> "v1/v2" here means two **builds** (releases) of the service running side by side.
+> That is unrelated to the **API versions** `/api/sensec/hsm/v1` and `/v2`, which one build
+> serves together; see [`API_VERSIONS.md`](API_VERSIONS.md).
+
 For a build that changes core-service internals but no contract -- e.g. the chassis
 adoption (Phase 7): crypto, FIPS, locking and the correlation-id filter moved to
 shared libraries; API shapes, token/EDEK/cache formats and lock keys unchanged.

@@ -151,7 +151,16 @@ length-prefixed frames, chunk payload markers). Pinned by golden files in
 
 ## C10 HTTP API
 
-- Prefix `API_V1_PREFIX` (default `/api/sensec/hsm/v1`); JSON in **snake_case**.
+- **Two versions, same endpoints and data** ([`API_VERSIONS.md`](API_VERSIONS.md)):
+  - v1: prefix `API_V1_PREFIX` (default `/api/sensec/hsm/v1`), JSON in **snake_case**,
+    unknown fields ignored (logged as `v1_unknown_field`).
+  - v2: prefix `API_V2_PREFIX` (default `/api/sensec/hsm/v2`), JSON in **camelCase**,
+    unknown fields rejected with 400.
+
+  Header names, status codes, authorization rules and the error body are the same in
+  both. hsm-file-service has the same split (`/api/sensec/file/v1|v2`), where only its
+  error body's field names differ. Clients default to v1; see API_VERSIONS.md for
+  switching them and for retiring v1.
 - Client-facing endpoints: `POST /encrypt`, `/decrypt`, `/encrypt/batch`,
   `/decrypt/batch`, `/dek/issue`, `/dek/unwrap`. Admin endpoints are listed in
   [`ADMIN_OPERATIONS.md`](ADMIN_OPERATIONS.md).
@@ -163,7 +172,10 @@ length-prefixed frames, chunk payload markers). Pinned by golden files in
   chassis error format must keep both available until every client has migrated.
 - **Pinned by `ApiContractBaselineTest`** (hsm-core-service): status, contract
   headers and JSON shape of 15 representative calls, baselines in
-  `src/test/resources/contract-baseline/`.
+  `src/test/resources/contract-baseline/`. v2 is pinned by `ApiV2IntegrationTest` and
+  `ApiV2SpecTest`, which compares against the committed `docs/oas/hsm-core-service-v2.yaml`.
+  hsm-file-service is pinned by `OpenApiContractTest` (`helm/hsm-file-service/openapi.yaml`
+  and `openapi-v2.yaml`).
 
 ## C11 Caller identity
 
@@ -254,7 +266,7 @@ because they use the same strings).
 | C7 | cache vectors in the same file, run by `hsm-crypto-core` (the codec both RedisDekCache and RedisOps use); `RedisOpsContainerTest` (rotator, real Redis) | ✓ |
 | C8 | — | manual review |
 | C9 | `hsm-crypto-client` golden files | ✓ |
-| C10 | `ApiContractBaselineTest` | ✓ (Phase 0) |
+| C10 | `ApiContractBaselineTest` (v1); `ApiV2IntegrationTest`, `ApiV2SpecTest` (v2); file-service `OpenApiContractTest` (both) | ✓ |
 | C11 | auth tests (`RsaJwtValidatorTest`, `SelfSignedJwtMultiAudienceTest`, `AdminMtlsCertTest`); request-id: `ChassisAdoptionTest` (core), `RequestIdFilterTest` (chassis), `FileServiceIntegrationTest` | partial |
 | C12 | — | manual review |
 | C13 | `RotationServiceLockTest`, `PostgresAdvisoryJobLockContainerTest` | ✓ |
