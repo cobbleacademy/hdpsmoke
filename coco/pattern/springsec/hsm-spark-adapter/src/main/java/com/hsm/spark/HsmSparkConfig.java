@@ -1,6 +1,7 @@
 package com.hsm.spark;
 
 import com.hsm.client.HsmCryptoClient;
+import com.hsm.client.svc.SvcConfig;
 import org.apache.spark.SparkEnv;
 
 import java.nio.file.Files;
@@ -36,6 +37,9 @@ final class HsmSparkConfig {
     static HsmCryptoClient buildClient() {
         String baseUrl = require("spark.hsm.baseUrl");
         String apiV1Prefix = optional("spark.hsm.apiV1Prefix", "/api/sensec/hsm/v1");
+        String apiV2Prefix = optional("spark.hsm.apiV2Prefix", "/api/sensec/hsm/v2");
+        SvcConfig.ApiVersion apiVersion = SvcConfig.ApiVersion.valueOf(
+                optional("spark.hsm.apiVersion", "V1").trim().toUpperCase());
         String appId = require("spark.hsm.appId");
         String authMode = require("spark.hsm.authMode").trim().toUpperCase();
         String privateKeyPem = readFile(require("spark.hsm.privateKeyPath"));
@@ -43,6 +47,8 @@ final class HsmSparkConfig {
         HsmCryptoClient.Builder builder = HsmCryptoClient.builder()
                 .baseUrl(baseUrl)
                 .apiV1Prefix(apiV1Prefix)
+                .apiV2Prefix(apiV2Prefix)
+                .apiVersion(apiVersion)
                 .appId(appId)
                 .privateKeyPem(privateKeyPem);
 
