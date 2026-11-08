@@ -69,6 +69,10 @@ var client = new HsmCoreClient(
     apiV1Prefix: "/api/sensec/hsm/v1",
     appId: "your-app-id",
     tokenProvider: new StaticTokenProvider("<bearer token>"));
+    // API v2 (camelCase on the wire, same results): add
+    //   apiVersion: "V2"   (and apiV2Prefix: "..." if not /api/sensec/hsm/v2)
+    // or run Program.cs with HSM_CORE_API_VERSION=V2. Items keep snake_case keys; the
+    // client renames them on the wire. See java/docs/API_VERSIONS.md.
 
 // Tier 1: encrypt/decrypt directly, no /dek/issue
 FileManifest manifest = await HsmCoreBatchFile.EncryptFileAsync(client, "plain.pdf", "plain.pdf.manifest.json");

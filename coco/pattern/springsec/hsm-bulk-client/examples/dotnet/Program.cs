@@ -21,11 +21,13 @@ using Hsm.BulkClient.Examples;
 
 string baseUrl = Environment.GetEnvironmentVariable("HSM_CORE_BASE_URL") ?? "http://localhost:3105";
 string apiV1Prefix = Environment.GetEnvironmentVariable("HSM_CORE_API_V1_PREFIX") ?? "/api/sensec/hsm/v1";
+string apiV2Prefix = Environment.GetEnvironmentVariable("HSM_CORE_API_V2_PREFIX") ?? HsmCoreClient.DefaultApiV2Prefix;
+string apiVersion = Environment.GetEnvironmentVariable("HSM_CORE_API_VERSION") ?? "V1"; // V1 (snake_case) or V2 (camelCase)
 string appId = Environment.GetEnvironmentVariable("HSM_CORE_APP_ID") ?? "payments-svc";
 // HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD -- see Auth.cs
 ITokenProvider tokenProvider = TokenProviderFactory.BuildFromEnv(appId);
 
-var client = new HsmCoreClient(baseUrl, apiV1Prefix, appId, tokenProvider);
+var client = new HsmCoreClient(baseUrl, apiV1Prefix, appId, tokenProvider, apiVersion: apiVersion, apiV2Prefix: apiV2Prefix);
 
 if (args.Length == 2)
 {
@@ -46,7 +48,8 @@ try
     string dec = Path.Combine(tmp, "decrypted.bin");
     File.WriteAllBytes(src, demoPlaintext);
 
-    FileManifest manifest = await HsmCoreBatchFile.EncryptFileAsync(client, src, manifestPath, chunkSizeBytes: 4096);
+    // dataClassification is the one multi-word API field here: it exercises the v2 rename.
+    FileManifest manifest = await HsmCoreBatchFile.EncryptFileAsync(client, src, manifestPath, chunkSizeBytes: 4096, dataClassification: "pii");
     Console.WriteLine($"encrypted: chunk_count={manifest.ChunkCount} plaintext_sha256={manifest.PlaintextSha256}");
 
     await HsmCoreBatchFile.DecryptFileAsync(client, manifestPath, dec);
@@ -54,7 +57,7 @@ try
     bool match = actualSha256 == manifest.PlaintextSha256;
     Console.WriteLine($"decrypted: match={match}");
     if (!match) throw new InvalidOperationException("round-trip mismatch");
-    Console.WriteLine("OK -- round trip verified against a real hsm-core-service");
+    Console.WriteLine($"OK -- round trip verified against a real hsm-core-service (API {apiVersion.ToUpperInvariant()})");
 }
 finally
 {

@@ -89,7 +89,7 @@ namespace Hsm.BulkClient.Examples
     /// <summary>
     /// Thin wrapper around the two batch endpoints this module needs -- not
     /// a general hsm-core-service client, just enough to drive file
-    /// encrypt/decrypt via chunking. baseUrl/apiV1Prefix/appId/tokenProvider
+    /// encrypt/decrypt via chunking (API v1 or v2, see the constructor). baseUrl/apiV1Prefix/appId/tokenProvider
     /// are exactly what SvcClient.java's Java equivalent takes for
     /// hsm-bulk-service, applied here to hsm-core-service instead -- see
     /// Auth.cs for the ITokenProvider implementations (STATIC/
@@ -103,27 +103,60 @@ namespace Hsm.BulkClient.Examples
     {
         public const int DefaultBatchMaxItems = 100;
 
+        public const string DefaultApiV2Prefix = "/api/sensec/hsm/v2";
+
         private readonly string _baseUrl;
-        private readonly string _apiV1Prefix;
+        private readonly string _apiPrefix;
+        private readonly bool _v2;
         private readonly string _appId;
         private readonly ITokenProvider _tokenProvider;
         private readonly int _batchMaxItems;
         private readonly HttpClient _http;
 
+        /// <param name="apiVersion">"V1" (default): apiV1Prefix, snake_case fields. "V2": apiV2Prefix,
+        /// camelCase fields -- same endpoints and data; the server rejects unknown fields on v2 with 400.
+        /// Callers build items with snake_case keys either way; they are renamed on the wire only.</param>
         public HsmCoreClient(string baseUrl, string apiV1Prefix, string appId, ITokenProvider tokenProvider,
-            int batchMaxItems = DefaultBatchMaxItems, HttpClient? httpClient = null)
+            int batchMaxItems = DefaultBatchMaxItems, HttpClient? httpClient = null,
+            string apiVersion = "V1", string apiV2Prefix = DefaultApiV2Prefix)
         {
             _baseUrl = baseUrl;
-            _apiV1Prefix = apiV1Prefix;
+            _v2 = string.Equals(apiVersion, "V2", StringComparison.OrdinalIgnoreCase);
+            _apiPrefix = _v2 ? apiV2Prefix : apiV1Prefix;
             _appId = appId;
             _tokenProvider = tokenProvider;
             _batchMaxItems = batchMaxItems;
             _http = httpClient ?? new HttpClient();
         }
 
+        /// <summary>data_classification -> dataClassification (API v2's field names).</summary>
+        internal static string CamelCase(string snake)
+        {
+            var sb = new StringBuilder(snake.Length);
+            bool upper = false;
+            foreach (char c in snake)
+            {
+                if (c == '_') { upper = true; continue; }
+                sb.Append(upper ? char.ToUpperInvariant(c) : c);
+                upper = false;
+            }
+            return sb.ToString();
+        }
+
         private async Task<List<BatchItemResult>> PostBatchAsync(string path, List<Dictionary<string, object?>> items)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}{_apiV1Prefix}{path}");
+            if (_v2)
+            {
+                // Request keys only: every response field this client reads (items, key, status,
+                // result, detail, ciphertext, plaintext, encoding) is one word, the same in both versions.
+                items = items.ConvertAll(item =>
+                {
+                    var renamed = new Dictionary<string, object?>(item.Count);
+                    foreach (var (k, v) in item) renamed[CamelCase(k)] = v;
+                    return renamed;
+                });
+            }
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}{_apiPrefix}{path}");
             req.Headers.Add("Authorization", $"Bearer {_tokenProvider.GetBearerToken()}");
             req.Headers.Add("X-App-ID", _appId);
             req.Headers.Add("X-Response-Detail", "minimal"); // this module only ever needs ciphertext/plaintext + encoding
