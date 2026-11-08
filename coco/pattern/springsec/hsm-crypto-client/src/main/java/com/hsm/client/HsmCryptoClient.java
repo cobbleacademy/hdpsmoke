@@ -307,7 +307,9 @@ public class HsmCryptoClient implements AutoCloseable {
 
     public static final class Builder {
         private String baseUrl;
-        private String apiV1Prefix = "/api/sensec/hsm/v1";
+        private String apiV1Prefix = SvcConfig.DEFAULT_API_V1_PREFIX;
+        private String apiV2Prefix = SvcConfig.DEFAULT_API_V2_PREFIX;
+        private SvcConfig.ApiVersion apiVersion = SvcConfig.ApiVersion.V1;
         private String appId;
         private String privateKeyPem;
         private SvcConfig.AuthMode authMode;
@@ -343,6 +345,23 @@ public class HsmCryptoClient implements AutoCloseable {
         /** Defaults to "/api/sensec/hsm/v1" -- must match SVC's own hsm.service.api-v1-prefix. */
         public Builder apiV1Prefix(String apiV1Prefix) {
             this.apiV1Prefix = apiV1Prefix;
+            return this;
+        }
+
+        /** Defaults to "/api/sensec/hsm/v2" -- must match SVC's own hsm.service.api-v2-prefix. Only used with apiVersion(V2). */
+        public Builder apiV2Prefix(String apiV2Prefix) {
+            this.apiV2Prefix = apiV2Prefix;
+            return this;
+        }
+
+        /**
+         * Which SVC API version to call. Defaults to V1 (snake_case, apiV1Prefix) -- the
+         * behavior before v2 existed. V2 calls apiV2Prefix with camelCase JSON. Both
+         * versions share the same data: a ciphertext encrypted through either decrypts
+         * through either.
+         */
+        public Builder apiVersion(SvcConfig.ApiVersion apiVersion) {
+            this.apiVersion = apiVersion;
             return this;
         }
 
@@ -452,7 +471,8 @@ public class HsmCryptoClient implements AutoCloseable {
                     staticToken, azureTokenScope,
                     1, // dekBatchMaxItems -- unused: this client always issues exactly one item per call
                     privateKeyPem, signingKeyPem, selfSignedAudience,
-                    mtlsCertPem, mtlsKeyPem);
+                    mtlsCertPem, mtlsKeyPem,
+                    apiVersion, apiV2Prefix);
             SvcClient svcClient = new SvcClient(config, correlationId);
             return new HsmCryptoClient(svcClient, privateKey, appId, dekCacheMaxSize, dekCacheTtl);
         }
