@@ -24,7 +24,8 @@ MTLS are not implemented here yet, see DATABRICKS_UDF_DESIGN.md §14.
 
 HSM_API_VERSION selects hsm-core-service's API version -- V1 (default,
 snake_case JSON) or V2 (camelCase JSON). HSM_SERVICE_BASE_URL must end in
-the matching prefix (.../v1 or .../v2); same endpoints, same data.
+the matching prefix (.../v1 or .../v2), and a URL ending in the other one is
+refused; same endpoints, same data.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Callable
+from urllib.parse import urlsplit
 
 _MISSING = object()
 
@@ -87,6 +89,7 @@ class Config:
         api_version = str(get("HSM_API_VERSION") or "V1").strip().upper()
         if api_version not in ("V1", "V2"):
             raise ConfigError(f"HSM_API_VERSION must be V1 or V2, got '{api_version}'")
+        _check_version_matches_url(str(base_url), api_version)
 
         if auth_mode == "STATIC":
             bearer_token = _require(get, "HSM_BEARER_TOKEN", source_hint)
@@ -138,6 +141,22 @@ class Config:
                 f"AZURE_AD and MTLS aren't implemented in this package yet -- see "
                 f"DATABRICKS_UDF_DESIGN.md §14."
             )
+
+
+def _check_version_matches_url(base_url: str, api_version: str) -> None:
+    """
+    Refuses a URL whose last path segment is the other version. Sending V2 field
+    names to a v1 URL would otherwise half work: v1 ignores unknown fields, so
+    /dek/issue succeeds with data_classification silently lost, while /dek/unwrap
+    fails. A URL that doesn't end in v1 or v2 (a custom gateway path) can't be
+    checked and is accepted.
+    """
+    last_segment = urlsplit(base_url).path.rstrip("/").rsplit("/", 1)[-1].lower()
+    if last_segment in ("v1", "v2") and last_segment.upper() != api_version:
+        raise ConfigError(
+            f"HSM_API_VERSION is {api_version} but HSM_SERVICE_BASE_URL ends in /{last_segment}: "
+            "change both together. See DEPLOYMENT.md \"Switching to API v2\"."
+        )
 
 
 def _require(get: Callable[[str], object], name: str, source_hint: str) -> str:
