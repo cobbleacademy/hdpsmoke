@@ -48,7 +48,7 @@ class HsmCryptoClientTest {
     private static SvcConfig dummyConfig(String appId) {
         return new SvcConfig(
                 "http://unused.invalid", "/api/sensec/hsm/v1", appId, SvcConfig.AuthMode.STATIC,
-                "unused-token", null, 100, "unused", null, null, null, null);
+                "unused-token", null, 100, "unused", null, null, null, null, null, null);
     }
 
     /** Returns canned results without ever making a network call. */
