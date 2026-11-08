@@ -90,7 +90,9 @@ class OpenApiSpecTest {
             // Resolved by the browser against <external prefix>/swagger-ui/index.html.
             Map<String, Object> cfg = rest.getForEntity("/api/sensec/hsm/v1/openapi/swagger-config", Map.class).getBody();
             assertEquals("../openapi/swagger-config", cfg.get("configUrl"));
-            assertEquals("../openapi", cfg.get("url"));
+            // v1 and v2 as a dropdown (ApiV2SpecTest); every entry stays relative.
+            assertEquals(List.of("../openapi", "../../v2/openapi"),
+                    ((List<Map<String, Object>>) cfg.get("urls")).stream().map(u -> u.get("url")).toList());
             String initializer = rest.getForEntity("/api/sensec/hsm/v1/swagger-ui/swagger-initializer.js", String.class).getBody();
             assertTrue(initializer.contains("../openapi/swagger-config"), "initializer must not embed the internal prefix");
         }
