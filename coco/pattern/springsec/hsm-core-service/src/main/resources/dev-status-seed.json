@@ -581,6 +581,18 @@
       "item": "dek_name reservation via kek_registry: an exact-dek_name kek_registry row now reserves that dek_name for its app -- closes a real gap where kek_registry had zero admission-control role despite both existing",
       "status": "C",
       "notes": "Found during code review: kek_registry (V11, KEK-selection preference) and dek_name ownership (V14, first-encrypt-wins + app_grants/app_dek_grants) were assumed by the reviewer to be the same mechanism -- confirmed via a full re-read of every migration, every call site, and the dev-status history that they were NOT: kek_registry never participated in any admission decision, and V14's own migration comment ('no ownership concept existed at all') is decisive evidence, since it was written after V11 already existed. Registering a kek_registry row for (app02, dek_name) never stopped app01 from minting that exact name first. Fixed by adding a NEW, separate check -- DekNameReservationService -- that treats only the exact-dek_name (tier 1) kek_registry rows as carrying reservation intent (classification/app-default tier rows, dek_name unset, never do, since they don't name a specific dek_name at all). Same phased rollout as ClassificationGovernanceService: gated by hsm.dek-name-reservation.enforce (default false, shadow-mode logging only) since kek_registry already has real rows today, created before this check existed -- flipping to enforce=true immediately could reject a first-time mint colliding with a row nobody intended as a reservation. Never applies to same-app minting or unnamed encrypts. Wired into EncryptionService.resolveDek and DekIssueService.issueOne's fresh-mint branch, alongside (not replacing) the existing classification check. Also added admin CRUD (POST/DELETE/GET /admin/kek-registry, gated by a new manage_kek_registry authority) since kek_registry previously had NO admin API at all -- entries could only be created via direct DB/seed access, which the reviewer flagged as disruptive to running services. Corrected KekRegistryEntry's and KekRegistryService's own javadoc, and added AUTHORIZATION.md section 1e, to document the corrected ownership/KEK-selection distinction directly where a future reader would look -- the ambiguity in the ORIGINAL comments (both keying off (app_id, dek_name)) is exactly what caused this confusion in the first place. Verified: 124/124 tests passing (14 new -- shadow-mode and enforce=true service-level tests in separate Spring contexts same reason ClassificationGovernanceServiceEnforcedTest needed one, integration tests proving the real /dek/issue mint path invokes the check and that same-app/own-registry-row minting is never flagged, and HTTP-level admin-endpoint tests including a scope-denial and a missing-kek_name-validation check). NOT yet enforced in any real deployment -- enforce defaults false pending a real backfill/collision-review window; see ADMIN_OPERATIONS.md's phased-rollout section."
+    },
+    {
+      "category": "API v2",
+      "item": "API v2 (camelCase) served alongside v1 across core, file service, clients, charts and docs",
+      "status": "C",
+      "notes": "Same endpoints, code and data as v1; only JSON field naming and unknown-field handling differ. Commits 69f590c, 22fe259. See java/docs/API_VERSIONS.md."
+    },
+    {
+      "category": "API v2",
+      "item": "API v2 rollout: gateway routes, Apigee validation, caller migration, retiring v1",
+      "status": "N",
+      "notes": "Tracked as API-1 to API-6 in java/docs/ACTION_ITEMS.md."
     }
   ]
 }
