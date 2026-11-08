@@ -16,6 +16,11 @@ image:
 # search path resolves the short form). REQUIRED.
 baseUrl: ""
 
+# Which hsm-core-service API to load: V1 (default, /api/sensec/hsm/v1) or V2
+# (/api/sensec/hsm/v2). The simulation's fields are identical in both, so only the
+# path changes. Switch: --set apiVersion=V2; back: V1.
+apiVersion: V1
+
 # Name of a pre-existing Secret holding two keys: "app-id" and "token" -- a
 # real app_id and a real bearer JWT for an app registered with both encrypt
 # and decrypt scopes. This chart does NOT create the Secret (see NOTES.txt for
