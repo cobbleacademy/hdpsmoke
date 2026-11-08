@@ -85,8 +85,16 @@
 --
 -- Edit the credentials literal in ALL THREE places below (hsm_credentials(),
 -- hsm_encrypt(), hsm_decrypt()) to match your deployment (base URL, app_id,
--- auth mode, secret scope/key names) -- see the "REAL COST" note above for
--- why this can't be centralized in one place.
+-- auth mode, API version, secret scope/key names) -- see the "REAL COST" note
+-- above for why this can't be centralized in one place.
+--
+-- API VERSION: HSM_API_VERSION selects hsm-core-service's API version, V1
+-- (snake_case) or V2 (camelCase). To switch, change it AND the end of
+-- HSM_SERVICE_BASE_URL (.../v1 or .../v2) together, in all three places; the
+-- function refuses a mismatch with a ConfigError. It must be set here: these
+-- functions never read a cluster's environment variables. Tokens encrypted
+-- through either version decrypt through the other. See DEPLOYMENT.md
+-- "Switching to API v2".
 --
 -- GOVERNANCE: a plain CREATE FUNCTION ... LANGUAGE SQL body runs with the
 -- FUNCTION OWNER's privileges by default (definer rights, same as a view)
@@ -112,6 +120,7 @@ LANGUAGE SQL
 COMMENT 'Builds a credentials_json value for standalone/ad-hoc use with hsm_encrypt_detail/hsm_decrypt_detail -- e.g. SELECT hsm_decrypt_detail(token, hsm_credentials()). Do NOT call this from inside another function''s body (see CONFIRMED BUG at the top of this file) -- hsm_encrypt()/hsm_decrypt() below inline the identical expression instead. STATIC auth shown; see the commented-out SELF_SIGNED_JWT variant below.'
 RETURN to_json(named_struct(
     'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
+    'HSM_API_VERSION',      'V1',
     'HSM_APP_ID',           'databricks-udf',
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
@@ -126,6 +135,7 @@ RETURN to_json(named_struct(
 --
 -- RETURN to_json(named_struct(
 --     'HSM_SERVICE_BASE_URL',        'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
+--     'HSM_API_VERSION',             'V1',
 --     'HSM_APP_ID',                  'databricks-udf',
 --     'HSM_AUTH_MODE',               'SELF_SIGNED_JWT',
 --     'HSM_PRIVATE_KEY_PEM',         secret('hsm', 'databricks-udf-private-key'),
@@ -197,6 +207,7 @@ LANGUAGE SQL
 COMMENT 'Encrypts plaintext using this deployment''s default credentials (inlined below -- keep in sync with hsm_credentials() and hsm_decrypt(), see the top-of-file note on why this isn''t centralized). Use hsm_encrypt_detail(...) instead if you need to pass a different credentials_json.'
 RETURN main.hsm.hsm_encrypt_detail(plaintext, dek_name, data_classification, to_json(named_struct(
     'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
+    'HSM_API_VERSION',      'V1',
     'HSM_APP_ID',           'databricks-udf',
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
@@ -211,6 +222,7 @@ LANGUAGE SQL
 COMMENT 'Decrypts ciphertext_token using this deployment''s default credentials (inlined below -- keep in sync with hsm_credentials() and hsm_encrypt(), see the top-of-file note on why this isn''t centralized). Use hsm_decrypt_detail(...) instead if you need to pass a different credentials_json.'
 RETURN main.hsm.hsm_decrypt_detail(ciphertext_token, to_json(named_struct(
     'HSM_SERVICE_BASE_URL', 'https://hsm-core-service.internal:8443/api/sensec/hsm/v1',
+    'HSM_API_VERSION',      'V1',
     'HSM_APP_ID',           'databricks-udf',
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
