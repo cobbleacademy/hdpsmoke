@@ -130,6 +130,9 @@ creds = json.dumps({
     "HSM_AUTH_MODE": "STATIC",
     "HSM_PRIVATE_KEY_PEM": dbutils.secrets.get(scope="hsm", key="databricks-udf-private-key"),
     "HSM_BEARER_TOKEN": dbutils.secrets.get(scope="hsm", key="databricks-udf-token"),
+    # Optional, default V1. For API v2 (camelCase), set "V2" AND end HSM_SERVICE_BASE_URL
+    # in /api/sensec/hsm/v2 -- see java/docs/API_VERSIONS.md.
+    # "HSM_API_VERSION": "V2",
 })
 
 spark.sql("""
