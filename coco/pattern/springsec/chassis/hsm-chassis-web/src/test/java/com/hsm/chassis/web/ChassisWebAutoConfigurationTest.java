@@ -44,6 +44,19 @@ class ChassisWebAutoConfigurationTest {
     }
 
     @Test
+    void relativePathsBetweenPrefixes() {
+        assertThat(ApiV2Docs.relative("/api/x/v1/swagger-ui/", "/api/x/v2/openapi")).isEqualTo("../../v2/openapi");
+        assertThat(ApiV2Docs.relative("/api/x/v2/", "/api/x/v1/swagger-ui/index.html")).isEqualTo("../v1/swagger-ui/index.html");
+        assertThat(ApiV2Docs.relative("/a/v1/swagger-ui/", "/b/c/v2/openapi")).isEqualTo("../../../b/c/v2/openapi");
+    }
+
+    @Test
+    void v2DocsEntryOnlyWithAV2Prefix() {
+        web.withPropertyValues("springdoc.swagger-ui.enabled=true", "hsm.chassis.web.api-prefix=/api/x/v1")
+                .run(context -> assertThat(context).doesNotHaveBean(ApiV2Docs.EntryController.class));
+    }
+
+    @Test
     void nothingInANonWebApplication() {
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(ChassisWebAutoConfiguration.class))
