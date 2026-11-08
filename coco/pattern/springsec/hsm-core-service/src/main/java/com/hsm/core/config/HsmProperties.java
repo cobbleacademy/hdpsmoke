@@ -2,6 +2,8 @@ package com.hsm.core.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.List;
+
 /**
  * Typed binding for the service's configuration, mirroring app/config.py's
  * {@code Settings}. The underlying env var names are preserved exactly (see
@@ -79,14 +81,26 @@ public record HsmProperties(
     ) {
     }
 
+    /**
+     * {@code apiV1Prefix} serves the snake_case contract, {@code apiV2Prefix} the same
+     * endpoints in camelCase (ApiVersionJsonConfig). Every endpoint, access rule and auth
+     * filter covers both -- see {@link #apiPrefixes()}.
+     */
     public record Service(
             String env,
             String logLevel,
             String apiV1Prefix,
+            String apiV2Prefix,
+            String apiV1DeprecatedAt,  // ISO date or blank -- V1DeprecationHeaders
+            String apiV1SunsetAt,      // ISO date or blank -- V1DeprecationHeaders
             int batchMaxItems,
             int batchExecutorPoolSize,
             int dekBatchMaxItems
     ) {
+        /** Both API prefixes, v1 first. Anything that builds per-path rules must cover each one. */
+        public List<String> apiPrefixes() {
+            return List.of(apiV1Prefix, apiV2Prefix);
+        }
     }
 
     public record Splunk(
