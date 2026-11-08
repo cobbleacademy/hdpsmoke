@@ -21,6 +21,10 @@ object instead of os.environ.
 HSM_AUTH_MODE selects the auth mode -- STATIC (default) or SELF_SIGNED_JWT,
 mirroring a subset of hsm-crypto-client's SvcConfig.AuthMode. AZURE_AD and
 MTLS are not implemented here yet, see DATABRICKS_UDF_DESIGN.md §14.
+
+HSM_API_VERSION selects hsm-core-service's API version -- V1 (default,
+snake_case JSON) or V2 (camelCase JSON). HSM_SERVICE_BASE_URL must end in
+the matching prefix (.../v1 or .../v2); same endpoints, same data.
 """
 
 from __future__ import annotations
@@ -47,6 +51,7 @@ class Config:
     signing_private_key_pem: str | None = None   # SELF_SIGNED_JWT only -- may be the same PEM as private_key_pem (legacy one-keypair fallback, same as HsmCryptoClient.Builder's)
     self_signed_audience: str = "hsm-core-service"   # SELF_SIGNED_JWT only -- must match hsm-core-service's hsm.jwt.audience (or one entry in its comma-separated list)
     request_timeout_seconds: float = 10.0
+    api_version: str = "V1"                 # "V1" (snake_case) or "V2" (camelCase); base_url must be that version's prefix
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -79,13 +84,16 @@ class Config:
         auth_mode = str(get("HSM_AUTH_MODE") or "STATIC").strip().upper()
         private_key_pem = _require(get, "HSM_PRIVATE_KEY_PEM", source_hint)
         timeout = float(get("HSM_REQUEST_TIMEOUT_SECONDS") or 10.0)
+        api_version = str(get("HSM_API_VERSION") or "V1").strip().upper()
+        if api_version not in ("V1", "V2"):
+            raise ConfigError(f"HSM_API_VERSION must be V1 or V2, got '{api_version}'")
 
         if auth_mode == "STATIC":
             bearer_token = _require(get, "HSM_BEARER_TOKEN", source_hint)
             return cls(
                 base_url=str(base_url).rstrip("/"), app_id=app_id, auth_mode=auth_mode,
                 private_key_pem=private_key_pem, bearer_token=bearer_token,
-                request_timeout_seconds=timeout,
+                request_timeout_seconds=timeout, api_version=api_version,
             )
         elif auth_mode == "SELF_SIGNED_JWT":
             # HSM_BEARER_TOKEN is STATIC-only and never read here -- this mode
@@ -122,6 +130,7 @@ class Config:
                 base_url=str(base_url).rstrip("/"), app_id=app_id, auth_mode=auth_mode,
                 private_key_pem=private_key_pem, signing_private_key_pem=signing_private_key_pem,
                 self_signed_audience=audience, request_timeout_seconds=timeout,
+                api_version=api_version,
             )
         else:
             raise ConfigError(

@@ -3,6 +3,11 @@ HTTP client for hsm-core-service's POST /dek/issue and POST /dek/unwrap --
 the same two endpoints hsm-bulk-client uses (java/docs/BULK_OPERATIONS.md
 Tier 3). No new server-side surface; this is a Python client for an
 already-shipped, already-tested API.
+
+Field names follow Config.api_version: snake_case on V1, camelCase on V2
+(hsm-core-service rejects unknown fields on V2 with 400, so a mix-up fails
+loudly). This module builds and reads snake_case dicts either way; only the
+wire format changes, in _post.
 """
 
 from __future__ import annotations
@@ -79,12 +84,32 @@ class SvcClient:
 
     def _post(self, path: str, body: dict) -> dict:
         url = f"{self._config.base_url}{path}"
-        resp = self._session.post(url, json=body, headers=self._headers(),
+        v2 = self._config.api_version == "V2"
+        resp = self._session.post(url, json=_rename_keys(body, _camel) if v2 else body, headers=self._headers(),
                                    timeout=self._config.request_timeout_seconds)
         if not resp.ok:
             detail = _extract_detail(resp)
             raise SvcClientError(f"{path} -> {resp.status_code}: {detail}")
-        return resp.json()
+        data = resp.json()
+        return _rename_keys(data, _snake) if v2 else data
+
+
+def _camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
+def _snake(name: str) -> str:
+    return "".join("_" + c.lower() if c.isupper() else c for c in name)
+
+
+def _rename_keys(node, rename):
+    """Every object key in a JSON tree renamed (values untouched): API v2's camelCase <-> this module's snake_case."""
+    if isinstance(node, dict):
+        return {rename(k): _rename_keys(v, rename) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_rename_keys(v, rename) for v in node]
+    return node
 
 
 def _build_token_provider(config: Config) -> TokenProvider:
