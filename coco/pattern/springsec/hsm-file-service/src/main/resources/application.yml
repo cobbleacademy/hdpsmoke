@@ -63,6 +63,8 @@ hsm:
       timestamp-format: iso-instant
     web:
       api-prefix: ${hsm.file-service.server.api-prefix}
+      # Docs profile: Swagger UI offers v1 and v2 (dropdown); <v2 prefix>/docs opens it on v2.
+      api-v2-prefix: ${hsm.file-service.server.api-v2-prefix}
       request-id:
         header: X-Request-Id
         mdc-key: requestId
@@ -72,10 +74,16 @@ hsm:
     # hsm-core-service's prefix (outbound: the service this one calls).
     server:
       api-prefix: ${FILE_SERVICE_API_PREFIX:/api/sensec/file/v1}
+      # The same endpoint as API v2: identical bytes and headers, camelCase error body
+      # (errorCode, requestId). See FILE_SERVICE.md "API versions".
+      api-v2-prefix: ${FILE_SERVICE_API_V2_PREFIX:/api/sensec/file/v2}
     # hsm-core-service, the service this one CALLS (outbound).
     core:
       base-url: ${HSM_CORE_BASE_URL:}
       api-v1-prefix: ${HSM_CORE_API_V1_PREFIX:/api/sensec/hsm/v1}
+      # V1 (default): api-v1-prefix, snake_case. V2: api-v2-prefix, camelCase. Same data.
+      api-version: ${HSM_CORE_API_VERSION:V1}
+      api-v2-prefix: ${HSM_CORE_API_V2_PREFIX:/api/sensec/hsm/v2}
       # This service's own app_id in hsm-core-service -- NOT the app that encrypted the
       # files. It needs dek_unwrap on that app's keys via a cross-app grant
       # (APP_ONBOARDING.md "hsm-file-service").
