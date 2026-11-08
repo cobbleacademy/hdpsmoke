@@ -57,6 +57,8 @@ from auth import StaticTokenProvider
 client = HsmCoreClient(
     base_url="https://your-hsm-core-service",
     api_v1_prefix="/api/sensec/hsm/v1",
+    # api_version="V2",                    # API v2: camelCase on the wire, same results (default "V1")
+    # api_v2_prefix="/api/sensec/hsm/v2",
     app_id="your-app-id",
     token_provider=StaticTokenProvider("<bearer token>"),
 )
@@ -113,6 +115,16 @@ local service instances (demo mode, H2, `MockJwtValidator`'s
   against a real `hsm-core-service` `/dek/issue` call — then decrypted by
   this Python module talking only to `hsm-core-service`'s `/decrypt/batch`.
   SHA-256 matched the original exactly.
+
+## API version (v1 or v2)
+
+`HsmCoreClient` calls API v1 (snake_case) by default. Pass `api_version="V2"`, or set
+`HSM_CORE_API_VERSION=V2` when running the scripts directly (`HSM_CORE_API_V2_PREFIX`
+if the prefix isn't the default), to call v2. v2 has the same endpoints in camelCase,
+and the server rejects unknown fields there with 400. Items are built with snake_case
+keys either way; the client renames them on the wire. Verified against a real
+hsm-core-service on both versions with `python hsm_core_batch_file.py`. See
+`java/docs/API_VERSIONS.md`.
 
 ## Auth — `auth.py`
 
@@ -200,6 +212,8 @@ SHA-256 against the manifest, and only renames into place on a match —
 | `SVC_AZURE_TOKEN_SCOPE` | `AZURE_AD` | | e.g. `api://<core-app-id>/.default` |
 | `SVC_TOKEN` | `STATIC` | | Bearer token as-is; a real Azure AD token expires (~1 h) — prefer `AZURE_AD` for long runs |
 | `SVC_API_V1_PREFIX` | | `/api/sensec/hsm/v1` | Must match the service's prefix |
+| `SVC_API_VERSION` | | `V1` | `V1` (snake_case) or `V2` (camelCase); see `java/docs/API_VERSIONS.md` |
+| `SVC_API_V2_PREFIX` | | `/api/sensec/hsm/v2` | Used only with `SVC_API_VERSION=V2` |
 | `CLIENT_PRIVATE_KEY_FILE` | ✓ | | Path to the PKCS#8 private key; passed to the jar in memory, never sent anywhere |
 | `FILE_SOURCE_ROOT` | ✓ | | Blob: `https://<acct>.blob.core.windows.net/<container>/<folder>`; ADLS Gen2: `abfss://<container>@<acct>.dfs.core.windows.net/<folder>`; or a local path |
 | `FILE_TARGET_ROOT` | ✓ | | Same forms; must **not** be the source folder or inside it |

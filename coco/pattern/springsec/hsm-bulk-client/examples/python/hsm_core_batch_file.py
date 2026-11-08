@@ -19,9 +19,11 @@ reviewed foundational one. This file is Tier 1: hsm-core-service directly,
 nothing else running.)
 
 Wire contract, straight from EncryptController/DecryptController's actual
-DTOs (com.hsm.core.dto) -- every JSON field below is snake_case, since
-hsm-core-service's whole API uses spring.jackson.property-naming-strategy:
-SNAKE_CASE:
+DTOs (com.hsm.core.dto) -- every JSON field below is shown in API v1's
+snake_case. API v2 (api_version="V2", {api_v2_prefix}) is the same contract
+in camelCase (data_classification -> dataClassification, dek_name ->
+dekName) and rejects unknown fields with 400; this module builds and reads
+snake_case dicts either way and renames keys on the wire only (_post_batch):
 
     POST {base_url}{api_v1_prefix}/encrypt/batch
     Authorization: Bearer <token>
@@ -105,6 +107,8 @@ class HsmCoreClient:
     token_provider: TokenProvider
     batch_max_items: int = DEFAULT_BATCH_MAX_ITEMS
     session: requests.Session = field(default_factory=requests.Session)
+    api_version: str = "V1"                      # "V1" (snake_case, api_v1_prefix) or "V2" (camelCase, api_v2_prefix)
+    api_v2_prefix: str = "/api/sensec/hsm/v2"
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -115,14 +119,18 @@ class HsmCoreClient:
         }
 
     def _post_batch(self, path: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        v2 = self.api_version.upper() == "V2"
+        body: Any = {"items": items}
         resp = self.session.post(
-            f"{self.base_url}{self.api_v1_prefix}{path}",
+            f"{self.base_url}{self.api_v2_prefix if v2 else self.api_v1_prefix}{path}",
             headers=self._headers(),
-            data=json.dumps({"items": items}),
+            data=json.dumps(_rename_keys(body, _camel) if v2 else body),
             timeout=60,
         )
         resp.raise_for_status()  # a 4xx/5xx here means the WHOLE batch was rejected (e.g. bad auth, over-cap, empty)
-        return resp.json()["items"]
+        data = resp.json()
+        return (_rename_keys(data, _snake) if v2 else data)["items"]
+
 
     def encrypt_items(self, items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """items: [{"key": ..., "plaintext": <base64>, "encoding": "base64", ...}]. Returns {key: result_dict}, raising on any per-item error."""
@@ -143,6 +151,24 @@ class HsmCoreClient:
                     raise HsmCoreBatchError(f"decrypt failed for key={result_item['key']}: {result_item['detail']}")
                 by_key[result_item["key"]] = result_item["result"]
         return by_key
+
+
+def _camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
+def _snake(name: str) -> str:
+    return "".join("_" + c.lower() if c.isupper() else c for c in name)
+
+
+def _rename_keys(node: Any, rename) -> Any:
+    """Every object key in a JSON tree renamed, values untouched: API v2's camelCase <-> snake_case."""
+    if isinstance(node, dict):
+        return {rename(k): _rename_keys(v, rename) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_rename_keys(v, rename) for v in node]
+    return node
 
 
 def encrypt_file(
@@ -253,10 +279,13 @@ if __name__ == "__main__":
 
     base_url = os.environ.get("HSM_CORE_BASE_URL", "http://localhost:3105")
     api_v1_prefix = os.environ.get("HSM_CORE_API_V1_PREFIX", "/api/sensec/hsm/v1")
+    api_v2_prefix = os.environ.get("HSM_CORE_API_V2_PREFIX", "/api/sensec/hsm/v2")
+    api_version = os.environ.get("HSM_CORE_API_VERSION", "V1")  # V1 (snake_case) or V2 (camelCase)
     app_id = os.environ.get("HSM_CORE_APP_ID", "payments-svc")
     token_provider = build_token_provider_from_env(app_id)  # HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD
 
-    client = HsmCoreClient(base_url=base_url, api_v1_prefix=api_v1_prefix, app_id=app_id, token_provider=token_provider)
+    client = HsmCoreClient(base_url=base_url, api_v1_prefix=api_v1_prefix, app_id=app_id, token_provider=token_provider,
+                           api_version=api_version, api_v2_prefix=api_v2_prefix)
 
     demo_plaintext = os.urandom(37_000)  # forces multiple chunks at the small chunk size below
     with tempfile.TemporaryDirectory() as tmp:
@@ -264,7 +293,8 @@ if __name__ == "__main__":
         src, manifest, dec = tmp / "plain.bin", tmp / "manifest.json", tmp / "decrypted.bin"
         src.write_bytes(demo_plaintext)
 
-        m = encrypt_file(client, src, manifest, chunk_size_bytes=4096)
+        # data_classification is the one multi-word API field here: it exercises the v2 rename.
+        m = encrypt_file(client, src, manifest, chunk_size_bytes=4096, data_classification="pii")
         print(f"encrypted: chunk_count={m['chunk_count']} plaintext_sha256={m['plaintext_sha256']}")
 
         decrypt_file(client, manifest, dec)
@@ -272,4 +302,4 @@ if __name__ == "__main__":
         print(f"decrypted: match={match}")
         if not match:
             sys.exit(1)
-        print("OK -- round trip verified against a real hsm-core-service")
+        print(f"OK -- round trip verified against a real hsm-core-service (API {api_version.upper()})")

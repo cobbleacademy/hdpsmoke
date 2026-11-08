@@ -24,6 +24,8 @@ Optional (defaults in brackets):
   JOB_MODE [ENCRYPT]  ENCRYPT | DECRYPT
   SVC_AUTH_MODE [AZURE_AD]  AZURE_AD | STATIC
   SVC_API_V1_PREFIX [/api/sensec/hsm/v1]
+  SVC_API_VERSION [V1]      V1 (snake_case) | V2 (camelCase) -- which hsm-core-service API the job calls
+  SVC_API_V2_PREFIX [/api/sensec/hsm/v2]   only used with SVC_API_VERSION=V2
   FILE_SOURCE_TYPE / FILE_TARGET_TYPE [AZURE_BLOB]  AZURE_BLOB | ADLS | LOCAL
   FILE_TYPES [all files]   comma-separated extensions, e.g. .pdf,.csv
   FILE_DEK_NAME [unset]    one named DEK for the whole job instead of one DEK per file (ENCRYPT)
@@ -96,6 +98,8 @@ def build_env() -> dict[str, str]:
         "JOB_MODE": mode,
         "SVC_BASE_URL": _require("SVC_BASE_URL").rstrip("/"),
         "SVC_API_V1_PREFIX": os.environ.get("SVC_API_V1_PREFIX", "/api/sensec/hsm/v1"),
+        "SVC_API_VERSION": os.environ.get("SVC_API_VERSION", "V1").strip().upper(),
+        "SVC_API_V2_PREFIX": os.environ.get("SVC_API_V2_PREFIX", "/api/sensec/hsm/v2"),
         "SVC_APP_ID": _require("SVC_APP_ID"),
         "SVC_AUTH_MODE": auth_mode,
         "CLIENT_PRIVATE_KEY_PEM": private_key_pem,
@@ -135,7 +139,8 @@ def main() -> int:
 
     print(f"job: {env['JOB_MODE']}  {env['FILE_SOURCE_TYPE']} {env['FILE_SOURCE_ROOT']}"
           f"  ->  {env['FILE_TARGET_TYPE']} {env['FILE_TARGET_ROOT']}")
-    print(f"svc: {env['SVC_BASE_URL']}{env['SVC_API_V1_PREFIX']}  app_id={env['SVC_APP_ID']}"
+    prefix = env["SVC_API_V2_PREFIX"] if env["SVC_API_VERSION"] == "V2" else env["SVC_API_V1_PREFIX"]
+    print(f"svc: {env['SVC_BASE_URL']}{prefix} ({env['SVC_API_VERSION']})  app_id={env['SVC_APP_ID']}"
           f"  auth={env['SVC_AUTH_MODE']}")
     print("job file:\n" + yaml_text, flush=True)
 

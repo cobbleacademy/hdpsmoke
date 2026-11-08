@@ -237,6 +237,8 @@ if __name__ == "__main__":
     client = HsmCoreClient(
         base_url=os.environ.get("HSM_CORE_BASE_URL", "http://localhost:3105"),
         api_v1_prefix=os.environ.get("HSM_CORE_API_V1_PREFIX", "/api/sensec/hsm/v1"),
+        api_v2_prefix=os.environ.get("HSM_CORE_API_V2_PREFIX", "/api/sensec/hsm/v2"),
+        api_version=os.environ.get("HSM_CORE_API_VERSION", "V1"),  # V1 (snake_case) or V2 (camelCase)
         app_id=app_id,
         # HSM_CORE_AUTH_MODE: STATIC (default) / SELF_SIGNED_JWT / AZURE_AD -- see auth.py
         token_provider=build_token_provider_from_env(app_id),
