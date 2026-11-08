@@ -39,6 +39,11 @@ import static io.gatling.javaapi.http.HttpDsl.*;
  * <h2>Tuning (system properties, all optional)</h2>
  * <ul>
  *   <li>{@code hsm.baseUrl} (default {@code http://localhost:3005})
+ *   <li>{@code hsm.apiVersion} -- {@code V1} (default) or {@code V2}: which API prefix
+ *       to load ({@code /api/sensec/hsm/v1} or {@code /v2}). Every field this
+ *       simulation sends or reads is one word, identical in both versions, so only
+ *       the path changes. Switch with {@code -Dhsm.apiVersion=V2}; back with V1 or unset.
+ *   <li>{@code hsm.apiPrefix} -- overrides the prefix outright (default: from apiVersion)
  *   <li>{@code hsm.appId} / {@code hsm.token} (default {@code payments-svc} /
  *       {@code demo-token-payments-svc} -- {@code MockJwtValidator}'s seeded demo
  *       app with both encrypt and decrypt scopes)
@@ -64,7 +69,9 @@ import static io.gatling.javaapi.http.HttpDsl.*;
 public class EncryptDecryptLoadSimulation extends Simulation {
 
     private static final String BASE_URL = System.getProperty("hsm.baseUrl", "http://localhost:3005");
-    private static final String API_PREFIX = "/api/sensec/hsm/v1";
+    private static final String API_VERSION = System.getProperty("hsm.apiVersion", "V1").trim().toUpperCase();
+    private static final String API_PREFIX = System.getProperty("hsm.apiPrefix",
+            "V2".equals(API_VERSION) ? "/api/sensec/hsm/v2" : "/api/sensec/hsm/v1");
     private static final String APP_ID = System.getProperty("hsm.appId", "payments-svc");
     private static final String TOKEN = System.getProperty("hsm.token", "demo-token-" + APP_ID);
 
