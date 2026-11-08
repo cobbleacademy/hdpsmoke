@@ -204,7 +204,7 @@ function ArchitectureDiagram() {
         {/* ── CORE SERVICE ── */}
         <rect x="440" y="180" width="200" height="300" rx="8" fill="#1a1d27" stroke="#a78bfa" strokeWidth="2" />
         <text x="540" y="202" textAnchor="middle" fill="#a78bfa" fontSize="10" letterSpacing="1" fontFamily="monospace">CORE SERVICE</text>
-        <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Spring Boot · /api/sensec/hsm/v1</text>
+        <text x="540" y="216" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">Spring Boot · /api/sensec/hsm/{'{'}v1,v2{'}'}</text>
         <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" strokeWidth="1" />
         <text x="540" y="243" textAnchor="middle" fill="#10b981" fontSize="10" fontFamily="monospace">POST /encrypt · /batch</text>
         <text x="540" y="258" textAnchor="middle" fill="#555b7a" fontSize="9" fontFamily="monospace">Gen DEK → AES-256-GCM</text>
@@ -543,7 +543,7 @@ function ArchitectureDiagram() {
         <text x="415" y="2127" textAnchor="middle" fill="#14b8a6" fontSize="11" letterSpacing="1" fontFamily="monospace">hsm-file-service</text>
         <text x="415" y="2140" textAnchor="middle" fill="#555b7a" fontSize="8" fontFamily="monospace">core team owns the code · consumer gets signed image + Helm chart</text>
         <rect x="215" y="2148" width="400" height="22" rx="4" fill="#22263a" stroke="#14b8a6" strokeWidth="1" />
-        <text x="415" y="2163" textAnchor="middle" fill="#14b8a6" fontSize="9" fontFamily="monospace">GET /api/sensec/file/v1/files/{'{'}path{'}'} · read-only (no upload/list/delete)</text>
+        <text x="415" y="2163" textAnchor="middle" fill="#14b8a6" fontSize="8" fontFamily="monospace">GET /api/sensec/file/{'{'}v1,v2{'}'}/files/{'{'}path{'}'} · read-only (no upload/list/delete)</text>
         <rect x="215" y="2174" width="400" height="32" rx="4" fill="#22263a" />
         <text x="415" y="2187" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">AuthorizationPolicy: BFF principal only · NetworkPolicy · path-prefix allow-list</text>
         <text x="415" y="2199" textAnchor="middle" fill="#94a3b8" fontSize="8" fontFamily="monospace">X-Expected-File-Id mismatch → 412 (whole-file swap)</text>
@@ -725,6 +725,7 @@ const FLOWS = [
   {
     title: '2. Encrypt Flow',
     color: '#10b981',
+    note: 'Request fields in this diagram are v1 (snake_case); v2 uses camelCase. Same flow on both.',
     steps: [
       'Client calls POST /encrypt directly, presenting { plaintext, encoding, data_classification, end_user_id } — plus an optional dek_name (see panel 2 of the Live Demo tab).',
       'HSM Service validates the JWT, the app_id, and the encrypt scope.',
@@ -936,7 +937,7 @@ const FLOWS = [
     ],
   },
   {
-    title: '10. hsm-file-service: GET /api/sensec/file/v1/files/{path} (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)',
+    title: '10. hsm-file-service: GET /api/sensec/file/{v1,v2}/files/{path} (consumer namespace; core team owns the code, consumer runs image + Helm chart — FILE_SERVICE.md)',
     color: '#14b8a6',
     steps: [
       'The consumer UI never calls the service directly: it asks the consumer BFF to open a document, and the BFF — the authority here (option A) — decides whether this user may see this file.',
@@ -1305,6 +1306,7 @@ function FlowsSequence() {
         <section key={flow.title} style={s.panel}>
           <div style={s.panelHead}>
             <h3 style={{ ...s.panelTitle, color: flow.color }}>{flow.title}</h3>
+            {flow.note && <p style={s.panelSub}>{flow.note}</p>}
           </div>
 
           <div style={s.seqWrap}>
