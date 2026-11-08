@@ -18,6 +18,9 @@
 # Example:
 #   HSM_APP_ID=payments-svc HSM_TOKEN=eyJhbGciOi... \
 #     scripts/run-load-test-k8s.sh -n hsm-prod -r hsm-core-service -Dhsm.singleUsers=50
+#
+# API version: set HSM_API_VERSION=V2 to load /api/sensec/hsm/v2 instead of v1
+# (default V1; switch back with V1 or unset). run-load-test.sh reads it.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +57,8 @@ PF_PID=$!
 trap 'echo "Stopping port-forward (pid $PF_PID)"; kill "$PF_PID" 2>/dev/null || true' EXIT
 
 export HSM_BASE_URL="http://localhost:$LOCAL_PORT"
+# Health is checked on v1 only to confirm the port-forward; every build serves both
+# prefixes. run-load-test.sh re-checks the prefix actually loaded (HSM_API_VERSION).
 for _ in $(seq 1 15); do
   if curl -sS -m 2 -o /dev/null "$HSM_BASE_URL/api/sensec/hsm/v1/admin/health"; then
     break
