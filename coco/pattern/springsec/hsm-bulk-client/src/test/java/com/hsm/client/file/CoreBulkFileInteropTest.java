@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hsm.client.svc.SvcClient;
+import com.hsm.client.svc.SvcConfig;
 import com.hsm.crypto.DekManager;
 import com.hsm.crypto.FipsBootstrap;
 import com.hsm.crypto.TransportWrapper;
@@ -217,6 +219,37 @@ class CoreBulkFileInteropTest {
         assertArrayEquals(originalPlaintext, reassembled.toByteArray(),
                 "hsm-core-service /decrypt did not reproduce the original bytes for a /dek/issue-encrypted "
                         + "chunk set -- interoperability regression");
+    }
+
+    /**
+     * The shared client (SvcClient -- used by bulk, the file service and the Spark
+     * adapter) on API v2: camelCase request/response against the real service, and the
+     * same data as v1 -- a DEK issued through v2 unwraps to the same bytes through v1.
+     * A field-name mismatch on v2 would fail loudly (400 unknown field), not silently.
+     */
+    @Test
+    void svcClientOnApiV2_issuesDekThatV1UnwrapsToTheSameBytes() {
+        SvcClient v2 = new SvcClient(svcConfig(SvcConfig.ApiVersion.V2));
+        SvcClient v1 = new SvcClient(svcConfig(SvcConfig.ApiVersion.V1));
+
+        SvcClient.IssueResult issued = v2.issue(List.of(new SvcClient.IssueItem("k1", "pii", "interop-v2"))).get(0);
+        assertEquals("success", issued.status(), "v2 /dek/issue: " + issued.detail());
+        assertEquals("k1", issued.key());
+        assertEquals(APP_ID, issued.ownerAppId());
+        byte[] dekFromV2 = TransportWrapper.unwrap(Base64.getDecoder().decode(issued.wrappedDekB64()), testPrivateKey);
+
+        SvcClient.UnwrapResult viaV1 = v1.unwrap(List.of(new SvcClient.UnwrapItem("k2", issued.edekId()))).get(0);
+        assertEquals("success", viaV1.status(), "v1 /dek/unwrap: " + viaV1.detail());
+        SvcClient.UnwrapResult viaV2 = v2.unwrap(List.of(new SvcClient.UnwrapItem("k3", issued.edekId()))).get(0);
+        assertEquals("success", viaV2.status(), "v2 /dek/unwrap: " + viaV2.detail());
+
+        assertArrayEquals(dekFromV2, TransportWrapper.unwrap(Base64.getDecoder().decode(viaV1.wrappedDekB64()), testPrivateKey));
+        assertArrayEquals(dekFromV2, TransportWrapper.unwrap(Base64.getDecoder().decode(viaV2.wrappedDekB64()), testPrivateKey));
+    }
+
+    private static SvcConfig svcConfig(SvcConfig.ApiVersion version) {
+        return new SvcConfig("http://localhost:" + corePort, API_V1_PREFIX, APP_ID, SvcConfig.AuthMode.STATIC,
+                DEMO_TOKEN, null, 100, null, null, null, null, null, version, null);
     }
 
     @Test

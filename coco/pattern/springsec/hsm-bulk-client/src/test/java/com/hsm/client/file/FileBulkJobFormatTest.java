@@ -94,7 +94,7 @@ class FileBulkJobFormatTest {
         String pem = "-----BEGIN PRIVATE KEY-----\n" + Base64.getMimeEncoder().encodeToString(kp.getPrivate().getEncoded())
                 + "\n-----END PRIVATE KEY-----\n";
         return new SvcConfig("http://unused.invalid", "/api/sensec/hsm/v1", APP, SvcConfig.AuthMode.STATIC,
-                "unused", null, 100, pem, null, null, null, null);
+                "unused", null, 100, pem, null, null, null, null, null, null);
     }
 
     private static ClientProperties.File fileConfig(Path source, Path target, int formatVersion, Boolean results) {
