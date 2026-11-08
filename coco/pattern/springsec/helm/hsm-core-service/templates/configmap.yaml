@@ -16,6 +16,17 @@ data:
   SERVICE_ENV: {{ .Values.config.serviceEnv | quote }}
   LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   API_V1_PREFIX: {{ .Values.config.apiV1Prefix | quote }}
+  {{- if eq (.Values.config.apiV2Prefix | default "") (.Values.config.apiV1Prefix | default "") }}
+  {{- fail "config.apiV2Prefix must be set and differ from config.apiV1Prefix" }}
+  {{- end }}
+  {{- range $k, $v := dict "apiV1DeprecatedAt" .Values.config.apiV1DeprecatedAt "apiV1SunsetAt" .Values.config.apiV1SunsetAt }}
+  {{- if and $v (not (regexMatch "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" ($v | toString))) }}
+  {{- fail (printf "config.%s must be an ISO date (YYYY-MM-DD) or empty, got %q" $k ($v | toString)) }}
+  {{- end }}
+  {{- end }}
+  API_V2_PREFIX: {{ .Values.config.apiV2Prefix | quote }}
+  API_V1_DEPRECATED_AT: {{ .Values.config.apiV1DeprecatedAt | default "" | quote }}
+  API_V1_SUNSET_AT: {{ .Values.config.apiV1SunsetAt | default "" | quote }}
   BATCH_EXECUTOR_POOL_SIZE: {{ .Values.config.batchExecutorPoolSize | quote }}
   DEMO_DATABASE_URL: {{ .Values.config.demoDatabaseUrl | quote }}
   {{- if .Values.config.openApiEnabled }}
