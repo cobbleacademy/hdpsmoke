@@ -65,7 +65,7 @@
           <!-- ── CORE SERVICE ──────────────────────────────────────────── -->
           <rect x="440" y="180" width="200" height="300" rx="8" fill="#1a1d27" stroke="#a78bfa" stroke-width="2"/>
           <text x="540" y="202" text-anchor="middle" fill="#a78bfa" font-size="10" letter-spacing="1" font-family="monospace">CORE SERVICE</text>
-          <text x="540" y="216" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Spring Boot · /api/sensec/hsm/v1</text>
+          <text x="540" y="216" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">Spring Boot · /api/sensec/hsm/{v1,v2}</text>
           <rect x="455" y="225" width="170" height="50" rx="5" fill="#22263a" stroke="#10b981" stroke-width="1"/>
           <text x="540" y="243" text-anchor="middle" fill="#10b981" font-size="10" font-family="monospace">POST /encrypt · /batch</text>
           <text x="540" y="258" text-anchor="middle" fill="#555b7a" font-size="9" font-family="monospace">Gen DEK → AES-256-GCM</text>
@@ -407,7 +407,7 @@
           <text x="415" y="2127" text-anchor="middle" fill="#14b8a6" font-size="11" letter-spacing="1" font-family="monospace">hsm-file-service</text>
           <text x="415" y="2140" text-anchor="middle" fill="#555b7a" font-size="8" font-family="monospace">core team owns the code · consumer gets signed image + Helm chart</text>
           <rect x="215" y="2148" width="400" height="22" rx="4" fill="#22263a" stroke="#14b8a6" stroke-width="1"/>
-          <text x="415" y="2163" text-anchor="middle" fill="#14b8a6" font-size="9" font-family="monospace">GET /api/sensec/file/v1/files/{path} · read-only (no upload/list/delete)</text>
+          <text x="415" y="2163" text-anchor="middle" fill="#14b8a6" font-size="8" font-family="monospace">GET /api/sensec/file/{v1,v2}/files/{path} · read-only (no upload/list/delete)</text>
           <rect x="215" y="2174" width="400" height="32" rx="4" fill="#22263a"/>
           <text x="415" y="2187" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">AuthorizationPolicy: BFF principal only · NetworkPolicy · path-prefix allow-list</text>
           <text x="415" y="2199" text-anchor="middle" fill="#94a3b8" font-size="8" font-family="monospace">X-Expected-File-Id mismatch → 412 (whole-file swap)</text>
