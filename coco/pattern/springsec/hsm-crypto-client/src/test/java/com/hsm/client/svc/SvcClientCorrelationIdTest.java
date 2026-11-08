@@ -49,7 +49,7 @@ class SvcClientCorrelationIdTest {
 
     private SvcConfig config() {
         return new SvcConfig("http://127.0.0.1:" + server.getAddress().getPort(), "/api/sensec/hsm/v1", "test-app",
-                SvcConfig.AuthMode.STATIC, "t", null, 1, null, null, null, null, null);
+                SvcConfig.AuthMode.STATIC, "t", null, 1, null, null, null, null, null, null, null);
     }
 
     private void unwrapOnce(SvcClient client) {
