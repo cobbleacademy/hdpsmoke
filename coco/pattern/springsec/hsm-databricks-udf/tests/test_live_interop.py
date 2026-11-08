@@ -243,3 +243,31 @@ def test_udf_encrypt_decrypt_via_credentials_json_against_real_server():
 
     token = udf.encrypt("value from a real UDF call", dek_name, None, credentials_json)
     assert udf.decrypt(token, credentials_json) == "value from a real UDF call"
+
+
+def test_api_v2_issue_unwraps_to_the_same_dek_via_v1(keypair_and_registered_app):
+    """HSM_API_VERSION=V2 against the real server: camelCase both ways, same data as v1."""
+    private_key = keypair_and_registered_app
+    # Re-register: an earlier test in this module registers a different key for payments-svc.
+    public_pem = private_key.public_key().public_bytes(serialization.Encoding.PEM,
+                                                       serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    resp = requests.post(f"{BASE_URL}/admin/apps/keys", headers=_headers("demo-token-ops-admin", "ops-admin"),
+                         json={"app_id": "payments-svc", "encryption_public_key_pem": public_pem})
+    assert resp.status_code == 200, resp.text
+    private_pem = private_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                            serialization.NoEncryption()).decode()
+
+    def client(version: str, base_url: str) -> SvcClient:
+        return SvcClient(Config.from_json(json.dumps({
+            "HSM_SERVICE_BASE_URL": base_url, "HSM_APP_ID": "payments-svc", "HSM_AUTH_MODE": "STATIC",
+            "HSM_BEARER_TOKEN": "demo-token-payments-svc", "HSM_PRIVATE_KEY_PEM": private_pem,
+            "HSM_API_VERSION": version})))
+
+    v2_base = BASE_URL.rstrip("/").rsplit("/", 1)[0] + "/v2"
+    issued = client("V2", v2_base).issue_dek(f"udf-v2.{uuid.uuid4()}", "pii")
+    assert issued.owner_app_id == "payments-svc"
+    via_v1 = client("V1", BASE_URL).unwrap_dek(issued.edek_id)
+    via_v2 = client("V2", v2_base).unwrap_dek(issued.edek_id)
+    dek = transport.unwrap(base64.b64decode(issued.wrapped_dek_b64), private_key)
+    assert transport.unwrap(base64.b64decode(via_v1.wrapped_dek_b64), private_key) == dek
+    assert transport.unwrap(base64.b64decode(via_v2.wrapped_dek_b64), private_key) == dek
