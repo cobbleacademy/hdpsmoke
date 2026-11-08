@@ -37,7 +37,7 @@ public class SecurityConfig {
             HsmProperties properties
     ) {
         return new JwtAppIdAuthenticationFilter(
-                jwtValidator, appRegistry, auditLogger, securityProperties, properties.service().apiV1Prefix());
+                jwtValidator, appRegistry, auditLogger, securityProperties, properties.service().apiPrefixes());
     }
 
     @Bean
@@ -49,7 +49,7 @@ public class SecurityConfig {
             HsmProperties properties
     ) {
         return new MtlsAppIdAuthenticationFilter(
-                appRegistry, auditLogger, securityProperties, properties.service().apiV1Prefix());
+                appRegistry, auditLogger, securityProperties, properties.service().apiPrefixes());
     }
 
     @Bean
@@ -67,7 +67,6 @@ public class SecurityConfig {
             HsmSecurityProperties securityProperties,
             HsmProperties properties
     ) throws Exception {
-        String prefix = properties.service().apiV1Prefix();
 
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -75,11 +74,15 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> {
-                    for (HsmSecurityProperties.AccessRule rule : securityProperties.accessRules()) {
-                        String pattern = prefix + rule.pattern();
-                        String[] authorities = rule.authorities().toArray(new String[0]);
-                        for (String method : rule.methods()) {
-                            auth.requestMatchers(HttpMethod.valueOf(method), pattern).hasAnyAuthority(authorities);
+                    // Every rule applies under BOTH prefixes: a v2 path missing here would fall
+                    // through to permitAll() below, i.e. be served with no authorization at all.
+                    for (String prefix : properties.service().apiPrefixes()) {
+                        for (HsmSecurityProperties.AccessRule rule : securityProperties.accessRules()) {
+                            String pattern = prefix + rule.pattern();
+                            String[] authorities = rule.authorities().toArray(new String[0]);
+                            for (String method : rule.methods()) {
+                                auth.requestMatchers(HttpMethod.valueOf(method), pattern).hasAnyAuthority(authorities);
+                            }
                         }
                     }
                     // Everything not listed in hsm.security.access-rules (health check,

@@ -32,12 +32,12 @@ public class HsmAccessDeniedHandler implements AccessDeniedHandler {
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final HsmSecurityProperties securityProperties;
-    private final String apiV1Prefix;
+    private final List<String> apiPrefixes;
     private final AuditLogger auditLogger;
 
     public HsmAccessDeniedHandler(HsmSecurityProperties securityProperties, HsmProperties properties, AuditLogger auditLogger) {
         this.securityProperties = securityProperties;
-        this.apiV1Prefix = properties.service().apiV1Prefix();
+        this.apiPrefixes = properties.service().apiPrefixes();
         this.auditLogger = auditLogger;
     }
 
@@ -67,9 +67,10 @@ public class HsmAccessDeniedHandler implements AccessDeniedHandler {
 
     private List<String> findRequiredAuthorities(HttpServletRequest request) {
         for (HsmSecurityProperties.AccessRule rule : securityProperties.accessRules()) {
-            String pattern = apiV1Prefix + rule.pattern();
-            if (rule.methods().contains(request.getMethod()) && PATH_MATCHER.match(pattern, request.getRequestURI())) {
-                return rule.authorities();
+            for (String prefix : apiPrefixes) {
+                if (rule.methods().contains(request.getMethod()) && PATH_MATCHER.match(prefix + rule.pattern(), request.getRequestURI())) {
+                    return rule.authorities();
+                }
             }
         }
         return List.of();

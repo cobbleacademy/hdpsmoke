@@ -9,7 +9,8 @@ import java.util.List;
  * which endpoints require which scope. Read by both JwtAppIdAuthenticationFilter
  * (to decide which requests need a bearer token at all) and SecurityConfig's
  * authorizeHttpRequests (to decide whether an authenticated caller's scopes are
- * sufficient). pattern is relative to hsm.service.api-v1-prefix.
+ * sufficient). pattern is relative to each API prefix (api-v1-prefix and
+ * api-v2-prefix) -- every rule protects both versions.
  */
 @ConfigurationProperties(prefix = "hsm.security")
 public record HsmSecurityProperties(List<AccessRule> accessRules, boolean mtlsEnabled) {

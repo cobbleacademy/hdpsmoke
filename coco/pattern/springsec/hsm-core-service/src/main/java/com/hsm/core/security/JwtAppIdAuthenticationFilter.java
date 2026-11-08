@@ -47,20 +47,21 @@ public class JwtAppIdAuthenticationFilter extends OncePerRequestFilter {
     private final AppRegistryService appRegistry;
     private final AuditLogger auditLogger;
     private final HsmSecurityProperties securityProperties;
-    private final String apiV1Prefix;
+    /** v1 and v2 -- the same access rules protect both. */
+    private final List<String> apiPrefixes;
 
     public JwtAppIdAuthenticationFilter(
             JwtValidator jwtValidator,
             AppRegistryService appRegistry,
             AuditLogger auditLogger,
             HsmSecurityProperties securityProperties,
-            String apiV1Prefix
+            List<String> apiPrefixes
     ) {
         this.jwtValidator = jwtValidator;
         this.appRegistry = appRegistry;
         this.auditLogger = auditLogger;
         this.securityProperties = securityProperties;
-        this.apiV1Prefix = apiV1Prefix;
+        this.apiPrefixes = apiPrefixes;
     }
 
     @Override
@@ -68,9 +69,10 @@ public class JwtAppIdAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         String method = request.getMethod();
         for (HsmSecurityProperties.AccessRule rule : securityProperties.accessRules()) {
-            String pattern = apiV1Prefix + rule.pattern();
-            if (rule.methods().contains(method) && PATH_MATCHER.match(pattern, path)) {
-                return false; // protected -- do not skip
+            for (String prefix : apiPrefixes) {
+                if (rule.methods().contains(method) && PATH_MATCHER.match(prefix + rule.pattern(), path)) {
+                    return false; // protected -- do not skip
+                }
             }
         }
         return true; // not a configured resource -- no auth required
