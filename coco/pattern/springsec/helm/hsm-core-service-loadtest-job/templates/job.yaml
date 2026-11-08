@@ -59,6 +59,7 @@ spec:
             - name: JAVA_TOOL_OPTIONS
               value: >-
                 -Dhsm.baseUrl={{ required "baseUrl is required -- the in-cluster URL of the hsm-core-service to load-test" .Values.baseUrl }}
+                -Dhsm.apiVersion={{ if has (.Values.apiVersion | default "V1" | toString) (list "V1" "V2") }}{{ .Values.apiVersion | default "V1" }}{{ else }}{{ fail "apiVersion must be V1 or V2" }}{{ end }}
                 -Dhsm.appId=$(HSM_APP_ID)
                 -Dhsm.token=$(HSM_TOKEN)
                 -Dhsm.singleUsers={{ .Values.loadTest.singleUsers }}
