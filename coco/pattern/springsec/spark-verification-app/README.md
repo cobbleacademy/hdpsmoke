@@ -64,6 +64,7 @@ the same `spark.hsm.*` Spark conf keys a real deployment uses (see
 | `HSM_AUTH_MODE` | always | one of `STATIC` \| `AZURE_AD` \| `SELF_SIGNED_JWT` \| `MTLS` |
 | `HSM_PRIVATE_KEY_PATH` | always | file path to the **DEK-transport** private key PEM (matches `app_registrations.public_key_pem`/`encryption_public_key_pem`) |
 | `HSM_API_V1_PREFIX` | optional | defaults to `/api/sensec/hsm/v1` (matches `HsmSparkConfig`'s own default) -- only set this if the target hsm-core-service's `hsm.service.api-v1-prefix` was itself overridden away from that default |
+| `HSM_API_VERSION` / `HSM_API_V2_PREFIX` | optional | `V1` (default, snake_case) or `V2` (camelCase), passed through as `spark.hsm.apiVersion` / `spark.hsm.apiV2Prefix` (default `/api/sensec/hsm/v2`). Switch with `HSM_API_VERSION=V2`; back with `V1` or unset. See `java/docs/API_VERSIONS.md` |
 | `HSM_STATIC_TOKEN` | `HSM_AUTH_MODE=STATIC` | bearer token |
 | `HSM_AZURE_TOKEN_SCOPE` | `HSM_AUTH_MODE=AZURE_AD` | e.g. `api://hsm-core-service/.default` -- must end in `/.default` |
 | `HSM_SIGNING_KEY_PATH` | `HSM_AUTH_MODE=SELF_SIGNED_JWT` | file path to the **signing** private key PEM (matches `app_registrations.signing_public_key_pem`) -- a *different* key from `HSM_PRIVATE_KEY_PATH` unless you're on the legacy one-keypair fallback |

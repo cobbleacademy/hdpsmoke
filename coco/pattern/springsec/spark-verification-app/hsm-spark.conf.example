@@ -14,6 +14,11 @@ spark.hsm.privateKeyPath /path/to/dek-transport-key.pem
 # hsm.service.api-v1-prefix was itself overridden away from that default.
 # spark.hsm.apiV1Prefix /api/sensec/hsm/v1
 
+# Optional -- which hsm-core-service API version to call: V1 (default, snake_case)
+# or V2 (camelCase). Same endpoints and data. apiV2Prefix only matters with V2.
+# spark.hsm.apiVersion V1
+# spark.hsm.apiV2Prefix /api/sensec/hsm/v2
+
 # Only the block matching spark.hsm.authMode above is actually required --
 # delete the other three blocks, or leave them commented, they're unused either way.
 
