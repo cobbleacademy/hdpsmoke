@@ -53,7 +53,7 @@ public class FileController {
     private final MeterRegistry meters;
     private final List<String> allowedPrefixes;
     private final List<String> trustedCallers;
-    private final String filesBase;
+    private final List<String> filesBases;
 
     public FileController(FileDeliveryService delivery, AccessAuditLogger audit, MeterRegistry meters,
                           FileServiceProperties props) {
@@ -62,7 +62,7 @@ public class FileController {
         this.meters = meters;
         this.allowedPrefixes = props.access().allowedPathPrefixes();
         this.trustedCallers = props.access().trustedCallerSpiffeIds();
-        this.filesBase = props.server().apiPrefix() + FILES;
+        this.filesBases = List.of(props.server().apiPrefix() + FILES, props.server().apiV2Prefix() + FILES);
         if (allowedPrefixes.isEmpty()) {
             throw new IllegalStateException("hsm.file-service.access.allowed-path-prefixes must list at least one prefix (use \"*\" to allow every path explicitly)");
         }
@@ -120,7 +120,9 @@ public class FileController {
             @ApiResponse(responseCode = "502", description = "FS-502-KEY-UNAVAILABLE (grant missing / key shredded), FS-502-STORAGE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "503", description = "FS-503-CORE-UNAVAILABLE -- safe to retry with backoff", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
     })
-    @GetMapping("${hsm.file-service.server.api-prefix:" + FileServiceProperties.Server.DEFAULT_API_PREFIX + "}" + FILES + "**")
+    @GetMapping({
+            "${hsm.file-service.server.api-prefix:" + FileServiceProperties.Server.DEFAULT_API_PREFIX + "}" + FILES + "**",
+            "${hsm.file-service.server.api-v2-prefix:" + FileServiceProperties.Server.DEFAULT_API_V2_PREFIX + "}" + FILES + "**"})
     public void get(@Parameter(hidden = true) HttpServletRequest request, @Parameter(hidden = true) HttpServletResponse response) {
         long start = System.nanoTime();
         RequestTrace trace = new RequestTrace();
@@ -130,7 +132,7 @@ public class FileController {
             if (!trustedCallers.isEmpty() && (trace.caller == null || !trustedCallers.contains(trace.caller))) {
                 throw new FileServiceException(ErrorCode.CALLER_NOT_TRUSTED, "peer " + trace.caller + " not in trusted-caller-spiffe-ids");
             }
-            String path = RequestPaths.validate(extractPath(request, filesBase));
+            String path = RequestPaths.validate(extractPath(request, filesBases));
             trace.path = path;
             if (!RequestPaths.isAllowed(path, allowedPrefixes)) {
                 throw new FileServiceException(ErrorCode.NOT_FOUND, "path outside allowed-path-prefixes");
@@ -187,13 +189,12 @@ public class FileController {
         }
     }
 
-    /** Path after {@code <api-prefix>/files/}, percent-decoded as a URI path (not as a form: "+" stays "+"). */
-    static String extractPath(HttpServletRequest request, String filesBase) {
+    /** Path after {@code <api-prefix>/files/} (either version), percent-decoded as a URI path (not as a form: "+" stays "+"). */
+    static String extractPath(HttpServletRequest request, List<String> filesBases) {
         String uri = request.getRequestURI();
-        String prefix = request.getContextPath() + filesBase;
-        if (!uri.startsWith(prefix)) {
-            throw new FileServiceException(ErrorCode.BAD_PATH, "unexpected request URI");
-        }
+        String prefix = filesBases.stream().map(base -> request.getContextPath() + base)
+                .filter(uri::startsWith).findFirst()
+                .orElseThrow(() -> new FileServiceException(ErrorCode.BAD_PATH, "unexpected request URI"));
         try {
             return UriUtils.decode(uri.substring(prefix.length()), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException e) {

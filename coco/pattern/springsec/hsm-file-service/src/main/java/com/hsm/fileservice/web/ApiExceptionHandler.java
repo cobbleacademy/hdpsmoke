@@ -1,6 +1,7 @@
 package com.hsm.fileservice.web;
 
 import com.hsm.chassis.web.RequestIdFilter;
+import com.hsm.fileservice.config.FileServiceProperties;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -16,8 +17,14 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+    private final FileServiceProperties.Server server;
+
+    public ApiExceptionHandler(FileServiceProperties props) {
+        this.server = props.server();
+    }
+
     @ExceptionHandler(FileServiceException.class)
-    public ResponseEntity<ErrorResponse> handle(FileServiceException e, HttpServletRequest request) {
+    public ResponseEntity<Object> handle(FileServiceException e, HttpServletRequest request) {
         String requestId = RequestIdFilter.of(request);
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(e.code().status())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -26,6 +33,8 @@ public class ApiExceptionHandler {
             // Re-set: a streaming failure before the first byte resets the response, clearing it.
             builder.header(RequestIdFilter.DEFAULT_HEADER, requestId);
         }
-        return builder.body(new ErrorResponse(e.code().code(), e.code().message(), requestId));
+        return builder.body(server.isV2(request.getRequestURI())
+                ? new ErrorResponseV2(e.code().code(), e.code().message(), requestId)
+                : new ErrorResponse(e.code().code(), e.code().message(), requestId));
     }
 }
