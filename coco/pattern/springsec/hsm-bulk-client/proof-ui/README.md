@@ -61,6 +61,10 @@ throughout this README:
 ```bash
 export PROOF_UI_SVC_BASE_URL=http://<remote-host>:3005
 export PROOF_UI_API_V1_PREFIX=/api/sensec/hsm/v1   # must match that deployment's own prefix
+# API version the jar calls: V1 (default, snake_case) or V2 (camelCase, same data).
+# Switch with PROOF_UI_API_VERSION=V2; back with V1 (or unset). Restart server.py after.
+# export PROOF_UI_API_VERSION=V2
+# export PROOF_UI_API_V2_PREFIX=/api/sensec/hsm/v2   # only used with V2
 export PROOF_UI_APP_ID=payments-svc
 export PROOF_UI_TOKEN=demo-token-payments-svc
 python3 server.py --port 8000

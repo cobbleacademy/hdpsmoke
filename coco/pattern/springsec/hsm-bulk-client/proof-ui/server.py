@@ -45,6 +45,12 @@ deployment): override via env vars before launching, all optional --
   PROOF_UI_API_V1_PREFIX    default /api/sensec/hsm/v1 -- must match that
                             deployment's hsm.service.api-v1-prefix, not
                             necessarily the local demo's
+  PROOF_UI_API_VERSION      default V1. V1 = snake_case via the v1 prefix;
+                            V2 = camelCase via PROOF_UI_API_V2_PREFIX. Same
+                            endpoints and data (java/docs/API_VERSIONS.md).
+                            To switch: export PROOF_UI_API_VERSION=V2 (back:
+                            V1 or unset), then restart this server.
+  PROOF_UI_API_V2_PREFIX    default /api/sensec/hsm/v2 -- only used with V2
   PROOF_UI_APP_ID           default payments-svc
   PROOF_UI_TOKEN            default demo-token-payments-svc
   JAVA_BIN                  default: resolved from PATH
@@ -116,6 +122,10 @@ WORK_DIR = SCRIPT_DIR / "work"
 
 SVC_BASE_URL = os.environ.get("PROOF_UI_SVC_BASE_URL", "http://localhost:3005")
 API_V1_PREFIX = os.environ.get("PROOF_UI_API_V1_PREFIX", "/api/sensec/hsm/v1")
+API_V2_PREFIX = os.environ.get("PROOF_UI_API_V2_PREFIX", "/api/sensec/hsm/v2")
+API_VERSION = os.environ.get("PROOF_UI_API_VERSION", "V1").strip().upper()  # V1 | V2
+if API_VERSION not in ("V1", "V2"):
+    raise SystemExit(f"PROOF_UI_API_VERSION must be V1 or V2, got {API_VERSION!r}")
 APP_ID = os.environ.get("PROOF_UI_APP_ID", "payments-svc")
 TOKEN = os.environ.get("PROOF_UI_TOKEN", "demo-token-payments-svc")
 AZURE_ROOT = os.environ.get("PROOF_UI_AZURE_ROOT", "")
@@ -192,6 +202,8 @@ client:
   svc:
     base-url: {SVC_BASE_URL}
     api-v1-prefix: {API_V1_PREFIX}
+    api-version: {API_VERSION}
+    api-v2-prefix: {API_V2_PREFIX}
     app-id: {APP_ID}
     auth-mode: STATIC
     token: "{TOKEN}"
