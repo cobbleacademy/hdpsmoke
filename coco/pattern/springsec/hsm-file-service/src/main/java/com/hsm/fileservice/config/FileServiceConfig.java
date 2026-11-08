@@ -1,6 +1,7 @@
 package com.hsm.fileservice.config;
 
 import com.hsm.client.HsmCryptoClient;
+import com.hsm.client.svc.SvcConfig;
 import com.hsm.client.fileformat.EncryptedFileReader;
 import com.hsm.filestore.AdlsFileStore;
 import com.hsm.filestore.AzureBlobFileStore;
@@ -39,6 +40,8 @@ public class FileServiceConfig {
         HsmCryptoClient.Builder b = HsmCryptoClient.builder()
                 .baseUrl(core.baseUrl())
                 .apiV1Prefix(core.apiV1Prefix())
+                .apiV2Prefix(core.apiV2Prefix())
+                .apiVersion(SvcConfig.ApiVersion.valueOf(core.apiVersion().name()))
                 .appId(core.appId())
                 .privateKeyPem(readPem(core.privateKeyPemFile(), "hsm.file-service.core.private-key-pem-file"))
                 .dekCacheTtl(props.dekCache().ttl())
@@ -56,8 +59,8 @@ public class FileServiceConfig {
                     readPem(core.mtlsCertPemFile(), "hsm.file-service.core.mtls-cert-pem-file"),
                     readPem(core.mtlsKeyPemFile(), "hsm.file-service.core.mtls-key-pem-file"));
         }
-        log.info("file_service_core_client app_id={} auth_mode={} dek_cache_ttl={} dek_cache_max={}",
-                core.appId(), core.authMode(), props.dekCache().ttl(), props.dekCache().maxSize());
+        log.info("file_service_core_client app_id={} auth_mode={} api_version={} dek_cache_ttl={} dek_cache_max={}",
+                core.appId(), core.authMode(), core.apiVersion(), props.dekCache().ttl(), props.dekCache().maxSize());
         return b.build();
     }
 

@@ -18,7 +18,7 @@ public record FileServiceProperties(Server server, Core core, Store store, Acces
 
     public FileServiceProperties {
         if (server == null) {
-            server = new Server(null);
+            server = new Server(null, null);
         }
     }
 
@@ -30,25 +30,47 @@ public record FileServiceProperties(Server server, Core core, Store store, Acces
      * @param apiPrefix path the API is served under, version included (default
      *                  /api/sensec/file/v1); the file endpoint is {@code <apiPrefix>/files/{path}}.
      *                  Must start with "/" and must not end with "/".
+     * @param apiV2Prefix the same endpoint as API v2 (default /api/sensec/file/v2): identical
+     *                  file bytes and headers; the only JSON (the error body) is camelCase
+     *                  ({@code errorCode}, {@code requestId}) instead of snake_case. Same rules.
      */
-    public record Server(String apiPrefix) {
+    public record Server(String apiPrefix, String apiV2Prefix) {
         public static final String DEFAULT_API_PREFIX = "/api/sensec/file/v1";
+        public static final String DEFAULT_API_V2_PREFIX = "/api/sensec/file/v2";
 
         public Server {
-            if (apiPrefix == null || apiPrefix.isBlank()) {
-                apiPrefix = DEFAULT_API_PREFIX;
+            apiPrefix = checked("api-prefix", apiPrefix, DEFAULT_API_PREFIX);
+            apiV2Prefix = checked("api-v2-prefix", apiV2Prefix, DEFAULT_API_V2_PREFIX);
+            if (apiPrefix.equals(apiV2Prefix)) {
+                throw new IllegalArgumentException("hsm.file-service.server.api-prefix and api-v2-prefix must differ, both are '"
+                        + apiPrefix + "'");
             }
-            // Rejected rather than normalized: the request mapping is built from the raw value,
-            // so anything trimmed here would no longer match what Spring actually maps.
-            if (!apiPrefix.startsWith("/") || apiPrefix.endsWith("/") || apiPrefix.contains("//")
-                    || apiPrefix.contains("*") || apiPrefix.contains("{") || apiPrefix.matches(".*\\s.*")) {
-                throw new IllegalArgumentException("hsm.file-service.server.api-prefix must look like /api/sensec/file/v1"
-                        + " (leading /, no trailing /, no spaces, wildcards or placeholders), got: '" + apiPrefix + "'");
+        }
+
+        // Rejected rather than normalized: the request mapping is built from the raw value,
+        // so anything trimmed here would no longer match what Spring actually maps.
+        private static String checked(String name, String prefix, String fallback) {
+            if (prefix == null || prefix.isBlank()) {
+                return fallback;
             }
+            if (!prefix.startsWith("/") || prefix.endsWith("/") || prefix.contains("//")
+                    || prefix.contains("*") || prefix.contains("{") || prefix.matches(".*\\s.*")) {
+                throw new IllegalArgumentException("hsm.file-service.server." + name + " must look like " + fallback
+                        + " (leading /, no trailing /, no spaces, wildcards or placeholders), got: '" + prefix + "'");
+            }
+            return prefix;
+        }
+
+        /** True when the request URI is under the v2 prefix -- the error body is then camelCase. */
+        public boolean isV2(String requestUri) {
+            return requestUri != null && requestUri.startsWith(apiV2Prefix + "/");
         }
     }
 
     public enum AuthMode { STATIC, AZURE_AD, SELF_SIGNED_JWT, MTLS }
+
+    /** Which hsm-core-service API version this service calls: V1 snake_case (default) or V2 camelCase. */
+    public enum ApiVersion { V1, V2 }
 
     public enum StoreType { LOCAL, ADLS, AZURE_BLOB }
 
@@ -56,8 +78,15 @@ public record FileServiceProperties(Server server, Core core, Store store, Acces
     public record Core(String baseUrl, String apiV1Prefix, String appId, AuthMode authMode,
                        String privateKeyPemFile, String staticToken, String azureTokenScope,
                        String signingKeyPemFile, String jwtAudience,
-                       String mtlsCertPemFile, String mtlsKeyPemFile) {
+                       String mtlsCertPemFile, String mtlsKeyPemFile,
+                       ApiVersion apiVersion, String apiV2Prefix) {
         public Core {
+            if (apiVersion == null) {
+                apiVersion = ApiVersion.V1;
+            }
+            if (apiV2Prefix == null || apiV2Prefix.isBlank()) {
+                apiV2Prefix = "/api/sensec/hsm/v2";
+            }
             if (apiV1Prefix == null || apiV1Prefix.isBlank()) {
                 apiV1Prefix = "/api/sensec/hsm/v1";
             }

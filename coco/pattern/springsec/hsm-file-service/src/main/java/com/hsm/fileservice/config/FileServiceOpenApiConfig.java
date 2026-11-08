@@ -37,7 +37,22 @@ public class FileServiceOpenApiConfig {
     @Bean
     public OpenAPI fileServiceOpenApi(FileServiceProperties props,
                                       @Value("${springdoc.use-management-port:false}") boolean onManagementPort) {
-        Server server = onManagementPort
+        return new OpenAPI()
+                .info(new Info()
+                        .title("hsm-file-service")
+                        .version(API_VERSION)
+                        .description(DESCRIPTION))
+                .servers(List.of(server(props.server().apiPrefix(), onManagementPort)));
+    }
+
+    static final String DESCRIPTION = """
+            Read-only service, deployed in a consumer's namespace, that serves decrypted files to that
+            consumer's BFF. Authentication is the mesh: Istio STRICT mTLS plus an AuthorizationPolicy
+            allowing only the BFF's service account, so there is no token or API key. The response body
+            is the original file's bytes; JSON appears only for errors. Full guide: FILE_SERVICE.md.""";
+
+    private static Server server(String apiPrefix, boolean onManagementPort) {
+        return onManagementPort
                 // Fixed host, not the generating request's, so the committed spec is deterministic.
                 // The API prefix is a server variable (paths are relative to it), so the one
                 // committed contract holds for every deployment's server.api-prefix; its default
@@ -45,22 +60,12 @@ public class FileServiceOpenApiConfig {
                 ? new Server().url("http://hsm-file-service:8080{apiPrefix}")
                         .description("In-cluster Service, file port. Reachable only from the BFF.")
                         .variables(new ServerVariables().addServerVariable("apiPrefix", new ServerVariable()
-                                ._default(props.server().apiPrefix())
+                                ._default(apiPrefix)
                                 .description("This deployment's API prefix (chart config.server.apiPrefix, env "
                                         + "FILE_SERVICE_API_PREFIX). Default " + FileServiceProperties.Server.DEFAULT_API_PREFIX + ".")))
                 // Served at <prefix>/openapi: "." resolves to <external prefix>/, so ./files/{path}
                 // is right behind any VirtualService prefix or rewrite.
                 : new Server().url(".").description("The API prefix this document was fetched from");
-        return new OpenAPI()
-                .info(new Info()
-                        .title("hsm-file-service")
-                        .version(API_VERSION)
-                        .description("""
-                                Read-only service, deployed in a consumer's namespace, that serves decrypted files to that
-                                consumer's BFF. Authentication is the mesh: Istio STRICT mTLS plus an AuthorizationPolicy
-                                allowing only the BFF's service account, so there is no token or API key. The response body
-                                is the original file's bytes; JSON appears only for errors. Full guide: FILE_SERVICE.md."""))
-                .servers(List.of(server));
     }
 
     private static Parameter pathParameter() {
@@ -76,29 +81,43 @@ public class FileServiceOpenApiConfig {
 
     @Bean
     public OpenApiCustomizer fileServiceOpenApiCustomizer(FileServiceProperties props) {
-        String apiPrefix = props.server().apiPrefix();
         return openApi -> {
-            // Paths relative to the API prefix (it lives in the server URL), and Spring's
-            // <api-prefix>/files/** -- multi-segment, so the path may contain '/' -- published as
-            // a single {path}, since OpenAPI has no multi-segment wildcard.
-            Paths renamed = new Paths();
-            openApi.getPaths().forEach((path, item) -> {
-                if (path.endsWith("/**")) {
-                    item.readOperations().forEach(op -> op.addParametersItem(pathParameter()));
-                }
-                String relative = path.startsWith(apiPrefix) ? path.substring(apiPrefix.length()) : path;
-                renamed.addPathItem(relative.replace("/**", "/{path}"), item);
-            });
-            openApi.setPaths(renamed);
-
-            // error_code allowed values come from the enum, so a new code can't be forgotten in the spec.
-            Map<String, Schema> schemas = openApi.getComponents().getSchemas();
-            Schema<?> error = schemas.get("ErrorResponse");
-            if (error != null && error.getProperties() != null) {
-                @SuppressWarnings("unchecked")
-                Schema<String> code = (Schema<String>) error.getProperties().get("error_code");
-                code.setEnum(Arrays.stream(ErrorCode.values()).map(ErrorCode::code).toList());
-            }
+            relativePaths(openApi, props.server());
+            errorCodes(openApi, "error_code");
         };
     }
+
+    static final String ERROR_SCHEMA = "ErrorResponse";
+
+    /**
+     * Paths relative to the API prefix (it lives in the server URL), and Spring's
+     * <api-prefix>/files/** -- multi-segment, so the path may contain '/' -- published as
+     * a single {path}, since OpenAPI has no multi-segment wildcard. The document lists the v1
+     * mapping only (springdoc.paths-to-match); v2 is derived from it -- see FileServiceApiV2Spec.
+     */
+    private static void relativePaths(OpenAPI openApi, FileServiceProperties.Server server) {
+        List<String> prefixes = List.of(server.apiPrefix(), server.apiV2Prefix());
+        Paths renamed = new Paths();
+        openApi.getPaths().forEach((path, item) -> {
+            if (path.endsWith("/**")) {
+                item.readOperations().forEach(op -> op.addParametersItem(pathParameter()));
+            }
+            String relative = prefixes.stream().filter(path::startsWith).findFirst()
+                    .map(p -> path.substring(p.length())).orElse(path);
+            renamed.addPathItem(relative.replace("/**", "/{path}"), item);
+        });
+        openApi.setPaths(renamed);
+    }
+
+    /** The error code's allowed values come from the enum, so a new code can't be forgotten in the spec. */
+    private static void errorCodes(OpenAPI openApi, String field) {
+        Map<String, Schema> schemas = openApi.getComponents().getSchemas();
+        Schema<?> error = schemas.get(ERROR_SCHEMA);
+        if (error != null && error.getProperties() != null) {
+            @SuppressWarnings("unchecked")
+            Schema<String> code = (Schema<String>) error.getProperties().get(field);
+            code.setEnum(Arrays.stream(ErrorCode.values()).map(ErrorCode::code).toList());
+        }
+    }
+
 }
