@@ -35,9 +35,16 @@ config:
     # Path the API is served under, version included. Endpoint: <apiPrefix>/files/{path}.
     # Leading "/", no trailing "/". Change it to match your gateway/BFF conventions.
     apiPrefix: /api/sensec/file/v1
+    # API v2 of the same endpoint (java/docs/API_VERSIONS.md): identical file bytes and
+    # headers, camelCase error body. The AuthorizationPolicy allows both prefixes.
+    apiV2Prefix: /api/sensec/file/v2
   core:
     baseUrl: ""                     # REQUIRED, e.g. https://hsm-core-service.hsm.svc.cluster.local:3005
     apiV1Prefix: /api/sensec/hsm/v1
+    # Which hsm-core-service API version this service calls: V1 (snake_case, default) or
+    # V2 (camelCase, apiV2Prefix). Same endpoint and data either way.
+    apiVersion: V1
+    apiV2Prefix: /api/sensec/hsm/v2
     # REQUIRED. This service's OWN app_id -- register it in hsm-core-service and grant
     # it dek_unwrap on the keys of the app that encrypted the files (cross-app grant).
     # See APP_ONBOARDING.md "hsm-file-service".
