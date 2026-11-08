@@ -26,3 +26,7 @@ Check rollout status:
 Health check (from inside the cluster):
   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "hsm.fullname" . }} -- \
     python -c "import httpx; print(httpx.get('http://localhost:{{ .Values.service.port }}{{ .Values.probes.path }}').json())"
+
+API versions (java/docs/API_VERSIONS.md): v1 {{ .Values.config.apiV1Prefix }} (snake_case) and v2 {{ .Values.config.apiV2Prefix }} (camelCase)
+are both served by this release. External v2 traffic needs a VirtualService route to {{ .Values.config.apiV2Prefix }}
+(not part of this chart).{{ if or .Values.config.apiV1DeprecatedAt .Values.config.apiV1SunsetAt }} v1 retirement headers ON: deprecated {{ .Values.config.apiV1DeprecatedAt | default "-" }}, sunset {{ .Values.config.apiV1SunsetAt | default "-" }}.{{ end }}
