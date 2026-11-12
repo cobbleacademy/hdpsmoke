@@ -1,6 +1,7 @@
 package com.hsm.core.crypto;
 
 import com.azure.core.credential.TokenCredential;
+import com.azure.core.http.HttpClient;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.identity.ManagedIdentityCredentialBuilder;
@@ -32,11 +33,21 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Deliberately parameterized by kekName on every call, not configured with
  * one fixed key at construction time -- see KekClient's own javadoc for why.
- * Resolves and caches one CryptographyClient per distinct kekName (latest
- * version) lazily, keyed in a plain ConcurrentHashMap; unwrapDek's
- * version-specific client is cheap enough (no network call, just a keyId
- * string) to build fresh per call rather than also caching per
- * (kekName, kekVersion) pair.
+ * Caches one wrapping CryptographyClient per distinct kekName, built from the
+ * <b>versionless</b> key id ({@code <vault>/keys/<name>}) with the SDK's key
+ * caching disabled. Every wrap is therefore a Key Vault call that uses the key's
+ * latest version at that moment, and the version actually used comes back in the
+ * result's key id ({@link WrapResult#kekVersion()}). Without this, a client built
+ * from {@code KeyVaultKey.getId()} (which includes the version) or with SDK key
+ * caching on (which fetches the public key once and wraps locally from then on)
+ * kept wrapping with whatever version was current when the pod first used the
+ * key, so a Key Vault rotation was invisible until the pod restarted.
+ *
+ * <p>unwrapDek's version-specific client is cheap enough (no network call, just
+ * a keyId string) to build fresh per call rather than also caching per
+ * (kekName, kekVersion) pair. Key caching is disabled there too: unwrap needs
+ * the private key, which never leaves the HSM, so the SDK's attempt to fetch the
+ * key for local use was only an extra GET per call.
  */
 public class AzureKeyVaultKekClient implements KekClient {
 
@@ -65,26 +76,56 @@ public class AzureKeyVaultKekClient implements KekClient {
     }
 
     private CryptographyClient getCryptographyClient(String kekName) {
-        return cryptographyClientsByKekName.computeIfAbsent(kekName, name -> {
-            KeyVaultKey key = keyClient.getKey(name);
-            return new CryptographyClientBuilder().keyIdentifier(key.getId()).credential(credential).buildClient();
-        });
+        return cryptographyClientsByKekName.computeIfAbsent(kekName,
+                name -> buildRemoteOnlyClient(latestVersionKeyId(keyvaultUrl, name), credential));
+    }
+
+    /** {@code <vault>/keys/<name>} -- no version, so Key Vault resolves the latest one on each call. */
+    static String latestVersionKeyId(String vaultUrl, String kekName) {
+        return trimTrailingSlash(vaultUrl) + "/keys/" + kekName;
+    }
+
+    static String versionedKeyId(String vaultUrl, String kekName, String kekVersion) {
+        return latestVersionKeyId(vaultUrl, kekName) + "/" + kekVersion;
+    }
+
+    /** Every operation goes to Key Vault; the SDK never fetches and pins the key for local crypto. */
+    static CryptographyClient buildRemoteOnlyClient(String keyId, TokenCredential credential) {
+        return buildRemoteOnlyClient(keyId, credential, null);
+    }
+
+    /** httpClient is for tests (a fake transport); null means the SDK default. */
+    static CryptographyClient buildRemoteOnlyClient(String keyId, TokenCredential credential, HttpClient httpClient) {
+        CryptographyClientBuilder builder = new CryptographyClientBuilder().keyIdentifier(keyId).credential(credential)
+                .disableKeyCaching();
+        if (httpClient != null) {
+            builder.httpClient(httpClient);
+        }
+        return builder.buildClient();
+    }
+
+    /** Last path segment of a key id returned by Key Vault -- the version actually used. */
+    static String versionFromKeyId(String keyId) {
+        String trimmed = trimTrailingSlash(keyId);
+        String version = trimmed.substring(trimmed.lastIndexOf('/') + 1);
+        if (version.isBlank() || trimmed.endsWith("/keys/" + version)) {
+            throw new IllegalStateException("Key Vault returned a key id without a version: " + keyId);
+        }
+        return version;
     }
 
     @Override
     public WrapResult wrapDek(byte[] dek, String kekName) {
         var result = getCryptographyClient(kekName).wrapKey(WRAP_ALGORITHM, dek);
-        String keyId = result.getKeyId();
-        String version = keyId.substring(keyId.lastIndexOf('/') + 1);
-        return new WrapResult(result.getEncryptedKey(), version);
+        return new WrapResult(result.getEncryptedKey(), versionFromKeyId(result.getKeyId()));
     }
 
     @Override
     public byte[] unwrapDek(byte[] edek, String kekName, String kekVersionToUse) {
         // Unwrap with the *specific* KEK version this EDEK was wrapped with -- old
         // versions remain usable after rotation until all EDEKs are re-wrapped.
-        String keyId = trimTrailingSlash(keyvaultUrl) + "/keys/" + kekName + "/" + kekVersionToUse;
-        CryptographyClient versioned = new CryptographyClientBuilder().keyIdentifier(keyId).credential(credential).buildClient();
+        CryptographyClient versioned = buildRemoteOnlyClient(
+                versionedKeyId(keyvaultUrl, kekName, kekVersionToUse), credential);
         var result = versioned.unwrapKey(WRAP_ALGORITHM, edek);
         return result.getKey();
     }
