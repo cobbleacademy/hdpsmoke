@@ -66,6 +66,39 @@ DB fix has to happen directly against the database, not through the API.
 `RotationService.rotateKek` pages through stale records
 (`PAGE_SIZE`-sized batches) and re-wraps each under the new KEK version.
 
+How a KEK rotation happens end to end:
+
+1. **Key Vault creates the new key version.** hsm-core never does: use the
+   key's rotation policy, `az keyvault key rotate`, or "New version" in the
+   portal. Keep older versions **enabled** until step 2 has finished, because
+   rows on them are unwrapped with them.
+2. **hsm-core re-wraps every current EDEK** under the latest version: the
+   `KekRotationScheduler` (`KEK_ROTATION_CRON`, default `0 2 1 * *`) or
+   `POST /admin/rotate-kek[?kekName=…]`. No pod restart is needed between 1
+   and 2: wraps always go to Key Vault without a pinned version, and each row
+   records the version Key Vault reports it actually used.
+
+To check a rotation:
+
+- Logs: `kek_rotation_scheduler_started` at startup, then
+  `kek_rotation_started kek_name=… new_kek_version=…` and
+  `kek_rotation_job_completed records=N` (or `…_skipped` / `…_failed`).
+- Audit: `kek_rotation_completed` with `new_kek_version`, `records_rotated`,
+  `triggered_by`.
+- DB, one version per `kek_name` after a full run:
+  `SELECT kek_name, kek_version, count(*), max(rotated_at) FROM hsm_crypto.edek_records WHERE rotation_status = 'current' GROUP BY 1, 2;`
+  compared with `az keyvault key show --vault-name <vault> -n <kek> --query key.kid`.
+- A run that fails with `wrapped under version X while this rotation targets Y
+  (rotated again mid-run?)` means the KEK got another new version during the
+  run. Rows already done are correct; re-run and it finishes on the newest
+  version.
+- **Builds before this fix** pinned the KEK version per pod and labelled
+  re-wrapped rows with the new version. A rotation run on a pod that had been
+  up since before the Key Vault rotation could leave rows labelled with a
+  version that cannot unwrap them (decrypt/unwrap fails for those rows only).
+  If a Key Vault rotation and a rotation run ever happened without a pod
+  restart in between, check for such failures before retiring old versions.
+
 - Check `records_queued` in the response / `kek_rotation_completed` audit
   event against the actual count of records still on the old
   `kek_version` (`SELECT count(*) FROM edek_records WHERE kek_version != '<new>' AND rotation_status = 'current'`).
