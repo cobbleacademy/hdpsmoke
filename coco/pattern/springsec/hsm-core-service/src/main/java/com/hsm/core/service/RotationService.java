@@ -198,8 +198,20 @@ public class RotationService {
         byte[] dekBytes = kekClient.unwrapDek(oldEdek, unwrapKekName, record.getKekVersion());
         try {
             KekClient.WrapResult wrapResult = kekClient.wrapDek(dekBytes, kekName);
+            if (!newVersion.equals(wrapResult.kekVersion())) {
+                // Key Vault wrapped under a different version than the one this run
+                // targets -- almost always because the KEK was rotated again mid-run.
+                // Never label a row with a version it wasn't wrapped under, and don't
+                // keep going: the page query selects kek_version != newVersion, so
+                // such rows would be picked up again forever. Throwing rolls back this
+                // page; pages already committed are correct; the next run targets the
+                // newer version and finishes the job.
+                throw new IllegalStateException("KEK " + kekName + " wrapped under version "
+                        + wrapResult.kekVersion() + " while this rotation targets " + newVersion
+                        + " (rotated again mid-run?); rerun the rotation");
+            }
             record.setEdekBlob(Base64.getEncoder().encodeToString(wrapResult.edekBytes()));
-            record.setKekVersion(newVersion);
+            record.setKekVersion(wrapResult.kekVersion());
             record.setKekName(kekName);
             record.setRotationStatus(RotationStatus.CURRENT);
             record.setRotatedAt(OffsetDateTime.now());
@@ -272,7 +284,10 @@ public class RotationService {
 
             KekClient.WrapResult wrapResult = kekClient.wrapDek(dekBytes, toKekName);
             record.setKekName(toKekName);
-            record.setKekVersion(newVersion);
+            // The version Key Vault actually wrapped under, not the one looked up at
+            // the start of the run: if toKekName rotates mid-run the two differ, and
+            // the row must name the version that can unwrap it.
+            record.setKekVersion(wrapResult.kekVersion());
             record.setEdekBlob(Base64.getEncoder().encodeToString(wrapResult.edekBytes()));
             record.setRotatedAt(OffsetDateTime.now());
         } finally {
