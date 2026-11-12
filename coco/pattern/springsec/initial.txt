@@ -676,6 +676,8 @@ Turn on detailed logging for the three suspects
 kubectl set env deploy/<name> -n <ns> HSM_LOG_FORMAT=text LOGGING_LEVEL_COM_AZURE_IDENTITY=DEBUG LOGGING_LEVEL_COM_MICROSOFT_AAD_MSAL4J=DEBUG LOGGING_LEVEL_COM_ZAXXER_HIKARI=DEBUG LOGGING_LEVEL_ORG_FLYWAYDB=DEBUG
 com.azure.identity and msal4j: which credential was tried, and the exact Entra ID error.
 com.zaxxer.hikari and org.flywaydb: the database connection and the schema migration.
+
+Search for kek_rotation_completed and check new_kek_version, records_rotated, triggered_by (scheduler or the admin caller) and status.
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
