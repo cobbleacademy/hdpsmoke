@@ -679,6 +679,17 @@ com.zaxxer.hikari and org.flywaydb: the database connection and the schema migra
 
 Search for kek_rotation_completed and check new_kek_version, records_rotated, triggered_by (scheduler or the admin caller) and status.
 ----------------------------------------------------------------------------------------------------------------------------------
+Where the wheel command is
+
+It was already in hsm-databricks-udf/DEPLOYMENT.md, step 0.5 “Build the wheel” (python -m build), with step 0.6 covering the upload. I’ve now also put the commands in the new “Internal CA (CERTIFICATE_VERIFY_FAILED)” section, as step 5:
+
+cd hsm-databricks-udf
+python -m pip install build
+python -m build --wheel
+databricks fs cp --overwrite dist/hsm_databricks_udf-0.1.0-py3-none-any.whl dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
+pip install build is only needed once. Your local .venv doesn’t have build, so I listed python -m pip wheel . --no-deps -w dist as an alternative.
+I built the wheel that way and it worked: hsm_databricks_udf-0.1.0-py3-none-any.whl, which lists certifi among its dependencies.
+The step also says that if you bump the version in pyproject.toml, you must update the two wheel paths in create_functions.sql to match. Bumping is the safer choice, because Databricks may keep using a cached copy if you overwrite the 0.1.0 file.
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
