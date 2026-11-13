@@ -26,15 +26,27 @@ HSM_API_VERSION selects hsm-core-service's API version -- V1 (default,
 snake_case JSON) or V2 (camelCase JSON). HSM_SERVICE_BASE_URL must end in
 the matching prefix (.../v1 or .../v2), and a URL ending in the other one is
 refused; same endpoints, same data.
+
+HSM_CA_CERT_PEM (optional) is the CA certificate bundle (PEM, or base64 of
+PEM) that issued hsm-core-service's TLS certificate, for endpoints whose
+certificate comes from an internal/corporate CA. It is trusted in addition to
+the public CAs requests already trusts; certificate verification is never
+turned off. It has to travel in credentials_json like everything else: Unity
+Catalog functions don't see REQUESTS_CA_BUNDLE or certificates installed on
+the cluster.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 from dataclasses import dataclass
 from typing import Callable
 from urllib.parse import urlsplit
+
+from cryptography import x509
 
 _MISSING = object()
 
@@ -54,6 +66,7 @@ class Config:
     self_signed_audience: str = "hsm-core-service"   # SELF_SIGNED_JWT only -- must match hsm-core-service's hsm.jwt.audience (or one entry in its comma-separated list)
     request_timeout_seconds: float = 10.0
     api_version: str = "V1"                 # "V1" (snake_case) or "V2" (camelCase); base_url must be that version's prefix
+    ca_cert_pem: str | None = None          # extra CA bundle (PEM) to trust for base_url's TLS certificate; None = public CAs only
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -90,6 +103,8 @@ class Config:
         if api_version not in ("V1", "V2"):
             raise ConfigError(f"HSM_API_VERSION must be V1 or V2, got '{api_version}'")
         _check_version_matches_url(str(base_url), api_version)
+        ca_raw = get("HSM_CA_CERT_PEM")
+        ca_cert_pem = parse_ca_bundle(ca_raw) if ca_raw else None
 
         if auth_mode == "STATIC":
             bearer_token = _require(get, "HSM_BEARER_TOKEN", source_hint)
@@ -97,6 +112,7 @@ class Config:
                 base_url=str(base_url).rstrip("/"), app_id=app_id, auth_mode=auth_mode,
                 private_key_pem=private_key_pem, bearer_token=bearer_token,
                 request_timeout_seconds=timeout, api_version=api_version,
+                ca_cert_pem=ca_cert_pem,
             )
         elif auth_mode == "SELF_SIGNED_JWT":
             # HSM_BEARER_TOKEN is STATIC-only and never read here -- this mode
@@ -133,7 +149,7 @@ class Config:
                 base_url=str(base_url).rstrip("/"), app_id=app_id, auth_mode=auth_mode,
                 private_key_pem=private_key_pem, signing_private_key_pem=signing_private_key_pem,
                 self_signed_audience=audience, request_timeout_seconds=timeout,
-                api_version=api_version,
+                api_version=api_version, ca_cert_pem=ca_cert_pem,
             )
         else:
             raise ConfigError(
@@ -157,6 +173,35 @@ def _check_version_matches_url(base_url: str, api_version: str) -> None:
             f"HSM_API_VERSION is {api_version} but HSM_SERVICE_BASE_URL ends in /{last_segment}: "
             "change both together. See DEPLOYMENT.md \"Switching to API v2\"."
         )
+
+
+def parse_ca_bundle(value: object) -> str:
+    """
+    HSM_CA_CERT_PEM as normalized PEM text: one or more CERTIFICATE blocks, given
+    as raw PEM or as base64 of PEM (same two forms the key fields accept). Refuses
+    anything containing a private key -- a CA bundle never does, so that's the
+    wrong file -- and anything that doesn't parse as certificates.
+    """
+    raw = value.encode() if isinstance(value, str) else bytes(value)
+    if b"-----BEGIN" not in raw:
+        try:
+            raw = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError) as e:
+            raise ConfigError(f"HSM_CA_CERT_PEM is neither PEM nor base64 of PEM: {e}") from e
+    if b"PRIVATE KEY-----" in raw:
+        raise ConfigError(
+            "HSM_CA_CERT_PEM contains a private key. It must hold only the CA certificate(s) "
+            "(-----BEGIN CERTIFICATE-----) that issued the service's TLS certificate. See DEPLOYMENT.md."
+        )
+    if b"-----BEGIN CERTIFICATE-----" not in raw:
+        raise ConfigError("HSM_CA_CERT_PEM has no '-----BEGIN CERTIFICATE-----' block. See DEPLOYMENT.md.")
+    try:
+        certs = x509.load_pem_x509_certificates(raw)
+    except ValueError as e:
+        raise ConfigError(f"HSM_CA_CERT_PEM does not parse as PEM certificates: {e}") from e
+    if not certs:
+        raise ConfigError("HSM_CA_CERT_PEM contains no certificates. See DEPLOYMENT.md.")
+    return raw.decode("ascii", errors="strict")
 
 
 def _require(get: Callable[[str], object], name: str, source_hint: str) -> str:

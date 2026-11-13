@@ -12,9 +12,12 @@ wire format changes, in _post.
 
 from __future__ import annotations
 
+import ssl
 from dataclasses import dataclass
 
+import certifi
 import requests
+from requests.adapters import HTTPAdapter
 
 from . import transport
 from .auth import SelfSignedJwtTokenProvider, StaticTokenProvider, TokenProvider
@@ -40,11 +43,38 @@ class UnwrapResult:
     owner_app_id: str   # the record's true, permanent owner -- required as the AES-GCM AAD; see cache.py
 
 
+class CaBundleAdapter(HTTPAdapter):
+    """
+    HTTPS adapter that trusts the public CAs requests normally uses (certifi)
+    plus an extra CA bundle -- for an hsm-core-service endpoint whose TLS
+    certificate is issued by an internal/corporate CA. The bundle is loaded from
+    memory (no file written; Unity Catalog's sandbox gives no reliable place to
+    put one). Verification and hostname checking stay on: there is deliberately
+    no way to disable them here.
+    """
+
+    def __init__(self, ca_bundle_pem: str, **kwargs) -> None:
+        context = ssl.create_default_context(cafile=certifi.where())
+        context.load_verify_locations(cadata=ca_bundle_pem)
+        self._ssl_context = context
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs["ssl_context"] = self._ssl_context
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        kwargs["ssl_context"] = self._ssl_context
+        return super().proxy_manager_for(*args, **kwargs)
+
+
 class SvcClient:
     def __init__(self, config: Config, session: requests.Session | None = None,
                  token_provider: TokenProvider | None = None) -> None:
         self._config = config
         self._session = session or requests.Session()
+        if config.ca_cert_pem:
+            self._session.mount("https://", CaBundleAdapter(config.ca_cert_pem))
         self._token_provider = token_provider or _build_token_provider(config)
 
     def _headers(self) -> dict[str, str]:
