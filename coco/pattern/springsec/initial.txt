@@ -679,6 +679,21 @@ com.zaxxer.hikari and org.flywaydb: the database connection and the schema migra
 
 Search for kek_rotation_completed and check new_kek_version, records_rotated, triggered_by (scheduler or the admin caller) and status.
 ----------------------------------------------------------------------------------------------------------------------------------
+How to prepare and store it:
+
+Show the chain the endpoint sends:
+openssl s_client -connect <hsm-host>:443 -servername <hsm-host> -showcerts </dev/null
+If your PKI team gives you binary DER .cer files, convert each to PEM:
+openssl x509 -inform der -in corp-root.cer -out corp-root.pem
+Combine them into one bundle:
+cat corp-intermediate.pem corp-root.pem > hsm-ca-bundle.pem
+Check that the bundle works:
+curl --cacert hsm-ca-bundle.pem https://<hsm-host>/api/sensec/hsm/v1/health
+Store it as a Databricks secret:
+databricks secrets put-secret <scope> hsm-ca-bundle --string-value "$(cat hsm-ca-bundle.pem)"
+
+The hostname in HSM_SERVICE_BASE_URL must also match a name on the certificate (its SAN). Otherwise you’ll get a hostname-mismatch error even with the right CA.
+
 Where the wheel command is
 
 It was already in hsm-databricks-udf/DEPLOYMENT.md, step 0.5 “Build the wheel” (python -m build), with step 0.6 covering the upload. I’ve now also put the commands in the new “Internal CA (CERTIFICATE_VERIFY_FAILED)” section, as step 5:
