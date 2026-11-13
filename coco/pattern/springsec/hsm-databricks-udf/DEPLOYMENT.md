@@ -304,6 +304,77 @@ version decrypt through the other, and no data migration is involved.
 If the two values disagree, the function fails with a `ConfigError` rather than
 calling the service. See [`java/docs/API_VERSIONS.md`](../java/docs/API_VERSIONS.md).
 
+### Internal CA (CERTIFICATE_VERIFY_FAILED)
+
+If `hsm_encrypt`/`hsm_decrypt` fail with `SSL: CERTIFICATE_VERIFY_FAILED`, the
+service's TLS certificate (Istio gateway or Apigee) is issued by an internal or
+corporate CA. Python trusts only the public CAs it ships with (`certifi`), and
+these functions can't be pointed at anything else from outside:
+`REQUESTS_CA_BUNDLE`, init scripts and certificates installed on the cluster don't
+reach a Unity Catalog function. The CA travels in `credentials_json` as
+`HSM_CA_CERT_PEM` instead, trusted **in addition to** the public CAs. Verification
+and hostname checking stay on; there is no setting to turn them off.
+
+**What you need:** the CA certificate chain that issued the service's certificate,
+as PEM text (`-----BEGIN CERTIFICATE-----`): the root CA plus any intermediates, in
+one file. Not the server's own certificate, not a private key, not a `.pfx`/`.jks`.
+A private key or anything that isn't a certificate is refused with a `ConfigError`.
+
+1. See the chain the endpoint presents (the last certificate is the root, or close to it):
+
+   ```bash
+   openssl s_client -connect <hsm-host>:443 -servername <hsm-host> -showcerts </dev/null
+   ```
+
+   Usually the PKI team supplies the files. Binary DER `.cer`/`.crt` files convert with
+   `openssl x509 -inform der -in corp-root.cer -out corp-root.pem`.
+
+2. Build the bundle and check it against the endpoint before uploading:
+
+   ```bash
+   cat corp-intermediate.pem corp-root.pem > hsm-ca-bundle.pem
+   curl --cacert hsm-ca-bundle.pem https://<hsm-host>/api/sensec/hsm/v1/health
+   ```
+
+   If `curl` reports a name mismatch, the host in `HSM_SERVICE_BASE_URL` is not on the
+   certificate (its SAN): use a name that is.
+
+3. Store it as a secret. Raw PEM and base64 of PEM are both accepted; base64 avoids
+   newline mangling:
+
+   ```bash
+   databricks secrets put-secret hsm databricks-udf-ca-bundle --string-value "$(base64 < hsm-ca-bundle.pem | tr -d '\n')"
+   ```
+
+4. In `sql/create_functions.sql`, uncomment the `HSM_CA_CERT_PEM` line in all three
+   places (`hsm_credentials()`, `hsm_encrypt()`, `hsm_decrypt()`). Callers that build
+   their own `credentials_json` add the same field. It is commented out by default
+   because `secret()` on a key that doesn't exist fails every call.
+
+5. Build a wheel from this version of the package (an older wheel ignores the field)
+   and upload it to the volume the `ENVIRONMENT` clause points at (same as §0.5–0.6),
+   from the repository root:
+
+   ```bash
+   cd hsm-databricks-udf
+   python -m pip install build   # once, if `python -m build` says No module named build
+   python -m build --wheel       # writes dist/hsm_databricks_udf-<version>-py3-none-any.whl
+   databricks fs cp --overwrite dist/hsm_databricks_udf-0.1.0-py3-none-any.whl \
+     dbfs:/Volumes/main/hsm/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
+   ```
+
+   Without the `build` package, `python -m pip wheel . --no-deps -w dist` produces the
+   same wheel. The file name carries the `version` from `pyproject.toml`; if you bump
+   it, change the two wheel paths in the `ENVIRONMENT` clauses of
+   `sql/create_functions.sql` to match. Overwriting the same `0.1.0` file may leave
+   Databricks using a cached copy of the old one, so bumping is the safer choice.
+
+6. Re-run the whole `sql/create_functions.sql` and re-check the `EXECUTE` grants as in
+   "Switching to API v2" above.
+
+When the CA is renewed, update the secret. Running workers keep their configuration
+until the function's Python process restarts, so expect a short overlap.
+
 ## 2. Run it
 
 Pure SQL, no notebook or `dbutils` required — the simplified wrappers cover
@@ -383,6 +454,9 @@ above.
 
 | Symptom | Likely cause |
 |---|---|
+| `SSL: CERTIFICATE_VERIFY_FAILED` / `unable to get local issuer certificate` | The service's TLS certificate is from an internal CA that isn't in `HSM_CA_CERT_PEM` (or the field is still commented out, or the wheel is older than this field). See "Internal CA (CERTIFICATE_VERIFY_FAILED)"; check the bundle with `curl --cacert` first |
+| `SSLError ... hostname mismatch` / `IP address mismatch` | The CA is trusted but the host in `HSM_SERVICE_BASE_URL` isn't on the certificate's SAN list. Use the name the certificate was issued for; a CA bundle can't fix this |
+| `ConfigError: HSM_CA_CERT_PEM contains a private key` / `has no '-----BEGIN CERTIFICATE-----' block` | The wrong file went into the secret: it must be the CA certificate chain only |
 | `NameError: name 'dbutils' is not defined` (raised from inside `hsm_encrypt`/`hsm_decrypt`) | The function body is calling `dbutils` directly — confirmed to never work inside a Unity Catalog Python Function; use the `secret(...)`/`to_json(named_struct(...))` pattern instead (see above) |
 | `ValueError: Could not deserialize key data. The data may be in an incorrect format, the provided password may be incorrect...` | Two likely causes: (1) the DEK-transport (or signing) private key was generated **with a passphrase** — `transport.py` always parses with no password; regenerate unencrypted (§0.2); (2) the secret's content is neither raw PEM nor valid base64 of PEM — both formats are accepted (`transport.py`'s `_normalize_key_material` auto-detects), so this means the upload itself was corrupted (wrong file, truncated, extra quoting). Verify without printing the raw value: `SELECT length(secret(...)) AS len` and compare against the expected length of your base64'd (or raw) key file |
 | `ValueError: base64-decoded key material does not contain a PEM '-----BEGIN' marker` | The secret decoded from base64 fine but isn't actually a PEM key — wrong secret name/scope, or the value stored there is something else entirely |

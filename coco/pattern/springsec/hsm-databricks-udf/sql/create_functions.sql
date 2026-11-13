@@ -85,7 +85,7 @@
 --
 -- Edit the credentials literal in ALL THREE places below (hsm_credentials(),
 -- hsm_encrypt(), hsm_decrypt()) to match your deployment (base URL, app_id,
--- auth mode, API version, secret scope/key names) -- see the "REAL COST" note
+-- auth mode, API version, TLS CA, secret scope/key names) -- see the "REAL COST" note
 -- above for why this can't be centralized in one place.
 --
 -- API VERSION: HSM_API_VERSION selects hsm-core-service's API version, V1
@@ -95,6 +95,16 @@
 -- functions never read a cluster's environment variables. Tokens encrypted
 -- through either version decrypt through the other. See DEPLOYMENT.md
 -- "Switching to API v2".
+--
+-- TLS CA: if calls fail with SSL: CERTIFICATE_VERIFY_FAILED, the service's TLS
+-- certificate is issued by an internal/corporate CA that Python doesn't trust by
+-- default. Store that CA chain (PEM: root + any intermediates, no private key)
+-- as the secret hsm/databricks-udf-ca-bundle and uncomment the HSM_CA_CERT_PEM
+-- line in all three places. It is trusted in addition to the public CAs, and
+-- verification stays on. It must be set here: these functions don't see
+-- REQUESTS_CA_BUNDLE or certificates installed on the cluster. Left commented
+-- out by default because secret() on a key that doesn't exist fails every call.
+-- See DEPLOYMENT.md "Internal CA (CERTIFICATE_VERIFY_FAILED)".
 --
 -- GOVERNANCE: a plain CREATE FUNCTION ... LANGUAGE SQL body runs with the
 -- FUNCTION OWNER's privileges by default (definer rights, same as a view)
@@ -125,6 +135,8 @@ RETURN to_json(named_struct(
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
     'HSM_BEARER_TOKEN',     secret('hsm', 'databricks-udf-token')
+    -- Internal/corporate CA for the service's TLS cert: uncomment (see "TLS CA" note above)
+    -- , 'HSM_CA_CERT_PEM',  secret('hsm', 'databricks-udf-ca-bundle')
 ));
 
 -- SELF_SIGNED_JWT variant -- swap the RETURN clause above for this instead
@@ -140,6 +152,7 @@ RETURN to_json(named_struct(
 --     'HSM_AUTH_MODE',               'SELF_SIGNED_JWT',
 --     'HSM_PRIVATE_KEY_PEM',         secret('hsm', 'databricks-udf-private-key'),
 --     'HSM_SIGNING_PRIVATE_KEY_PEM', secret('hsm', 'databricks-udf-signing-key')
+--     -- , 'HSM_CA_CERT_PEM',         secret('hsm', 'databricks-udf-ca-bundle')
 --     -- HSM_SELF_SIGNED_AUDIENCE defaults to "hsm-core-service" -- add it
 --     -- here only if the server's own hsm.jwt.audience config differs.
 -- ));
@@ -212,6 +225,8 @@ RETURN main.hsm.hsm_encrypt_detail(plaintext, dek_name, data_classification, to_
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
     'HSM_BEARER_TOKEN',     secret('hsm', 'databricks-udf-token')
+    -- Internal/corporate CA for the service's TLS cert: uncomment (see "TLS CA" note above)
+    -- , 'HSM_CA_CERT_PEM',  secret('hsm', 'databricks-udf-ca-bundle')
 )));
 
 CREATE OR REPLACE FUNCTION main.hsm.hsm_decrypt(
@@ -227,6 +242,8 @@ RETURN main.hsm.hsm_decrypt_detail(ciphertext_token, to_json(named_struct(
     'HSM_AUTH_MODE',        'STATIC',
     'HSM_PRIVATE_KEY_PEM',  secret('hsm', 'databricks-udf-private-key'),
     'HSM_BEARER_TOKEN',     secret('hsm', 'databricks-udf-token')
+    -- Internal/corporate CA for the service's TLS cert: uncomment (see "TLS CA" note above)
+    -- , 'HSM_CA_CERT_PEM',  secret('hsm', 'databricks-udf-ca-bundle')
 )));
 
 -- Example usage, pure SQL, no notebook or dbutils required -- the common case:
