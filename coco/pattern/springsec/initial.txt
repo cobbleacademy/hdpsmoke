@@ -706,6 +706,18 @@ pip install build is only needed once. Your local .venv doesn’t have build, so
 I built the wheel that way and it worked: hsm_databricks_udf-0.1.0-py3-none-any.whl, which lists certifi among its dependencies.
 The step also says that if you bump the version in pyproject.toml, you must update the two wheel paths in create_functions.sql to match. Bumping is the safer choice, because Databricks may keep using a cached copy if you overwrite the 0.1.0 file.
 ----------------------------------------------------------------------------------------------------------------------------------
+Today: have the DBA run the workaround. It needs no rebuild, takes effect after a pod restart, and can be undone with ALTER ROLE … RESET search_path. It unblocks the broken namespace now, while the new build is still unproven on real Postgres.
+ALTER ROLE <app_role> IN DATABASE <db> SET search_path = hsm_crypto, hsm_access;
+
+This command removes the role’s saved search_path setting:
+ALTER ROLE <app_role> IN DATABASE <db> RESET search_path;
+
+To see what is currently set for the role:
+SELECT r.rolname, d.datname, s.setconfig
+FROM pg_db_role_setting s
+LEFT JOIN pg_roles r ON r.oid = s.setrole
+LEFT JOIN pg_database d ON d.oid = s.setdatabase
+WHERE r.rolname = '<app_role>';
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
