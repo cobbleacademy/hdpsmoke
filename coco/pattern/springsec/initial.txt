@@ -739,6 +739,23 @@ A different namespace or release (old v1, a parallel v2, a second hsm-core) on t
 To clear a stale holder now: SELECT pg_terminate_backend(<pid>);. Postgres releases the lock when that session ends, and the next run goes ahead. You can also trigger one straight away with POST /admin/rotate-kek.
 If a pooler is involved: point DATABASE_URL at the server directly (port 5432, not 6432 or the PgBouncer host). Otherwise the lock will get stuck again. Also add tcpKeepAlive=true to that URL, so a dead pod’s lock is released.
 
+Why the DBA workaround probably didn’t work
+Nothing in the deployed app or the charts overrides the role’s search_path. So one of these is the likely cause, most likely first:
+
+The DBA changed a different role from the one the app connects as. Compare DATABASE_USERNAME in the app’s secret with the role in the ALTER ROLE. Watch for Entra ID / managed-identity users and user@server names.
+IN DATABASE <db> named a different database from the one in DATABASE_URL.
+DATABASE_URL sets its own schema with currentSchema= or options=-c search_path=…. A setting in the URL overrides the role’s setting. Hikari logs the JDBC URL at startup, so check there.
+The connection goes through PgBouncer (port 6432). PgBouncer reuses database sessions that were opened before the change, so they keep the old path.
+The tables aren’t in hsm_crypto in this environment.
+These queries, run as the app’s user (the same username and URL as the pod), tell you which one it is:
+
+SELECT current_user, current_database(), current_setting('search_path');
+SELECT table_schema FROM information_schema.tables WHERE table_name = 'edek_records';
+SELECT r.rolname, d.datname, s.setconfig
+FROM pg_db_role_setting s
+LEFT JOIN pg_roles r ON r.oid = s.setrole
+LEFT JOIN pg_database d ON d.oid = s.setdatabase;
+
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
