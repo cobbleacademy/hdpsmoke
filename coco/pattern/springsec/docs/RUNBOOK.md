@@ -158,13 +158,45 @@ runs each job under a **Postgres session advisory lock**
 
 | Lock key | Guards |
 |---|---|
-| `hsm:kek-wrap` | `rotateKek`, `rekey`, `revertRekey` — scheduled and admin-API runs alike, since all three rewrite the same rows' KEK wrapping |
-| `hsm:named-dek-rotation` | `rotateNamedDeks` |
+| `hsm:kek-wrap:<crypto_schema>` | `rotateKek`, `rekey`, `revertRekey` — scheduled and admin-API runs alike, since all three rewrite the same rows' KEK wrapping |
+| `hsm:named-dek-rotation:<crypto_schema>` | `rotateNamedDeks` |
 
-**What to expect per tick:** exactly one pod logs `*_job_triggered` →
-`*_job_completed`; every other pod logs `*_job_skipped
-reason=already_running`, and a `*_skipped` audit event records it. The
-admin endpoints answer **409 Conflict** instead of queuing.
+`<crypto_schema>` is `CRYPTO_SCHEMA`, trimmed and lower-cased (e.g.
+`hsm:kek-wrap:hsm_crypto_dev`). Each pod logs its names at startup:
+`rotation_lock_keys kek_wrap=... named_dek=...`. A Postgres advisory lock is
+scoped to the **whole database** — not to a schema or role — so the schema in
+the name is what keeps environments that share one database apart (see
+"Several environments on one database" below). Releases on the same crypto
+schema (hsm-core and hsm-bulk of one environment) share the lock, as they must:
+they rewrite the same rows. Builds before this change used `hsm:kek-wrap` /
+`hsm:named-dek-rotation` with no schema, shared by everything on the database.
+
+**What to expect per tick:** every pod with the scheduler enabled logs
+`*_job_triggered`. Exactly one then logs `*_job_completed` (or
+`*_job_failed`); every other pod logs `job_lock_held_elsewhere`, then
+`*_skipped reason=already_running` and `*_job_skipped reason=already_running`,
+and a `*_skipped` audit event records it. The admin endpoints answer
+**409 Conflict** instead of queuing. On an empty database a KEK rotation logs
+`kek_rotation_job_completed records=0` with no `kek_rotation_started` line
+(there is no KEK in use to sweep).
+
+**Who won?** The skipping pod's `job_lock_held_elsewhere` line names the
+session that held the lock at that moment:
+
+```
+job_lock_held_elsewhere key=hsm:kek-wrap holder_pid=4242 holder_client_addr=10.1.2.3 holder_user=hsm_app holder_application=PostgreSQL JDBC Driver holder_backend_start=... holder_state=active holder_state_change=... holder_query=SELECT pg_try_advisory_lock(...)
+```
+
+- `holder_client_addr` is the winning pod's IP (`kubectl get pods -A -o wide`)
+  — another replica, the `hsm-bulk-service` release, or a deployment in a
+  different namespace pointed at the same database.
+- `holder=released_before_lookup`: the winner had already finished when the
+  skipping pod looked (normal for a short run, e.g. an empty database).
+- `holder_client_addr=null` / `holder_state=null` with a different
+  `holder_user`: the holder is another role and this role lacks
+  `pg_read_all_stats`, so Postgres hides those columns; pid and user still show.
+- `holder=unknown lookup_error=...`: the lookup itself failed; the skip is
+  unaffected.
 
 **Ownership by release:** the `hsm-bulk-service` chart sets
 `kekRotationEnabled` / `namedDekRotationEnabled` to `"false"`, so rotation
@@ -179,26 +211,55 @@ ever have them enabled (including v1/v2 running side by side).
   connection and Postgres frees the lock immediately; a pod that *hangs* with
   its TCP connection still open is only detected through keepalive.
 
-**Is a rotation lock stuck?** If every tick logs `already_running` but no pod
-logs `*_job_triggered` for that job, look for the session holding it:
+**Is a rotation lock stuck?** If every pod skips on every tick and no pod
+logs `*_job_completed` / `*_job_failed` for that job, the holder named in
+`job_lock_held_elsewhere` is the session to look at; to check by hand:
 
 ```sql
 -- pg_locks splits a 64-bit advisory key into classid (high 32 bits) and objid (low 32 bits).
+-- Replace hsm_crypto with this environment's CRYPTO_SCHEMA; the schema-less names are pre-upgrade pods.
 SELECT k.key, l.pid, a.client_addr, a.application_name, a.state, a.backend_start, a.state_change
 FROM pg_locks l
 JOIN pg_stat_activity a ON a.pid = l.pid
-JOIN (VALUES ('hsm:kek-wrap'), ('hsm:named-dek-rotation')) AS k(key)
-  ON (l.classid::bigint << 32) | l.objid::bigint = hashtextextended(k.key, 0)
-WHERE l.locktype = 'advisory' AND l.objsubid = 1;
+JOIN (VALUES ('hsm:kek-wrap:hsm_crypto'), ('hsm:named-dek-rotation:hsm_crypto'),
+             ('hsm:kek-wrap'), ('hsm:named-dek-rotation')) AS k(key)
+  ON l.classid = ((hashtextextended(k.key, 0) >> 32) & 4294967295)::oid
+ AND l.objid = (hashtextextended(k.key, 0) & 4294967295)::oid
+WHERE l.locktype = 'advisory' AND l.objsubid = 1
+  AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database());
 ```
 
 If the holder's pod is genuinely gone or hung, restart that pod; only if that
 isn't possible, `SELECT pg_terminate_backend(<pid>)` releases the lock.
 Rotation is safe to re-run after an interrupted sweep (see above).
 
-**Deploying a change to `RotationService` or the lock:** old pods (without the
-lock) and new pods run side by side during a rolling update. Deploy outside
-the rotation windows (default KEK `0 2 1 * *`, named-DEK `0 3 * * *`).
+**Deploying a change to `RotationService` or the lock:** old and new pods run
+side by side during a rolling update and may not share a lock (old pods with no
+lock, or — for the per-schema change — old pods on `hsm:kek-wrap` and new ones on
+`hsm:kek-wrap:<schema>`), so a rotation could run twice at once for a few
+minutes. Deploy outside the rotation windows (default KEK `0 2 1 * *`,
+named-DEK `0 3 * * *`) or set `kekRotationEnabled` / `namedDekRotationEnabled`
+to `"false"` for the rollout; upgrade hsm-core and hsm-bulk of one environment
+in the same window; don't run rekey/revert by hand mid-rollout.
+
+### Several environments on one database
+
+When dev/test/demo share one Postgres database, each needs its own copy of
+everything the services key on:
+
+| What | Per environment |
+|---|---|
+| Schemas | `hsm_crypto_<env>` / `hsm_access_<env>` via `cryptoSchema` / `accessSchema` in both charts (never empty) |
+| DB role | One per environment, `USAGE, CREATE` on its own two schemas only — so a misconfigured pod can't touch another environment's tables |
+| Flyway history | Already separate: it lives in `ACCESS_SCHEMA` |
+| Rotation locks | Separate from this build on (`hsm:kek-wrap:<crypto_schema>`). Before it, every environment shared `hsm:kek-wrap`, so one environment's run made the others skip (`job_lock_held_elsewhere` names the winner) — stagger the crons on older builds |
+| CEK secrets | `cekAlphaSecretName` / `cekBetaSecretName` / `cekCurrentKeySecretName` unique per environment (or a vault per environment) — two cache-key-rotators on the same names overwrite each other's keys |
+| Redis | Separate instance, database number or key prefix |
+| KEKs | Preferably one per environment; a shared KEK works, but a Key Vault rotation of it then hits every environment |
+
+A database per environment on the same server avoids all of the database rows
+above at once (advisory locks are per database) and costs nothing extra on
+Azure Flexible Server.
 
 ## Named-DEK rotation partially failed
 
