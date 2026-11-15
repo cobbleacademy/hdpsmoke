@@ -46,13 +46,14 @@ public record HsmProperties(
     }
 
     /**
-     * cryptoSchema/accessSchema default to "public". JPA entities intentionally
-     * carry no explicit @Table(schema=...) -- they resolve against the JDBC
-     * connection's default schema, which is "public" for both H2 (demo) and a
-     * stock Postgres role. If these are customized to a non-public schema name
-     * in production, configure the Postgres role's default search_path (or
-     * spring.datasource.hikari.connection-init-sql) to match; Flyway itself
-     * always creates the tables inside the configured schema regardless.
+     * cryptoSchema/accessSchema (CRYPTO_SCHEMA/ACCESS_SCHEMA) default to "public".
+     * Flyway creates edek_records/kek_registry in the crypto schema and the
+     * registrations/grants tables in the access schema. JPA entities carry no
+     * explicit @Table(schema=...), so the app finds them through the connection's
+     * search_path, which spring.datasource.hikari.connection-init-sql in
+     * application.yml sets to "crypto, access" on every pooled connection
+     * (Flyway's included). The connecting role's own search_path doesn't matter.
+     * Neither value may be empty: an empty env var overrides the default.
      */
     public record Database(
             String url,
