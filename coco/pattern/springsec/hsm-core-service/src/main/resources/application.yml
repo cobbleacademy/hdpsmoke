@@ -82,6 +82,16 @@ spring:
     # matters for genuinely per-row DEK traffic.
     hikari:
       maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      # JPA entities carry no schema (@Table(name=...) only), so every query resolves
+      # tables through the connection's search_path. CRYPTO_SCHEMA holds edek_records
+      # and kek_registry, ACCESS_SCHEMA the registrations and grants (see the Flyway
+      # migrations); a stock Postgres role's search_path ("$user", public) contains
+      # neither, so without this the app can't find its tables. Runs on every pooled
+      # connection, Flyway's included (V14 drops an index by its bare name).
+      # Postgres accepts a schema that doesn't exist yet here, so this is safe before
+      # Flyway's first run creates them. Override with DB_CONNECTION_INIT_SQL only if
+      # the role's own search_path is managed elsewhere.
+      connection-init-sql: ${DB_CONNECTION_INIT_SQL:SET search_path TO ${CRYPTO_SCHEMA:public}, ${ACCESS_SCHEMA:public}}
   flyway:
     enabled: true
     locations: classpath:db/migration

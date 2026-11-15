@@ -11,6 +11,11 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      # H2 spelling of the base profile's search_path setting. With both schemas
+      # left at public (the demo default) it changes nothing; tests that set
+      # CRYPTO_SCHEMA/ACCESS_SCHEMA rely on it to find tables in two schemas.
+      connection-init-sql: SET SCHEMA_SEARCH_PATH ${CRYPTO_SCHEMA:public}, ${ACCESS_SCHEMA:public}
   flyway:
     locations: classpath:db/migration,classpath:db/migration-demo
     # The base config's ${ACCESS_SCHEMA:public} already resolves to lowercase
@@ -19,7 +24,8 @@ spring:
     # default schema to lowercase too, specifically to mimic Postgres. Without that
     # flag H2's native default is uppercase "PUBLIC" instead; this override exists
     # mainly as a guard against that default ever changing out from under this file.
-    schemas: public
+    # Still follows ACCESS_SCHEMA so tests can exercise the two-schema layout.
+    schemas: ${ACCESS_SCHEMA:public}
 
 hsm:
   # Defaults to true whenever the "demo" profile is active by any mechanism
