@@ -1,5 +1,6 @@
 package com.hsm.core;
 
+import com.hsm.chassis.lock.JobLock;
 import com.hsm.core.demo.DevStatusSeedInitializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -74,6 +77,9 @@ class TwoSchemaPostgresContainerTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private JobLock jobLock;
 
     private static final String V1 = "/api/sensec/hsm/v1";
 
@@ -155,6 +161,34 @@ class TwoSchemaPostgresContainerTest {
         ResponseEntity<Map> list = rest.exchange(V1 + "/admin/grants", HttpMethod.GET, new HttpEntity<>(admin()), Map.class);
         assertEquals(HttpStatus.OK, list.getStatusCode());
         assertTrue(String.valueOf(list.getBody()).contains("pg-reporting-app"));
+    }
+
+    @Test
+    void anotherEnvironmentsRotationLockOnTheSameDatabaseDoesNotBlockThisOne() throws Exception {
+        // Advisory locks are database-wide: hold the lock another environment (own
+        // crypto schema) would take, through a real Postgres session, while this one rotates.
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread otherEnvironment = new Thread(() -> jobLock.tryRun("hsm:kek-wrap:hsm_crypto_other_env", () -> {
+            acquired.countDown();
+            try {
+                release.await(20, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return true;
+        }));
+        otherEnvironment.start();
+        assertTrue(acquired.await(10, TimeUnit.SECONDS));
+        try {
+            assertEquals(1, jdbc.queryForObject(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted", Integer.class));
+            ResponseEntity<Map> rotate = rest.postForEntity(V1 + "/admin/rotate-kek", new HttpEntity<>(admin()), Map.class);
+            assertEquals(HttpStatus.OK, rotate.getStatusCode());
+        } finally {
+            release.countDown();
+            otherEnvironment.join(20_000);
+        }
     }
 
     private Map metadata(String edekId) {
