@@ -172,6 +172,12 @@ config:
   # server.ssl.* (a mounted keystore Secret, not wired here) and a probe
   # scheme change to HTTPS once enabled. Leave false unless doing that too.
   mtlsEnabled: "false"
+  # Postgres schemas. cryptoSchema holds edek_records and kek_registry; accessSchema
+  # holds app_registrations and the grant tables (and Flyway's history table). The app
+  # sets its own search_path to both on every connection, so the DB role's default
+  # search_path doesn't matter, but the role needs USAGE (and CREATE, for Flyway) on
+  # both schemas. Never leave either empty: use "public" for a single-schema database.
+  # See RUNBOOK.md "Database schemas (hsm_crypto / hsm_access)".
   cryptoSchema: "hsm_crypto"
   accessSchema: "hsm_access"
   serviceEnv: "production"
