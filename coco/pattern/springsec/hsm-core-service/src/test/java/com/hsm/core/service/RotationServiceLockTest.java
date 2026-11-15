@@ -1,6 +1,7 @@
 package com.hsm.core.service;
 
 import com.hsm.chassis.lock.JobLock;
+import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.lock.JobAlreadyRunningException;
 import com.hsm.core.model.EdekRecord;
@@ -35,8 +36,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * RotationService's single-runner guard: rotate/rekey/revert share one lock,
- * named-DEK rotation has its own, a held lock means 409 on the admin API, and a
- * named-DEK row that is no longer current is skipped rather than rotated twice.
+ * named-DEK rotation has its own, both are per crypto schema (another environment's
+ * rotation on the same database doesn't block this one), a held lock means 409 on
+ * the admin API, and a named-DEK row that is no longer current is skipped rather
+ * than rotated twice.
  * Demo profile on H2, so the lock here is InProcessJobLock -- the cross-pod
  * Postgres behaviour is PostgresAdvisoryJobLockContainerTest's job.
  */
@@ -67,6 +70,9 @@ class RotationServiceLockTest {
 
     @Autowired
     private TestRestTemplate rest;
+
+    @Autowired
+    private HsmProperties properties;
 
     @Value("${hsm.service.api-v1-prefix}")
     private String apiPrefix;
@@ -105,7 +111,7 @@ class RotationServiceLockTest {
 
     @Test
     void kekRotateRekeyAndRevertAreAllRejectedWhileTheKekWrapLockIsHeld() throws InterruptedException {
-        whileHeldElsewhere(RotationService.KEK_WRAP_LOCK, () -> {
+        whileHeldElsewhere(rotationService.kekWrapLockKey(), () -> {
             JobAlreadyRunningException rotate = assertThrows(JobAlreadyRunningException.class,
                     () -> rotationService.rotateKek("test"));
             assertEquals(HttpStatus.CONFLICT, rotate.getStatus());
@@ -120,10 +126,30 @@ class RotationServiceLockTest {
     }
 
     @Test
-    void namedDekRotationHasItsOwnLock() throws InterruptedException {
-        whileHeldElsewhere(RotationService.KEK_WRAP_LOCK, () -> rotationService.rotateNamedDeks(720));
+    void lockNamesCarryThisEnvironmentsCryptoSchema() {
+        String schema = properties.database().cryptoSchema();
+        assertEquals("hsm:kek-wrap:" + schema, rotationService.kekWrapLockKey());
+        assertEquals("hsm:named-dek-rotation:" + schema, rotationService.namedDekRotationLockKey());
+    }
 
-        whileHeldElsewhere(RotationService.NAMED_DEK_ROTATION_LOCK, () ->
+    @Test
+    void anotherEnvironmentsRotationOnTheSameDatabaseDoesNotBlockThisOne() throws InterruptedException {
+        // Another environment (its own crypto schema) mid-rotation, plus a pre-upgrade
+        // pod still using the old schema-less name: neither blocks this environment.
+        whileHeldElsewhere(RotationService.lockKey(RotationService.KEK_WRAP_LOCK, "hsm_crypto_other_env"), () -> {
+            rotationService.rotateKek("test");
+            rotationService.rotateNamedDeks(720);
+        });
+        whileHeldElsewhere(RotationService.lockKey(RotationService.NAMED_DEK_ROTATION_LOCK, "hsm_crypto_other_env"),
+                () -> rotationService.rotateNamedDeks(720));
+        whileHeldElsewhere(RotationService.KEK_WRAP_LOCK, () -> rotationService.rotateKek("test"));
+    }
+
+    @Test
+    void namedDekRotationHasItsOwnLock() throws InterruptedException {
+        whileHeldElsewhere(rotationService.kekWrapLockKey(), () -> rotationService.rotateNamedDeks(720));
+
+        whileHeldElsewhere(rotationService.namedDekRotationLockKey(), () ->
                 assertThrows(JobAlreadyRunningException.class, () -> rotationService.rotateNamedDeks(720)));
     }
 
@@ -133,7 +159,7 @@ class RotationServiceLockTest {
         headers.set("Authorization", "Bearer demo-token-ops-admin");
         headers.set("X-App-ID", "ops-admin");
 
-        whileHeldElsewhere(RotationService.KEK_WRAP_LOCK, () -> {
+        whileHeldElsewhere(rotationService.kekWrapLockKey(), () -> {
             @SuppressWarnings("rawtypes")
             ResponseEntity<Map> response = rest.exchange(
                     apiPrefix + "/admin/rotate-kek", HttpMethod.POST, new HttpEntity<>(headers), Map.class);
