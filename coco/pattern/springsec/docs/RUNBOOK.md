@@ -115,6 +115,38 @@ To check a rotation:
   `kek_rekey_reverted` audit event and retry. See "Rotation jobs: one runner
   across all pods" below.
 
+## Database schemas (hsm_crypto / hsm_access)
+
+hsm-core-service (and hsm-bulk-service, the same image) keeps its tables in two
+Postgres schemas, set by the chart's `config.cryptoSchema` / `config.accessSchema`
+(`CRYPTO_SCHEMA` / `ACCESS_SCHEMA`):
+
+| Schema | Tables |
+|---|---|
+| `hsm_crypto` | `edek_records`, `kek_registry` |
+| `hsm_access` | `app_registrations`, `app_grants`, `app_dek_grants`, `app_classification_grants`, `flyway_schema_history` |
+
+- The app's queries name tables without a schema and rely on the connection's
+  `search_path`. Every pooled connection (Flyway's too) runs
+  `SET search_path TO <crypto>, <access>` (`spring.datasource.hikari.connection-init-sql`),
+  so the DB role's own default `search_path` doesn't matter. Builds before this setting
+  existed failed with `relation "edek_records" does not exist` (or `app_registrations`)
+  unless a DBA had run `ALTER ROLE <role> SET search_path = hsm_crypto, hsm_access`;
+  that `ALTER ROLE` is also the workaround for such a build.
+- The same missing search_path made migration V14 fail on a fresh two-schema
+  database (it drops `idx_edek_current_name` by its bare name). If a namespace is stuck
+  with a failed V14 in `hsm_access.flyway_schema_history`, deploy this build and run
+  Flyway `repair` (or delete that failed row) so V14 is retried.
+- The DB role needs `USAGE` and `CREATE` on both schemas (Flyway creates the tables),
+  or ownership of them.
+- Neither value may be empty. An empty env var overrides the `public` default and
+  breaks both Flyway and the search_path; use `public` for a single-schema database.
+- Overriding the search_path statement (`DB_CONNECTION_INIT_SQL`) is only for a
+  database where something else already manages it.
+- Tests: every database-backed suite also runs as a `TwoSchema*` variant on H2, and
+  `TwoSchemaPostgresContainerTest` runs against real Postgres with a role whose
+  search_path is the default (skipped without Docker).
+
 ## Rotation jobs: one runner across all pods
 
 Every replica of `hsm-core-service` — and of `hsm-bulk-service`, which is the
