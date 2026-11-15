@@ -13,12 +13,15 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -105,5 +108,52 @@ class PostgresAdvisoryJobLockTest {
         assertEquals(Optional.of(1), new PostgresAdvisoryJobLock(dataSource).tryRun("k", () -> 1));
 
         verify(connection).abort(any(Executor.class));
+    }
+
+    @Test
+    void skipNamesTheSessionHoldingTheLock() throws SQLException {
+        when(tryLockResult.getBoolean(1)).thenReturn(false);
+        PreparedStatement holderStatement = mock(PreparedStatement.class);
+        ResultSet holder = mock(ResultSet.class);
+        when(connection.prepareStatement(PostgresAdvisoryJobLock.HOLDER_SQL)).thenReturn(holderStatement);
+        when(holderStatement.executeQuery()).thenReturn(holder);
+        when(holder.next()).thenReturn(true);
+        when(holder.getInt("pid")).thenReturn(4242);
+        when(holder.getString("client_addr")).thenReturn("10.1.2.3");
+        when(holder.getString("usename")).thenReturn("hsm_app");
+        when(holder.getString("state")).thenReturn("active");
+
+        assertEquals(Optional.empty(), new PostgresAdvisoryJobLock(dataSource).tryRun("hsm:kek-wrap", () -> "x"));
+
+        String described = PostgresAdvisoryJobLock.describeHolder(connection, "hsm:kek-wrap");
+        assertTrue(described.startsWith("holder_pid=4242 holder_client_addr=10.1.2.3 holder_user=hsm_app"), described);
+        assertTrue(described.contains("holder_state=active"), described);
+        // The key is bound to both placeholders (high and low half of the lock id).
+        verify(holderStatement, times(2)).setString(eq(1), eq("hsm:kek-wrap"));
+        verify(holderStatement, times(2)).setString(eq(2), eq("hsm:kek-wrap"));
+        verify(connection, never()).prepareStatement(startsWith("SELECT pg_advisory_unlock"));
+    }
+
+    @Test
+    void holderAlreadyGoneIsReportedAsReleased() throws SQLException {
+        PreparedStatement holderStatement = mock(PreparedStatement.class);
+        ResultSet holder = mock(ResultSet.class);
+        when(connection.prepareStatement(PostgresAdvisoryJobLock.HOLDER_SQL)).thenReturn(holderStatement);
+        when(holderStatement.executeQuery()).thenReturn(holder);
+        when(holder.next()).thenReturn(false);
+
+        assertEquals("holder=released_before_lookup", PostgresAdvisoryJobLock.describeHolder(connection, "k"));
+    }
+
+    @Test
+    void failedHolderLookupStillSkipsCleanly() throws SQLException {
+        when(tryLockResult.getBoolean(1)).thenReturn(false);
+        when(connection.prepareStatement(PostgresAdvisoryJobLock.HOLDER_SQL))
+                .thenThrow(new SQLException("permission denied for view pg_locks"));
+
+        assertEquals(Optional.empty(), new PostgresAdvisoryJobLock(dataSource).tryRun("k", () -> "x"));
+        assertEquals("holder=unknown lookup_error=permission denied for view pg_locks",
+                PostgresAdvisoryJobLock.describeHolder(connection, "k"));
+        verify(connection).close();
     }
 }

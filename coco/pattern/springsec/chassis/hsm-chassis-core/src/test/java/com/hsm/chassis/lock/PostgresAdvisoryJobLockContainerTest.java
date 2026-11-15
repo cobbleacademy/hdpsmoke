@@ -73,6 +73,14 @@ class PostgresAdvisoryJobLockContainerTest {
         assertTrue(acquired.await(10, TimeUnit.SECONDS));
         try {
             assertEquals(Optional.empty(), lockB.tryRun("hsm:kek-wrap", () -> "b"));
+            try (Connection c = podB.getConnection()) {
+                String described = PostgresAdvisoryJobLock.describeHolder(c, "hsm:kek-wrap");
+                assertTrue(described.startsWith("holder_pid="), described);
+                assertTrue(described.contains("holder_user=" + POSTGRES.getUsername()), described);
+                assertTrue(described.contains("holder_query=SELECT pg_try_advisory_lock"), described);
+                assertEquals("holder=released_before_lookup",
+                        PostgresAdvisoryJobLock.describeHolder(c, "hsm:named-dek-rotation"), "a key nobody holds has no holder");
+            }
             assertEquals(Optional.of("b"), lockB.tryRun("hsm:named-dek-rotation", () -> "b"),
                     "a different key must not be blocked");
         } finally {
@@ -93,6 +101,16 @@ class PostgresAdvisoryJobLockContainerTest {
                 assertTrue(rs.next() && rs.getBoolean(1));
             }
             assertEquals(Optional.empty(), new PostgresAdvisoryJobLock(podB).tryRun("hsm:kek-wrap", () -> "b"));
+            int crashedPid;
+            try (PreparedStatement pid = crashed.prepareStatement("SELECT pg_backend_pid()");
+                 ResultSet rs = pid.executeQuery()) {
+                rs.next();
+                crashedPid = rs.getInt(1);
+            }
+            try (Connection c = podB.getConnection()) {
+                String described = PostgresAdvisoryJobLock.describeHolder(c, "hsm:kek-wrap");
+                assertTrue(described.startsWith("holder_pid=" + crashedPid + " "), "skip must name the exact holding session: " + described);
+            }
         }
         // try-with-resources closed the "crashed" pod's connection without an explicit unlock.
         assertEquals(Optional.of("b"), new PostgresAdvisoryJobLock(podB).tryRun("hsm:kek-wrap", () -> "b"));
