@@ -718,6 +718,27 @@ FROM pg_db_role_setting s
 LEFT JOIN pg_roles r ON r.oid = s.setrole
 LEFT JOIN pg_database d ON d.oid = s.setdatabase
 WHERE r.rolname = '<app_role>';
+
+Run this on the database the services use:
+
+SELECT hashtextextended('hsm:kek-wrap', 0) AS kek_wrap_lock_id;
+
+SELECT l.pid, l.classid, l.objid, a.usename, a.client_addr, a.application_name,
+       a.backend_start, a.state, a.state_change, left(a.query, 80) AS last_query
+FROM pg_locks l JOIN pg_stat_activity a USING (pid)
+WHERE l.locktype = 'advisory' AND l.granted;
+
+Postgres splits the 64-bit lock id into classid (high 32 bits) and objid (low 32 bits). What you find tells you the cause:
+
+What you see	Cause
+A session with a client_addr that isn’t a current pod IP, or with backend_start older than every running pod	A stale holder: a leftover from an old pod, or a pooler connection still holding it
+The client_addr is a PgBouncer / pooler, or the app connects on port 6432 (Azure Flexible Server’s built-in PgBouncer)	Most likely cause. The lock is a session lock, and a transaction-mode pooler can send the unlock to a different server session. The lock then never releases, and every later run skips. The code warns about this in PostgresAdvisoryJobLock.
+A current pod, state = active, a recent state_change	A rotation really is running (or is stuck on a Key Vault call). Check that pod’s logs.
+A different namespace or release (old v1, a parallel v2, a second hsm-core) on the same database	That release’s scheduler took the lock. Its logs will show the run.
+3. Fixes
+To clear a stale holder now: SELECT pg_terminate_backend(<pid>);. Postgres releases the lock when that session ends, and the next run goes ahead. You can also trigger one straight away with POST /admin/rotate-kek.
+If a pooler is involved: point DATABASE_URL at the server directly (port 5432, not 6432 or the PgBouncer host). Otherwise the lock will get stuck again. Also add tcpKeepAlive=true to that URL, so a dead pod’s lock is released.
+
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
