@@ -42,6 +42,22 @@ public class PostgresAdvisoryJobLock implements JobLock {
     private static final String TRY_LOCK_SQL = "SELECT pg_try_advisory_lock(hashtextextended(?, 0))";
     private static final String UNLOCK_SQL = "SELECT pg_advisory_unlock(hashtextextended(?, 0))";
 
+    /**
+     * The session holding {@code key} in this database. A bigint advisory key shows in
+     * pg_locks as its high half in classid and its low half in objid, with objsubid = 1.
+     * Without pg_read_all_stats, Postgres hides client_addr/state/query of sessions
+     * belonging to other roles -- pid, user and application_name still show.
+     */
+    static final String HOLDER_SQL = """
+            SELECT l.pid, a.usename, a.application_name, host(a.client_addr) AS client_addr,
+                   a.backend_start, a.state, a.state_change, left(a.query, 120) AS query
+            FROM pg_locks l LEFT JOIN pg_stat_activity a ON a.pid = l.pid
+            WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1
+              AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+              AND l.classid = ((hashtextextended(?, 0) >> 32) & 4294967295)::oid
+              AND l.objid = (hashtextextended(?, 0) & 4294967295)::oid
+            LIMIT 1""";
+
     /** Hikari is optional on the chassis classpath; only referenced when present. */
     private static final boolean HIKARI_PRESENT =
             ClassUtils.isPresent("com.zaxxer.hikari.HikariDataSource", PostgresAdvisoryJobLock.class.getClassLoader());
@@ -69,6 +85,7 @@ public class PostgresAdvisoryJobLock implements JobLock {
         try {
             locked = queryBoolean(connection, TRY_LOCK_SQL, key);
             if (!locked) {
+                log.info("job_lock_held_elsewhere key={} {}", key, describeHolder(connection, key));
                 return Optional.empty();
             }
             return Optional.of(Objects.requireNonNull(work.get(), "JobLock work must return a non-null result"));
@@ -83,6 +100,35 @@ public class PostgresAdvisoryJobLock implements JobLock {
             // evicted (physically closed, which releases the lock server-side) instead of
             // returned to the pool.
             release(connection, locked && !released);
+        }
+    }
+
+    /**
+     * Who holds {@code key}, for the skip log line -- so a skip names the pod (client
+     * address) or session that won instead of leaving it to be hunted for. Diagnostic
+     * only: any failure is reported in the text, never thrown, so it can't turn a
+     * normal skip into an error.
+     */
+    static String describeHolder(Connection connection, String key) {
+        try (PreparedStatement statement = connection.prepareStatement(HOLDER_SQL)) {
+            statement.setString(1, key);
+            statement.setString(2, key);
+            try (ResultSet rs = statement.executeQuery()) {
+                if (!rs.next()) {
+                    // Released between our try-lock and this query (a short run elsewhere).
+                    return "holder=released_before_lookup";
+                }
+                return "holder_pid=" + rs.getInt("pid")
+                        + " holder_client_addr=" + rs.getString("client_addr")
+                        + " holder_user=" + rs.getString("usename")
+                        + " holder_application=" + rs.getString("application_name")
+                        + " holder_backend_start=" + rs.getString("backend_start")
+                        + " holder_state=" + rs.getString("state")
+                        + " holder_state_change=" + rs.getString("state_change")
+                        + " holder_query=" + rs.getString("query");
+            }
+        } catch (Exception e) {
+            return "holder=unknown lookup_error=" + e.getMessage();
         }
     }
 
