@@ -2,6 +2,7 @@ package com.hsm.core.service;
 
 import com.hsm.chassis.lock.JobLock;
 import com.hsm.core.audit.AuditLogger;
+import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RotateKekResponse;
@@ -24,6 +25,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -57,10 +59,17 @@ import java.util.function.Supplier;
  * <p><b>Single runner.</b> Every pod of every release sharing the database
  * registers the same schedulers, and the admin API can start the same work by
  * hand, so each public entry point runs under a {@link JobLock}. rotateKek,
- * rekey and revertRekey share one lock ({@value #KEK_WRAP_LOCK}) because all
- * three rewrite the same rows' KEK wrapping; rotateNamedDeks has its own. A
- * caller that loses the race gets {@link JobAlreadyRunningException} (409 on
- * the admin API, a logged skip in the schedulers) and a "*_skipped" audit event.
+ * rekey and revertRekey share one lock ({@value #KEK_WRAP_LOCK}:&lt;crypto schema&gt;)
+ * because all three rewrite the same rows' KEK wrapping; rotateNamedDeks has its
+ * own. A caller that loses the race gets {@link JobAlreadyRunningException} (409
+ * on the admin API, a logged skip in the schedulers) and a "*_skipped" audit event.
+ *
+ * <p><b>One lock per crypto schema.</b> A Postgres advisory lock is scoped to the
+ * whole database, not to a schema or role, so environments sharing one database
+ * with their own schemas (dev/test/demo) would otherwise block each other's
+ * rotations. The lock names carry CRYPTO_SCHEMA -- where the rewritten rows live --
+ * so releases on the same schema (hsm-core and hsm-bulk of one environment) still
+ * share a lock and different environments don't.
  */
 @Service
 public class RotationService {
@@ -69,6 +78,7 @@ public class RotationService {
     private static final int PAGE_SIZE = 200;
     static final int MAX_CONSECUTIVE_ROW_FAILURES = 10;
 
+    /** Lock name prefixes; the actual names add ":" + the crypto schema (see {@link #lockKey}). */
     static final String KEK_WRAP_LOCK = "hsm:kek-wrap";
     static final String NAMED_DEK_ROTATION_LOCK = "hsm:named-dek-rotation";
 
@@ -78,17 +88,43 @@ public class RotationService {
     private final AuditLogger auditLogger;
     private final TransactionTemplate transactionTemplate;
     private final JobLock jobLock;
+    private final String kekWrapLockKey;
+    private final String namedDekRotationLockKey;
 
     public RotationService(KekClient kekClient, KekRegistryService kekRegistryService,
                             EdekRecordRepository edekRecordRepository,
                             AuditLogger auditLogger, PlatformTransactionManager transactionManager,
-                            JobLock jobLock) {
+                            JobLock jobLock, HsmProperties properties) {
         this.kekClient = kekClient;
         this.kekRegistryService = kekRegistryService;
         this.edekRecordRepository = edekRecordRepository;
         this.auditLogger = auditLogger;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.jobLock = jobLock;
+        String cryptoSchema = properties.database().cryptoSchema();
+        this.kekWrapLockKey = lockKey(KEK_WRAP_LOCK, cryptoSchema);
+        this.namedDekRotationLockKey = lockKey(NAMED_DEK_ROTATION_LOCK, cryptoSchema);
+        log.info("rotation_lock_keys kek_wrap={} named_dek={}", kekWrapLockKey, namedDekRotationLockKey);
+    }
+
+    /**
+     * prefix + ":" + the crypto schema, trimmed and lower-cased the way Postgres folds an
+     * unquoted name -- so CRYPTO_SCHEMA=HSM_Crypto_Dev and hsm_crypto_dev, which are the
+     * same schema, get the same lock.
+     */
+    static String lockKey(String prefix, String cryptoSchema) {
+        if (cryptoSchema == null || cryptoSchema.isBlank()) {
+            throw new IllegalStateException("CRYPTO_SCHEMA must not be empty (use \"public\" for the default schema)");
+        }
+        return prefix + ":" + cryptoSchema.trim().toLowerCase(Locale.ROOT);
+    }
+
+    String kekWrapLockKey() {
+        return kekWrapLockKey;
+    }
+
+    String namedDekRotationLockKey() {
+        return namedDekRotationLockKey;
     }
 
     private <T> T exclusively(String lockKey, String operation, String triggeredBy, Supplier<T> work) {
@@ -116,7 +152,7 @@ public class RotationService {
         if (onlyKekName != null && onlyKekName.isBlank()) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "kekName must not be blank");
         }
-        return exclusively(KEK_WRAP_LOCK, "kek_rotation", triggeredBy, () -> doRotateKek(triggeredBy, onlyKekName));
+        return exclusively(kekWrapLockKey, "kek_rotation", triggeredBy, () -> doRotateKek(triggeredBy, onlyKekName));
     }
 
     private RotateKekResponse doRotateKek(String triggeredBy, String onlyKekName) {
@@ -231,7 +267,7 @@ public class RotationService {
         if (fromKekName.equals(toKekName)) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, "fromKekName and toKekName must differ");
         }
-        return exclusively(KEK_WRAP_LOCK, "kek_rekey", triggeredBy, () -> doRekey(fromKekName, toKekName, triggeredBy));
+        return exclusively(kekWrapLockKey, "kek_rekey", triggeredBy, () -> doRekey(fromKekName, toKekName, triggeredBy));
     }
 
     private RekeyResponse doRekey(String fromKekName, String toKekName, String triggeredBy) {
@@ -297,7 +333,7 @@ public class RotationService {
 
     /** Undoes the most recent rekey into kekName -- restores each affected row's previous kek_name/kek_version/edek_blob and clears the undo buffer. */
     public RekeyResponse revertRekey(String kekName, String triggeredBy) {
-        return exclusively(KEK_WRAP_LOCK, "kek_rekey_revert", triggeredBy, () -> doRevertRekey(kekName, triggeredBy));
+        return exclusively(kekWrapLockKey, "kek_rekey_revert", triggeredBy, () -> doRevertRekey(kekName, triggeredBy));
     }
 
     private RekeyResponse doRevertRekey(String kekName, String triggeredBy) {
@@ -347,7 +383,7 @@ public class RotationService {
      * is what rekey is for, not this.
      */
     public int rotateNamedDeks(int maxAgeHours) {
-        return exclusively(NAMED_DEK_ROTATION_LOCK, "named_dek_rotation", "scheduler", () -> doRotateNamedDeks(maxAgeHours));
+        return exclusively(namedDekRotationLockKey, "named_dek_rotation", "scheduler", () -> doRotateNamedDeks(maxAgeHours));
     }
 
     private int doRotateNamedDeks(int maxAgeHours) {
@@ -396,7 +432,7 @@ public class RotationService {
      * Re-reads the candidate under a row lock (SELECT ... FOR UPDATE) and rotates it
      * only if it is still the current row for its name. The candidate list is read
      * before any row is touched, so without this a row rotated in the meantime --
-     * by anything that bypassed {@link #NAMED_DEK_ROTATION_LOCK} -- would be rotated a
+     * by anything that bypassed the named-DEK rotation lock -- would be rotated a
      * second time from a stale copy and fail on idx_edek_current_name.
      */
     boolean rotateNamedDekIfStillCurrent(UUID edekId) {
