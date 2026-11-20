@@ -10,6 +10,23 @@ import java.util.List;
  */
 public record RotateKekResponse(List<KekRotationResult> results, int recordsQueued) {
 
-    public record KekRotationResult(String kekName, String newKekVersion, int recordsRotated) {
+    /**
+     * status "rotated", or "skipped" when the KEK's latest version can't wrap (expired,
+     * disabled, not yet valid) -- skipReason then says which, and no row was touched.
+     */
+    public record KekRotationResult(String kekName, String newKekVersion, int recordsRotated,
+                                    String status, String skipReason) {
+
+        public static KekRotationResult rotated(String kekName, String newKekVersion, int recordsRotated) {
+            return new KekRotationResult(kekName, newKekVersion, recordsRotated, "rotated", null);
+        }
+
+        public static KekRotationResult skipped(String kekName, String newKekVersion, String skipReason) {
+            return new KekRotationResult(kekName, newKekVersion, 0, "skipped", skipReason);
+        }
+
+        public boolean wasSkipped() {
+            return "skipped".equals(status);
+        }
     }
 }
