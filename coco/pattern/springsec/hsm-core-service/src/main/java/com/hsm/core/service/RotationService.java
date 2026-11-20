@@ -4,6 +4,7 @@ import com.hsm.chassis.lock.JobLock;
 import com.hsm.core.audit.AuditLogger;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
+import com.hsm.core.crypto.KekStatus;
 import com.hsm.core.dto.RekeyResponse;
 import com.hsm.core.dto.RotateKekResponse;
 import com.hsm.core.lock.JobAlreadyRunningException;
@@ -21,11 +22,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -174,7 +177,19 @@ public class RotationService {
         List<RotateKekResponse.KekRotationResult> results = new ArrayList<>(kekNames.size());
         int grandTotal = 0;
         for (String kekName : kekNames) {
-            String newVersion = kekClient.getCurrentKekVersion(kekName);
+            KekStatus target = kekClient.getKekStatus(kekName);
+            String newVersion = target.version();
+            Optional<String> unusable = unusableReason(target);
+            if (unusable.isPresent()) {
+                // Checked before touching any row: Key Vault would refuse every wrap,
+                // so each page would just fail. Other KEKs in a full sweep still rotate.
+                reportUnusableTarget("kek_rotation", target, unusable.get(), triggeredBy);
+                if (onlyKekName != null) {
+                    throw unusableTargetException(target, unusable.get());
+                }
+                results.add(RotateKekResponse.KekRotationResult.skipped(kekName, newVersion, unusable.get()));
+                continue;
+            }
             log.info("kek_rotation_started kek_name={} new_kek_version={} triggered_by={}", kekName, newVersion, triggeredBy);
 
             int total = rotateGroup(kekName, newVersion, legacyDefaultKekName);
@@ -182,11 +197,37 @@ public class RotationService {
             auditLogger.log("kek_rotation_completed",
                     "kek_name", kekName, "new_kek_version", newVersion, "records_rotated", total,
                     "triggered_by", triggeredBy, "scope", scope, "status", "success");
-            results.add(new RotateKekResponse.KekRotationResult(kekName, newVersion, total));
+            results.add(RotateKekResponse.KekRotationResult.rotated(kekName, newVersion, total));
             grandTotal += total;
         }
 
         return new RotateKekResponse(results, grandTotal);
+    }
+
+    /** Empty when the version can wrap now; otherwise "expired", "disabled" or "not_yet_valid". */
+    private static Optional<String> unusableReason(KekStatus target) {
+        KekStatus.State state = target.state(Instant.now(), 0);
+        return state.wrapsWork() ? Optional.empty() : Optional.of(state.label());
+    }
+
+    private void reportUnusableTarget(String operation, KekStatus target, String reason, String triggeredBy) {
+        log.error("{}_target_unusable kek_name={} kek_version={} reason={} expires_on={} not_before={} enabled={} triggered_by={}"
+                        + " -- create a new version in Key Vault (az keyvault key rotate) or extend this one's expiry, then rerun",
+                operation, target.kekName(), target.version(), reason, target.expiresOn(), target.notBefore(),
+                target.enabled(), triggeredBy);
+        auditLogger.log(operation + "_target_unusable",
+                "kek_name", target.kekName(), "kek_version", target.version(), "reason", reason,
+                "expires_on", String.valueOf(target.expiresOn()), "triggered_by", triggeredBy, "status", "skipped");
+    }
+
+    private static ApiException unusableTargetException(KekStatus target, String reason) {
+        String when = switch (reason) {
+            case "expired" -> " (expired " + target.expiresOn() + ")";
+            case "not_yet_valid" -> " (not valid before " + target.notBefore() + ")";
+            default -> "";
+        };
+        return new ApiException(HttpStatus.CONFLICT, "KEK " + target.kekName() + " latest version " + target.version()
+                + " cannot wrap: " + reason + when + ". Create a new version in Key Vault or extend its expiry, then retry.");
     }
 
     private int rotateGroup(String kekName, String newVersion, String legacyDefaultKekName) {
@@ -272,7 +313,13 @@ public class RotationService {
 
     private RekeyResponse doRekey(String fromKekName, String toKekName, String triggeredBy) {
         String legacyDefaultKekName = kekRegistryService.getLegacyDefaultKekName();
-        String newVersion = kekClient.getCurrentKekVersion(toKekName);
+        KekStatus target = kekClient.getKekStatus(toKekName);
+        Optional<String> unusable = unusableReason(target);
+        if (unusable.isPresent()) {
+            reportUnusableTarget("kek_rekey", target, unusable.get(), triggeredBy);
+            throw unusableTargetException(target, unusable.get());
+        }
+        String newVersion = target.version();
 
         int total = 0;
         while (true) {
