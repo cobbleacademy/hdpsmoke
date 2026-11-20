@@ -248,6 +248,16 @@ config:
   # backstop if both releases ever have it enabled.
   kekRotationEnabled: "false"
 
+  # KEK expiry check (KekExpiryMonitor): logs kek_expiry_check per KEK in use --
+  # INFO ok / WARN expiring (under warnDays) / ERROR expired|disabled|not_yet_valid --
+  # ~30s after startup and then on this cron. Read-only, no lock. See
+  # java/docs/KEK_LIFECYCLE.md. /admin/health reports kek_ok whatever this is set to.
+  # Off here so the daily lines (and any alert on them) come from one release;
+  # hsm-core-service owns them. /admin/health here still reports kek_ok.
+  kekExpiryCheckCron: "0 6 * * *"
+  kekExpiryCheckEnabled: "false"
+  kekExpiryWarnDays: "30"
+
   pbacEnabled: "false"
   plainidUrl: ""
   plainidApiKeySecretName: "plainid-api-key"
