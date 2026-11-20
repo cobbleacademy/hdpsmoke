@@ -757,6 +757,70 @@ LEFT JOIN pg_roles r ON r.oid = s.setrole
 LEFT JOIN pg_database d ON d.oid = s.setdatabase;
 
 ----------------------------------------------------------------------------------------------------------------------------------
+DEIDENTIFICATION
+Vendor A: Acme (fulfillment, minimum-necessary under a BAA)
+
+Acme needs to contact the member and recognise the card, so this profile masks rather than removes values.
+
+id: acme-fulfillment
+hipaa-basis: minimum-necessary
+token-key-edek-id: 6f1c…
+fields:
+  - { name: member_id,   phi: member-id,   method: tokenize, domain: member }
+  - { name: first_name,  phi: name,        method: passthrough }
+  - { name: last_name,   phi: name,        method: passthrough }
+  - { name: email,       phi: email,       decrypt: true, method: mask, keep: domain, keep-first: 1 }
+  - { name: phone,       phi: phone,       method: mask, keep-last: 4, preserve: ["-"] }
+  - { name: card_number, phi: card-number, decrypt: true, method: mask, keep-last: 4 }
+  - { name: card_type,   method: passthrough }
+  - { name: amount,      method: passthrough }
+  - { name: status,      method: passthrough }
+output: { file: "giftcards_acme_{yyyyMMdd}.csv" }
+
+giftcards_acme_20261120.csv
+
+member_id,first_name,last_name,email,phone,card_number,card_type,amount,status
+tk_Q2x9fP0aLmV3kR7tYw1bZg,Jane,Doe,j*******@mail.com,***-***-0142,************8901,VISA,50.00,issued
+tk_Q2x9fP0aLmV3kR7tYw1bZg,Jane,Doe,j*******@mail.com,***-***-0142,************3210,AMAZON,25.00,redeemed
+tk_8vNc3HqZ0pWx5eJt2LmA4d,Raj,Patel,r****@corp.org,***-***-0199,************3322,VISA,100.00,issued
+tk_Rb7KsY1uF6oPq9GzXc2NhE,Ana,Lopez,a******@web.net,***-***-0110,************2233,TARGET,75.00,expired
+Jane’s two rows share the same token, so Acme can group her cards without ever seeing M1234567.
+Dropped: dob, zip, issued_date are unlisted, so they’re dropped by default; card_pin and program are never sent.
+Vendor B: Zen (analytics, safe-harbor de-identified)
+
+Zen gets no direct identifiers. It gets random reference IDs, years and 3-digit ZIPs.
+
+id: zen-reporting
+hipaa-basis: safe-harbor
+surrogate-scope: zen-analytics
+fields:
+  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }
+  - { name: card_number, phi: card-number, decrypt: true, method: surrogate, domain: card }
+  - { name: dob,         phi: date,        method: generalize, to: year }
+  - { name: zip,         phi: zip,         method: generalize, to: zip3 }
+  - { name: issued_date, phi: date,        method: generalize, to: year }
+  - { name: card_type,   method: passthrough }
+  - { name: amount,      method: passthrough }
+  - { name: status,      method: passthrough }
+output:
+  file: "giftcards_zen_{yyyyMMdd}.csv"
+  rename: { member_id: member_ref, card_number: card_ref, dob: birth_year, zip: zip3, issued_date: issued_year }
+
+giftcards_zen_20261120.csv
+
+member_ref,card_ref,birth_year,zip3,issued_year,card_type,amount,status
+S-8F2KQ-91QDM,S-5QJ9N-2VH7A,1958,606,2026,VISA,50.00,issued
+S-8F2KQ-91QDM,S-GX4D1-M8RZT,1958,606,2026,AMAZON,25.00,redeemed
+S-3WZ7H-K0X5R,S-0KC6W-Y3F9B,1933,000,2026,VISA,100.00,issued
+S-T6M2B-YP8CE,S-N7T2E-5HJQ4,1990,941,2025,TARGET,75.00,expired
+ZIP 03601 becomes 000, because 036 is on the HHS list of restricted ZIP3s.
+Surrogates are random and stored in deid_surrogate, so we can map S-8F2KQ-91QDM back to M1234567 but Zen can’t.
+Next month, Jane gets the same S-8F2KQ-91QDM again.
+A gap this sample exposed
+
+Raj’s birth_year = 1933 breaks Safe Harbor. Raj is 93, and Safe Harbor requires ages over 89 and any date element that shows such an age, including the year to be aggregated. The current design’s generalize: year doesn’t handle this.
+
+The fix would be one more rule on generalize: year for phi: date birth fields under safe-harbor: if the year means age 90 or over, output a cap such as 1936- or 90+ instead, with the validator requiring it. The doc has no such rule yet.
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
