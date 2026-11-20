@@ -281,6 +281,14 @@ config:
   kekRotationCron: "0 2 1 * *"
   kekRotationEnabled: "true"
 
+  # KEK expiry check (KekExpiryMonitor): logs kek_expiry_check per KEK in use --
+  # INFO ok / WARN expiring (under warnDays) / ERROR expired|disabled|not_yet_valid --
+  # ~30s after startup and then on this cron. Read-only, no lock. See
+  # java/docs/KEK_LIFECYCLE.md. /admin/health reports kek_ok whatever this is set to.
+  kekExpiryCheckCron: "0 6 * * *"
+  kekExpiryCheckEnabled: "true"
+  kekExpiryWarnDays: "30"
+
   # Rotates named DEKs (edek_records rows with a non-null current_dek_name)
   # once they've been current longer than maxAgeHours. Daily at 03:00.
   namedDekRotationCron: "0 3 * * *"
