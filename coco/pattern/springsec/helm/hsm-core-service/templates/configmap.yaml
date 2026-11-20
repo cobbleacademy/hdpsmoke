@@ -58,6 +58,9 @@ data:
 
   KEK_ROTATION_CRON: {{ .Values.config.kekRotationCron | quote }}
   KEK_ROTATION_ENABLED: {{ .Values.config.kekRotationEnabled | quote }}
+  KEK_EXPIRY_CHECK_CRON: {{ .Values.config.kekExpiryCheckCron | default "0 6 * * *" | quote }}
+  KEK_EXPIRY_CHECK_ENABLED: {{ .Values.config.kekExpiryCheckEnabled | default "true" | quote }}
+  KEK_EXPIRY_WARN_DAYS: {{ .Values.config.kekExpiryWarnDays | default "30" | quote }}
   NAMED_DEK_ROTATION_CRON: {{ .Values.config.namedDekRotationCron | quote }}
   NAMED_DEK_ROTATION_ENABLED: {{ .Values.config.namedDekRotationEnabled | quote }}
   NAMED_DEK_ROTATION_MAX_AGE_HOURS: {{ .Values.config.namedDekRotationMaxAgeHours | quote }}
