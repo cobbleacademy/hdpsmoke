@@ -11,6 +11,8 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * Ported from scheduler/kek_rotation_job.py. Registered only when
  * kek-rotation.enabled and not demo-mode, mirroring
@@ -48,6 +50,14 @@ public class KekRotationScheduler {
         try {
             RotateKekResponse result = rotationService.rotateKek("scheduler");
             log.info("kek_rotation_job_completed records={}", result.recordsQueued());
+            List<String> skipped = result.results().stream()
+                    .filter(RotateKekResponse.KekRotationResult::wasSkipped)
+                    .map(r -> r.kekName() + "(" + r.skipReason() + ")")
+                    .toList();
+            if (!skipped.isEmpty()) {
+                // Each skip already logged kek_rotation_target_unusable with the details.
+                log.error("kek_rotation_job_skipped_keks count={} keks={}", skipped.size(), skipped);
+            }
         } catch (JobAlreadyRunningException e) {
             // Another pod (or release) sharing the database won the lock for this tick.
             log.info("kek_rotation_job_skipped reason=already_running");
@@ -61,7 +71,7 @@ public class KekRotationScheduler {
      * day-of-week, no seconds). Spring's CronTrigger uses 6 fields (seconds
      * first), so prepend seconds=0.
      */
-    private static String toSpringCron(String cronExpr) {
+    static String toSpringCron(String cronExpr) {
         String[] fields = cronExpr.trim().split("\\s+");
         if (fields.length != 5) {
             throw new IllegalArgumentException(
