@@ -5,6 +5,7 @@ import com.hsm.core.auth.AppRegistryException;
 import com.hsm.core.auth.AppRegistryService;
 import com.hsm.core.config.HsmProperties;
 import com.hsm.core.crypto.KekClient;
+import com.hsm.core.crypto.KekStatus;
 import com.hsm.core.crypto.MockKekClient;
 import com.hsm.core.dto.AppKeysRequest;
 import com.hsm.core.dto.AppKeysResponse;
@@ -38,6 +39,7 @@ import com.hsm.core.model.EdekRecord;
 import com.hsm.core.model.KekRegistryEntry;
 import com.hsm.core.repository.EdekRecordRepository;
 import com.hsm.core.service.ClassificationGovernanceService;
+import com.hsm.core.service.KekExpiryMonitor;
 import com.hsm.core.service.KekRegistryService;
 import com.hsm.core.service.RotationService;
 import com.hsm.crypto.TransportWrapper;
@@ -63,8 +65,10 @@ import java.security.MessageDigest;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -88,11 +92,13 @@ public class AdminController {
     private final ClassificationGovernanceService classificationGovernance;
     private final KekRegistryService kekRegistryService;
     private final String healthCheckKekName;
+    private final KekExpiryMonitor kekExpiryMonitor;
 
     public AdminController(AppRegistryService appRegistry, KekClient kekClient, RotationService rotationService,
                             AuditLogger auditLogger, JdbcTemplate jdbcTemplate, EdekRecordRepository edekRecordRepository,
                             ClassificationGovernanceService classificationGovernance, KekRegistryService kekRegistryService,
-                            HsmProperties hsmProperties) {
+                            HsmProperties hsmProperties, KekExpiryMonitor kekExpiryMonitor) {
+        this.kekExpiryMonitor = kekExpiryMonitor;
         this.appRegistry = appRegistry;
         this.kekClient = kekClient;
         this.rotationService = rotationService;
@@ -164,8 +170,26 @@ public class AdminController {
         } catch (Exception e) {
             // degraded
         }
-        String overall = (vaultOk && dbOk) ? "ok" : "degraded";
-        return new HealthResponse(overall, vaultOk, dbOk);
+        // KEK expiry: a reachable vault isn't enough -- Key Vault refuses new wraps on an
+        // expired or disabled latest version while reads of its metadata still work.
+        // Cached (hsm.kek-expiry.cache-ttl-seconds), so probes don't call Key Vault per KEK.
+        boolean kekOk = false;
+        String kekExpiresAt = null;
+        Long kekDaysLeft = null;
+        try {
+            KekExpiryMonitor.Snapshot snapshot = kekExpiryMonitor.snapshot();
+            Instant now = kekExpiryMonitor.now();
+            kekOk = snapshot.allUsable(now);
+            Optional<KekStatus> soonest = snapshot.soonestExpiry();
+            if (soonest.isPresent()) {
+                kekExpiresAt = soonest.get().expiresOn().toInstant().toString();
+                kekDaysLeft = soonest.get().daysLeft(now);
+            }
+        } catch (Exception e) {
+            // degraded
+        }
+        String overall = (vaultOk && dbOk && kekOk) ? "ok" : "degraded";
+        return new HealthResponse(overall, vaultOk, dbOk, kekOk, kekExpiresAt, kekDaysLeft);
     }
 
     /** Scopes a grant may meaningfully apply to today -- checked here at the API boundary,
