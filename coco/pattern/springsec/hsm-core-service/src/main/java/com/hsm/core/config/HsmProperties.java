@@ -22,6 +22,7 @@ public record HsmProperties(
         Splunk splunk,
         Pbac pbac,
         KekRotation kekRotation,
+        KekExpiry kekExpiry,
         NamedDekRotation namedDekRotation,
         Redis redis,
         DekCache dekCache,
@@ -133,6 +134,20 @@ public record HsmProperties(
     public record KekRotation(
             String cron,
             boolean enabled
+    ) {
+    }
+
+    /**
+     * KEK expiry monitoring (see KekExpiryMonitor). cron/enabled drive the daily
+     * kek_expiry_check log; warnDays is how close to expiry a KEK counts as
+     * "expiring"; cacheTtlSeconds is how long /admin/health reuses the last
+     * Key Vault lookup instead of calling Key Vault on every probe.
+     */
+    public record KekExpiry(
+            String cron,
+            boolean enabled,
+            int warnDays,
+            int cacheTtlSeconds
     ) {
     }
 
