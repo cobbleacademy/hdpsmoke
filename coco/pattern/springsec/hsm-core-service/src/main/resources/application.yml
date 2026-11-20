@@ -228,6 +228,16 @@ hsm:
   kek-rotation:
     cron: ${KEK_ROTATION_CRON:0 2 1 * *}
     enabled: ${KEK_ROTATION_ENABLED:true}
+  # Checks the latest version of every KEK in use (legacy default, kek_registry,
+  # edek_records) for expiry/disabled/not-before -- see KekExpiryMonitor. The check
+  # logs one kek_expiry_check line per KEK shortly after startup and then on the cron
+  # (5-field, daily 06:00 by default); /admin/health reports the same, from a cache
+  # refreshed at most every cache-ttl-seconds. Read-only, runs on every pod, no lock.
+  kek-expiry:
+    cron: ${KEK_EXPIRY_CHECK_CRON:0 6 * * *}
+    enabled: ${KEK_EXPIRY_CHECK_ENABLED:true}
+    warn-days: ${KEK_EXPIRY_WARN_DAYS:30}
+    cache-ttl-seconds: ${KEK_EXPIRY_CACHE_TTL_SECONDS:900}
   # Rotates named DEKs (edek_records rows with a non-null current_dek_name) once
   # they've been current longer than max-age-hours -- age-based, not usage-count-based
   # (see HsmProperties.NamedDekRotation's javadoc for why). Default cron: daily at 03:00.
