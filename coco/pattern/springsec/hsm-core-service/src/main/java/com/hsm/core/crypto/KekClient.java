@@ -26,6 +26,15 @@ public interface KekClient {
     /** The named KEK's current (latest) version identifier. */
     String getCurrentKekVersion(String kekName);
 
+    /**
+     * The latest version's identifier plus the attributes that decide whether it can
+     * still wrap (enabled, not-before, expiry) -- see {@link KekStatus}. The default
+     * reports no limits, for clients without that metadata (the demo HSM).
+     */
+    default KekStatus getKekStatus(String kekName) {
+        return KekStatus.withoutLimits(kekName, getCurrentKekVersion(kekName));
+    }
+
     /** Retrieve a secret value from Key Vault Secrets (regular vault, not Managed HSM). */
     String fetchSecret(String secretName);
 

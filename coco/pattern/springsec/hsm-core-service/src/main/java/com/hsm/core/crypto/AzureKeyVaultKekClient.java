@@ -11,6 +11,7 @@ import com.azure.security.keyvault.keys.KeyClientBuilder;
 import com.azure.security.keyvault.keys.cryptography.CryptographyClient;
 import com.azure.security.keyvault.keys.cryptography.CryptographyClientBuilder;
 import com.azure.security.keyvault.keys.cryptography.models.KeyWrapAlgorithm;
+import com.azure.security.keyvault.keys.models.KeyProperties;
 import com.azure.security.keyvault.keys.models.KeyVaultKey;
 import com.azure.security.keyvault.secrets.SecretClient;
 import com.azure.security.keyvault.secrets.SecretClientBuilder;
@@ -135,6 +136,16 @@ public class AzureKeyVaultKekClient implements KekClient {
         KeyVaultKey key = keyClient.getKey(kekName);
         String version = key.getProperties().getVersion();
         return version == null ? "" : version;
+    }
+
+    /** One GET of the key: the latest version and its enabled / not-before / expiry attributes. */
+    @Override
+    public KekStatus getKekStatus(String kekName) {
+        KeyProperties props = keyClient.getKey(kekName).getProperties();
+        String version = props.getVersion() == null ? "" : props.getVersion();
+        // Key Vault leaves "enabled" unset on some responses; unset means enabled.
+        boolean enabled = props.isEnabled() == null || props.isEnabled();
+        return new KekStatus(kekName, version, enabled, props.getNotBefore(), props.getExpiresOn());
     }
 
     @Override
