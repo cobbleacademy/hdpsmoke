@@ -105,6 +105,19 @@ public class HsmCryptoClient implements AutoCloseable {
         }
     }
 
+    /**
+     * A client from an existing {@link SvcConfig}, for callers that already bind one
+     * (hsm-bulk-client). Uses the builder's default cache size and TTL.
+     */
+    public static HsmCryptoClient fromConfig(SvcConfig config) {
+        if (config.privateKeyPem() == null || config.privateKeyPem().isBlank()) {
+            throw new IllegalStateException("svc.private-key-pem is required -- unwraps what SVC returns from /dek/issue and /dek/unwrap");
+        }
+        Builder defaults = new Builder();
+        return new HsmCryptoClient(new SvcClient(config), TransportWrapper.parsePrivateKeyPem(config.privateKeyPem()),
+                config.appId(), defaults.dekCacheMaxSize, defaults.dekCacheTtl);
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -204,6 +217,19 @@ public class HsmCryptoClient implements AutoCloseable {
     /** UTF-8 convenience overload of {@link #decrypt(String)}. */
     public String decryptToString(String ciphertextToken) {
         return new String(decrypt(ciphertextToken), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The raw DEK for {@code edekId}, through the same decrypt cache (one /dek/unwrap
+     * per edek_id per TTL). For callers that derive their own keys from a named DEK,
+     * such as de-identification's tokenize and surrogate keys
+     * ({@code com.hsm.client.deid.TokenKeyProvider}). Returns a private copy: the
+     * caller must zero it ({@code DekManager.zeroDek}) when done.
+     */
+    public byte[] unwrapDek(UUID edekId) {
+        checkOpen();
+        CachedUnwrappedDek cached = decryptCacheByEdekId.getOrLoad(edekId, this::unwrapOne);
+        return stableCopy(cached.dek(), () -> decryptCacheByEdekId.getOrLoad(edekId, this::unwrapOne).dek());
     }
 
     private CachedUnwrappedDek unwrapOne(UUID edekId) {
