@@ -1,0 +1,101 @@
+{
+  "description": "Pinned outputs of the de-identification algorithms for a fixed DEK. Computed independently (Python hmac/hashlib), not by the Java code. A change here means tokens or surrogate lookups would change for every vendor: never edit to make a test pass.",
+  "dek_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "hkdf": [
+    {
+      "label": "hsm-deid-tokenize-v1",
+      "key_hex": "893a968a5ff6b18218123394c84f30e8efc25643ccdc9d9709ba10b4825b85a9"
+    },
+    {
+      "label": "hsm-deid-surrogate-lookup-v1",
+      "key_hex": "ff8e07171a0014dc7499808b31566c4aff62dd6aad2059d0b6fafca2aeb1af23"
+    },
+    {
+      "label": "hsm-deid-surrogate-enc-v1",
+      "key_hex": "cb65ed8339e4ec65b579e2e086fec4ab97ff9b194a09a9801145bd52495449a9"
+    }
+  ],
+  "tokenize": [
+    {
+      "domain": "member",
+      "value": "M1234567",
+      "normalize": "trim",
+      "token": "tk_FJx-CzsbM5m-5DDa0G8ISg"
+    },
+    {
+      "domain": "member",
+      "value": " M1234567 ",
+      "normalize": "trim",
+      "token": "tk_FJx-CzsbM5m-5DDa0G8ISg"
+    },
+    {
+      "domain": "member",
+      "value": "M7654321",
+      "normalize": "trim",
+      "token": "tk_OM4o7x8sBk8LkHXQ-m-kiQ"
+    },
+    {
+      "domain": "card",
+      "value": "6035-7123-4567-8901",
+      "normalize": "digits",
+      "token": "tk_M6T9F7zsckgvEHh-_6Noiw"
+    },
+    {
+      "domain": "card",
+      "value": "6035712345678901",
+      "normalize": "digits",
+      "token": "tk_M6T9F7zsckgvEHh-_6Noiw"
+    },
+    {
+      "domain": "email",
+      "value": "Jane.Doe@Mail.com ",
+      "normalize": "lower",
+      "token": "tk_GuB3nN3aLQRoCsPZ2x4R7A"
+    },
+    {
+      "domain": "member",
+      "value": "M1234567",
+      "normalize": "none",
+      "token": "tk_FJx-CzsbM5m-5DDa0G8ISg"
+    },
+    {
+      "domain": "other-domain",
+      "value": "M1234567",
+      "normalize": "trim",
+      "token": "tk_fUe-CJ5IpXYUuWmu03jgHg"
+    },
+    {
+      "domain": "member",
+      "value": "Zoë",
+      "normalize": "trim",
+      "token": "tk_npx5QBAXRJ2cb96O51LKsQ"
+    }
+  ],
+  "lookup_hash": [
+    {
+      "domain": "member",
+      "value": "M1234567",
+      "normalize": "trim",
+      "hash_hex": "3d2790aaef8ea42ac20017af6bfbe6341df786f092b1b316100737ab1c1680a8"
+    },
+    {
+      "domain": "card",
+      "value": "6035712345678901",
+      "normalize": "trim",
+      "hash_hex": "985a9b5564b5a76d3535483b46ef26999e33343206231b8aaaa0a12390e8d153"
+    },
+    {
+      "domain": "member",
+      "value": "M7654321",
+      "normalize": "trim",
+      "hash_hex": "173b9c9b42b0b69db51fd28b5ce9e757ac20694d5a2813a9b23b24a717018e36"
+    }
+  ],
+  "rfc5869_case3": {
+    "ikm_hex": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+    "salt_hex": "",
+    "info_hex": "",
+    "length": 42,
+    "okm_hex": "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"
+  }
+}
