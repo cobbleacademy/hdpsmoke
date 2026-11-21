@@ -92,5 +92,13 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Tests only: reads de-identification profiles written as YAML, as the bulk
+             client will. The library itself takes the parsed maps (DeidProfile.fromMap),
+             so it carries no YAML dependency. Version managed by Spring Boot's BOM. -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
