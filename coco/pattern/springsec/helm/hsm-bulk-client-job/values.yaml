@@ -96,6 +96,42 @@ tmpVolume:
   enabled: true
   sizeLimit: 512Mi
 
+# ── BC-FIPS native libraries ───────────────────────────────────────────────────
+# BC-FIPS 2.x can use native (CPU-accelerated) AES-GCM/SHA/DRBG. It unpacks those
+# libraries from its jar at startup and loads them, so the directory must be
+# writable AND executable. native (default): a dedicated emptyDir at /opt/bc-native
+# (the image points BC-FIPS there), so /tmp can stay non-executable. java:
+# pure-Java implementations only; nothing unpacked or executed from disk -- use this
+# where policy forbids executable volumes. The mode in effect is visible in the pod
+# (see RUNBOOK.md "BC-FIPS native libraries").
+bcFips:
+  nativeMode: native        # native | java
+  nativeVolumeSizeLimit: 32Mi
+
+# ── DEID (de-identified CSV export) ────────────────────────────────────────────
+# Off by default. On: this Job runs JOB_TYPE=DEID for one vendor profile
+# (java/docs/DEIDENTIFICATION.md section 11). The job.yml Secret still carries the
+# svc, db and client.deid settings (start from config-examples/deid-csv-export-example.yml);
+# these values only set JOB_TYPE, DEID_PROFILE and DEID_OUTPUT_ROOT and mount:
+#   - the profiles ConfigMap at /deid-profiles (read-only). Create it from the
+#     reviewed profile files, e.g.
+#       kubectl create configmap giftcard-deid-profiles \
+#         --from-file=zen-reporting.yml --from-file=acme-fulfillment.yml
+#   - the output volume (the client's MFT pick-up folder) at output.mountPath.
+#     The job writes <file>.csv.part, renames it to <file>.csv, and writes
+#     <file>.manifest.json beside it; the MFT must pick up *.csv only.
+# A setting in job.yml (client.job.type, client.deid.profile, client.deid.output.root)
+# overrides the matching environment variable here.
+# Two vendors means two releases with different deid.profile values.
+deid:
+  enabled: false
+  profilesConfigMap: ""        # required when enabled
+  profile: ""                  # required when enabled: a file name in the ConfigMap, e.g. zen-reporting.yml
+  output:
+    persistentVolumeClaim: ""  # required when enabled: the MFT pick-up volume
+    mountPath: /deid-out
+    subPath: ""                # optional: one folder per vendor on a shared volume, e.g. zen
+
 podAnnotations: {}
 podLabels: {}
 nodeSelector: {}
