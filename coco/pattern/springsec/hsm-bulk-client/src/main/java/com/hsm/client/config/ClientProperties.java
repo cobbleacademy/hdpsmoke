@@ -23,7 +23,8 @@ public record ClientProperties(
         Job job,
         SvcConfig svc,
         Db db,
-        File file
+        File file,
+        Deid deid
 ) {
 
     /** Which of the two jobs to run, and in which direction. One process, one job, one direction, per invocation. */
@@ -31,7 +32,7 @@ public record ClientProperties(
             Type type,
             Mode mode
     ) {
-        public enum Type { DB, FILE }
+        public enum Type { DB, FILE, DEID }
         public enum Mode { ENCRYPT, DECRYPT }
     }
 
@@ -307,6 +308,133 @@ public record ClientProperties(
             public Checkpoint {
                 if (flushInterval <= 0) {
                     flushInterval = 1000;
+                }
+            }
+        }
+    }
+
+    /**
+     * The DEID job (java/docs/DEIDENTIFICATION.md): one profile, one source, one CSV.
+     * The JDBC source and the surrogate table use {@code client.db.source}'s connection,
+     * {@code client.db.key-column} and {@code client.db.row-batch-size}.
+     */
+    public record Deid(
+            // Path to the profile YAML, normally /config/deid-profiles/<profile>.yml.
+            String profile,
+            Source source,
+            Output output,
+            Surrogate surrogate,
+            // Validate, read a sample and transform it; write nothing (section 10.3).
+            boolean dryRun,
+            // Records the dry run reads. 0/unset means 100.
+            int sample,
+            // Recorded in the manifest and the audit event: who or what started the run.
+            String triggeredBy
+    ) {
+        public Deid {
+            if (sample <= 0) {
+                sample = 100;
+            }
+            if (source == null) {
+                source = new Source(null, null, null);
+            }
+            if (output == null) {
+                output = new Output(null);
+            }
+            if (surrogate == null) {
+                surrogate = new Surrogate(null, null, null);
+            }
+        }
+
+        public record Source(Type type, Csv csv, Json json) {
+            public enum Type { JDBC, CSV, JSON }
+
+            public Source {
+                if (type == null) {
+                    type = Type.JDBC;
+                }
+            }
+        }
+
+        /**
+         * A CSV file with a header row. store/path say where it is (local disk, ADLS or
+         * Blob, as for the FILE job); encrypted: true when the whole file is in the HSM
+         * encrypted file format (v1 or v2), decrypted in memory first.
+         */
+        public record Csv(
+                File.StoreRef store,
+                String path,
+                String delimiter,
+                String quote,
+                String encoding,
+                OnBadRow onBadRow,
+                boolean encrypted
+        ) {
+            public enum OnBadRow { FAIL, SKIP }
+
+            public Csv {
+                if (delimiter == null || delimiter.isEmpty()) {
+                    delimiter = ",";
+                }
+                if (quote == null || quote.isEmpty()) {
+                    quote = "\"";
+                }
+                if (encoding == null || encoding.isBlank()) {
+                    encoding = "UTF-8";
+                }
+                if (onBadRow == null) {
+                    onBadRow = OnBadRow.FAIL;
+                }
+                if (delimiter.length() != 1) {
+                    throw new IllegalArgumentException("deid.source.csv.delimiter must be one character");
+                }
+                if (quote.length() != 1) {
+                    throw new IllegalArgumentException("deid.source.csv.quote must be one character");
+                }
+            }
+        }
+
+        /**
+         * A JSON file: layout LINES (JSON Lines, one object per line, the default) or
+         * ARRAY (one top-level array of objects). Profile fields name paths such as
+         * customer.zip or orders[].card_number. store/path/encoding/on-bad-row/encrypted
+         * as for Csv. In layout ARRAY, invalid JSON always fails the run.
+         */
+        public record Json(
+                File.StoreRef store,
+                String path,
+                Layout layout,
+                String encoding,
+                Csv.OnBadRow onBadRow,
+                boolean encrypted
+        ) {
+            public enum Layout { LINES, ARRAY }
+
+            public Json {
+                if (layout == null) {
+                    layout = Layout.LINES;
+                }
+                if (encoding == null || encoding.isBlank()) {
+                    encoding = "UTF-8";
+                }
+                if (onBadRow == null) {
+                    onBadRow = Csv.OnBadRow.FAIL;
+                }
+            }
+        }
+
+        /** root: the local folder (a mounted volume) the CSV and manifest are written to. */
+        public record Output(String root) {
+        }
+
+        /**
+         * Only for profiles that use surrogate. keyEdekId: the surrogate-table key
+         * (deid-<app>-surrogate). The table is in client.db.source's database.
+         */
+        public record Surrogate(String keyEdekId, String schema, String table) {
+            public Surrogate {
+                if (table == null || table.isBlank()) {
+                    table = "deid_surrogate";
                 }
             }
         }

@@ -18,7 +18,7 @@ public enum DbDialect {
     ORACLE;
 
     /** Falls back to POSTGRESQL for any URL that isn't recognizably SQL Server/Oracle -- preserves this module's pre-existing Postgres-only behavior for every URL shape that isn't one of the two new dialects. */
-    static DbDialect detect(String jdbcUrl) {
+    public static DbDialect detect(String jdbcUrl) {
         if (jdbcUrl != null) {
             if (jdbcUrl.startsWith("jdbc:sqlserver:")) {
                 return SQL_SERVER;
@@ -31,7 +31,7 @@ public enum DbDialect {
     }
 
     /** override, when non-null, always wins over URL-scheme detection. */
-    static DbDialect resolve(String jdbcUrl, DbDialect override) {
+    public static DbDialect resolve(String jdbcUrl, DbDialect override) {
         return override != null ? override : detect(jdbcUrl);
     }
 }
