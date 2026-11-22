@@ -61,6 +61,35 @@ DB fix has to happen directly against the database, not through the API.
   sign-off on scope before building, not something to build unilaterally —
   a break-glass tool is itself a high-value attack target.
 
+## KEK expired, expiring or disabled
+
+Full background, setup and alerting: [`KEK_LIFECYCLE.md`](KEK_LIFECYCLE.md).
+
+**Symptoms:**
+
+- Encrypts and `/dek/issue` fail while decrypts still work.
+- `/admin/health` shows `kek_ok=false`, `status=degraded`.
+- Logs show `kek_expiry_check … state=expired|disabled|not_yet_valid`,
+  `kek_rotation_target_unusable` or `kek_rotation_job_skipped_keks`.
+- `kek_expiry_check … state=expiring` is the early warning, with days left.
+
+**Fix:**
+
+1. Run `az keyvault key rotate --vault-name <vault> --name <kek>` (`--hsm-name`
+   for Managed HSM), or extend the current version with
+   `az keyvault key set-attributes … --expires <date>`.
+2. Encrypts recover at once. No restart is needed, because wraps use the
+   latest version.
+3. Run `POST /admin/rotate-kek?kekName=<kek>` to move existing rows onto the
+   new version.
+4. Health turns `kek_ok=true` within `KEK_EXPIRY_CACHE_TTL_SECONDS` (900s).
+
+**If the version was disabled**, decrypts of rows on it fail too. Re-enable it
+with `az keyvault key set-attributes … --version <v> --enabled true`. Only
+disable a version after
+`SELECT kek_version, rotation_status, count(*) FROM hsm_crypto.edek_records WHERE kek_name = '<kek>' GROUP BY 1, 2`
+shows no rows on it. `ROTATED` rows count.
+
 ## KEK rotation stuck or partially completed
 
 `RotationService.rotateKek` pages through stale records
@@ -756,6 +785,63 @@ curl -sS -D - -o out.bin http://localhost:8080/api/sensec/file/v1/files/<path>
 deactivate the service's app_id. Cached keys keep working for up to the
 cache TTL (15 min) plus 60 s. For immediate effect, also restart the
 Deployment (`kubectl rollout restart`); shutdown zeroes the cache.
+
+## De-identification export (DEID job)
+
+A Kubernetes Job (`helm/hsm-bulk-client-job` with `deid.enabled=true`) writes one
+vendor's de-identified CSV to the client's MFT pick-up folder. Design and
+settings: `DEIDENTIFICATION.md`. Values never appear in logs, the manifest or
+error messages; errors name the field and row only.
+
+**What a run leaves behind** in `client.deid.output.root`:
+
+- success: `<file>.csv` and `<file>.manifest.json`; exit code 0;
+- failure: nothing new (the `.part` file is deleted); exit code non-zero;
+  `deid_export_failed` in the log with the reason.
+
+The audit trail is one log event per run on logger `com.hsm.client.deidjob.audit`:
+`deid_export_completed` (profile id, version and SHA-256, vendor, basis, rows,
+file name and SHA-256) or `deid_export_failed`.
+
+**Triage by message:**
+
+| Message | Cause | Fix |
+|---|---|---|
+| `deid_profile_problem ... problem=...` (one per problem), then the job fails | The profile breaks a rule: basis, never-export field, unknown option, a field not in the source | Fix the profile (pull request, onboarding-team approval); check with `--dry-run --sample 100` |
+| `field 'x' holds HSM ciphertext but isn't decrypt: true` | An encrypted column is listed without `decrypt: true` | Add `decrypt: true` to that field, and a decrypt grant if another app encrypted it |
+| `field 'x', row N: decrypt failed for edek_id=<id>: dek/unwrap failed: ...` | No decrypt grant on that column's DEK, or the export's `app_id` lacks `dek_unwrap` | One `app_dek_grants` row per encrypted column (`DEIDENTIFICATION.md` section 11.1) |
+| `field 'x', row N: marked decrypt: true but not an HSM ciphertext` | A plain value in a column marked encrypted (a partly migrated column) | Fix the data, or split the export with `db.source.query` |
+| `field 'x', row N: not an ISO date or date-time; set input-format` | A date column in another format | Add `input-format` to the field |
+| `the surrogate table ... is missing or unusable` | `deid_surrogate` not created, wrong schema, or no SELECT/INSERT grant | The DBA applies `deid/deid-surrogate-<db>.sql` from the jar; set `client.deid.surrogate.schema` |
+| `client.deid.surrogate.key-edek-id ... is required` | The profile uses `surrogate`, the key isn't configured | `--deid.init-key --name deid-<app>-surrogate`, then set `DEID_SURROGATE_KEY_EDEK_ID` |
+| `output file ... already exists; not overwriting it` | A second run on the same day with a `{yyyyMMdd}` name, and the MFT hasn't moved the first file | Let the MFT archive it, or put `{run}` in `output.file` |
+| `CSV row N has 7 fields, the header has 6` | A malformed CSV source row | Fix the file, or set `on-bad-row: SKIP` (counted in the manifest) |
+| `JSON record N (line L) isn't valid JSON at column C` / `is a JSON array, not an object` / `repeats a key` | A malformed JSON Lines record | Fix the file, or set `on-bad-row: SKIP` (counted in the manifest) |
+| `JSON record N isn't valid JSON at line L, column C (in layout: array ... always fails)` | Invalid JSON inside an `ARRAY` file; the rest can't be read | Fix the file; `SKIP` can't help here |
+| `path 'x.y' leads to a JSON object, not a single value` / `'x' is a JSON string, not an object` | The profile path doesn't match the file's shape | Fix the path in the profile, or the file |
+| `deid_json_paths_not_seen ... paths=[...]` (warning, the run succeeds) | No record has that profile path: a typo, or the field is absent in this file | Check the path; the CSV column is empty. The dry run lists these as `paths_not_seen` |
+
+**Re-running after a failure** is safe: nothing was written to the output
+folder. Surrogate rows inserted before the failure stay and are reused by the
+next run, so the vendor still sees one surrogate per member.
+
+**Before changing a profile in production:** run the same Job with
+`--dry-run --sample 100` (or `DEID_DRY_RUN=true`). It prints the manifest and a
+review (method, `phi`, null rate and distinct count per field, the passthrough
+fields, the columns dropped by default, unmarked ciphertext) and writes nothing,
+not even surrogate rows.
+
+**Creating keys:** `--deid.init-key --name deid-<app>-<vendor>-tok` (one token
+key per vendor) or `--name deid-<app>-surrogate` prints the `edek_id` to pin.
+Needs `dek_issue`; remove that scope once the keys exist (see "Closing out
+`dek_issue`/`dek_unwrap` access" above). Never disable the KEK version a pinned
+key was issued under (`KEK_LIFECYCLE.md` §4.3).
+
+**Surrogate retention** (`DEIDENTIFICATION.md` section 16): the job never
+updates or deletes `deid_surrogate` rows. A vendor's relationship ending:
+`DELETE FROM deid_surrogate WHERE scope = '<surrogate-scope>'`, by the data
+owner's DBA, recorded in the change log. After that, files already sent to
+that vendor can never be mapped back.
 
 ## `TODO`: fill in before this is a real on-call doc
 
