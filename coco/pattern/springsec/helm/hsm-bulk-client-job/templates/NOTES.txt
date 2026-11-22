@@ -1,13 +1,14 @@
 {{ .Chart.Name }} {{ .Chart.AppVersion }} -- Job "{{ include "hsm.fullname" . }}" submitted in namespace {{ .Release.Namespace }}.
 
-This chart runs ONE bulk DB or File job and exits -- it is not a long-lived
+This chart runs ONE bulk DB, File or DEID job and exits -- it is not a long-lived
 service. Each real run should be its own `helm install <unique-name> ...`
 (Jobs are immutable once created; there is no "update" of a prior run).
 
 Before install, the Secret named by `secretName` must already exist, holding
 the full job config under key "job.yml":
 
-  # Start from java/hsm-bulk-client/config-examples/{db,file}-{encrypt,decrypt}-example.yml,
+  # Start from java/hsm-bulk-client/config-examples/{db,file}-{encrypt,decrypt}-example.yml
+  # (or deid-csv-export-example.yml with deid.enabled=true, see values.yaml),
   # fill in real values, then:
   kubectl create secret generic <name>-config --from-file=job.yml=<your-job.yml> \
     --dry-run=client -o yaml -n {{ .Release.Namespace }} | kubectl apply -f -

@@ -1,3 +1,6 @@
+{{- if not (has .Values.bcFips.nativeMode (list "native" "java")) }}
+{{- fail "bcFips.nativeMode must be native or java" }}
+{{- end }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -39,6 +42,22 @@ spec:
             {{- toYaml .Values.securityContext.container | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or (eq .Values.bcFips.nativeMode "java") .Values.deid.enabled }}
+          env:
+            {{- if eq .Values.bcFips.nativeMode "java" }}
+            # Pure-Java BC-FIPS: nothing unpacked or executed from disk.
+            - name: JDK_JAVA_OPTIONS
+              value: "-Dorg.bouncycastle.native.cpu_variant=java"
+            {{- end }}
+            {{- if .Values.deid.enabled }}
+            - name: JOB_TYPE
+              value: DEID
+            - name: DEID_PROFILE
+              value: "/deid-profiles/{{ required "deid.profile is required when deid.enabled (a file name in deid.profilesConfigMap)" .Values.deid.profile }}"
+            - name: DEID_OUTPUT_ROOT
+              value: {{ .Values.deid.output.mountPath | quote }}
+            {{- end }}
+          {{- end }}
           volumeMounts:
             - name: job-config
               mountPath: /config
@@ -46,6 +65,23 @@ spec:
             {{- if .Values.tmpVolume.enabled }}
             - name: tmp
               mountPath: /tmp
+            {{- end }}
+            {{- if .Values.deid.enabled }}
+            - name: deid-profiles
+              mountPath: /deid-profiles
+              readOnly: true
+            - name: deid-out
+              mountPath: {{ .Values.deid.output.mountPath }}
+              {{- with .Values.deid.output.subPath }}
+              subPath: {{ . }}
+              {{- end }}
+            {{- end }}
+            {{- if eq .Values.bcFips.nativeMode "native" }}
+            # BC-FIPS unpacks and loads its native libraries here (the image sets
+            # -Dorg.bouncycastle.native.loader.install_dir=/opt/bc-native), so /tmp
+            # never needs to be executable.
+            - name: bc-native
+              mountPath: /opt/bc-native
             {{- end }}
       volumes:
         # The entire per-run job -- DB or File, encrypt or decrypt, table/columns
@@ -61,10 +97,26 @@ spec:
             items:
               - key: job.yml
                 path: job.yml
+        {{- if .Values.deid.enabled }}
+        # Reviewed vendor profiles (DEIDENTIFICATION.md section 6), one file per vendor.
+        - name: deid-profiles
+          configMap:
+            name: {{ required "deid.profilesConfigMap is required when deid.enabled" .Values.deid.profilesConfigMap }}
+        # The client's MFT pick-up folder.
+        - name: deid-out
+          persistentVolumeClaim:
+            claimName: {{ required "deid.output.persistentVolumeClaim is required when deid.enabled" .Values.deid.output.persistentVolumeClaim }}
+        {{- end }}
         {{- if .Values.tmpVolume.enabled }}
         - name: tmp
           emptyDir:
             sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}
+        {{- if eq .Values.bcFips.nativeMode "native" }}
+        # Disk-backed and without noexec: the JVM must mmap these libraries executable.
+        - name: bc-native
+          emptyDir:
+            sizeLimit: {{ .Values.bcFips.nativeVolumeSizeLimit }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
