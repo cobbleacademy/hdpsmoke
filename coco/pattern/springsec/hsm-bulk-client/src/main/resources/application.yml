@@ -16,7 +16,7 @@ spring:
 
 client:
   job:
-    type: ${JOB_TYPE:DB}          # DB | FILE
+    type: ${JOB_TYPE:DB}          # DB | FILE | DEID
     mode: ${JOB_MODE:ENCRYPT}     # ENCRYPT | DECRYPT
 
   svc:
@@ -164,3 +164,42 @@ client:
     # Per-batch JSON-lines result files (path, file_id, edek_id, sizes) under
     # <target>/.hsm_bulk_results/. Unset = on for format-version 2, off for 1.
     write-results: ${FILE_WRITE_RESULTS:}
+
+  # DEID: a de-identified CSV for a vendor (java/docs/DEIDENTIFICATION.md). One profile
+  # per Job. JOB_TYPE=DEID. A JDBC source uses client.db.source, client.db.key-column
+  # and client.db.row-batch-size above (the page size for both sources); the surrogate
+  # table is in client.db.source's database too.
+  # Command line: --dry-run [--sample 100] validates, transforms a sample and writes
+  # nothing. --deid.init-key --name <dek-name> issues a key and prints its edek_id.
+  deid:
+    profile: ${DEID_PROFILE:}                     # e.g. /config/deid-profiles/zen-reporting.yml
+    source:
+      type: ${DEID_SOURCE_TYPE:JDBC}              # JDBC | CSV | JSON
+      # Only for type CSV. The file needs a header row. Set these in the job config file:
+      # csv:
+      #   store: { type: LOCAL, root: /data/in }  # LOCAL | ADLS | AZURE_BLOB, as for client.file
+      #   path: giftcards.csv
+      #   delimiter: ","
+      #   quote: '"'
+      #   encoding: UTF-8                         # a BOM is accepted
+      #   on-bad-row: FAIL                        # FAIL | SKIP (counted in the manifest)
+      #   encrypted: false                        # true: the whole file is HSM-encrypted (v1/v2); needs a decrypt grant
+      # Only for type JSON. Profile fields name paths: customer.zip, "orders[].card_number".
+      # json:
+      #   store: { type: LOCAL, root: /data/in }
+      #   path: members.jsonl
+      #   layout: LINES                           # LINES (one object per line) | ARRAY (one [ ... ] of objects)
+      #   encoding: UTF-8
+      #   on-bad-row: FAIL                        # FAIL | SKIP; invalid JSON in an ARRAY file always fails
+      #   encrypted: false
+    output:
+      # A local folder: a mounted volume the client's MFT picks up from (*.csv only).
+      root: ${DEID_OUTPUT_ROOT:}
+    surrogate:
+      # Only when a profile uses surrogate: the edek_id of deid-<app>-surrogate.
+      key-edek-id: ${DEID_SURROGATE_KEY_EDEK_ID:}
+      schema: ${DEID_SURROGATE_SCHEMA:}
+      table: ${DEID_SURROGATE_TABLE:deid_surrogate}
+    dry-run: ${DEID_DRY_RUN:false}
+    sample: ${DEID_SAMPLE:100}
+    triggered-by: ${DEID_TRIGGERED_BY:}
