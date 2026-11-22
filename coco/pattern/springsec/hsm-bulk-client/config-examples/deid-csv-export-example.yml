@@ -1,0 +1,68 @@
+# A DEID job (java/docs/DEIDENTIFICATION.md): one vendor profile, one source, one CSV.
+# Two vendors means two Jobs with different DEID_PROFILE values.
+#
+#   JOB_TYPE=DEID DEID_PROFILE=/config/deid-profiles/zen-reporting.yml \
+#     java -jar hsm-bulk-client.jar --spring.config.additional-location=file:./deid-csv-export-example.yml
+#
+# Review a new or changed profile first; this reads 100 records and writes nothing:
+#   ... --dry-run --sample 100
+# Create a key (token key per vendor, or the surrogate-table key), prints its edek_id:
+#   ... --deid.init-key --name deid-giftcard-zen-tok
+
+client:
+  job:
+    type: DEID
+  svc:
+    # Only used when the profile calls hsm-core: tokenize, surrogate or decrypt: true.
+    # The app_id is the export's own registration (DEIDENTIFICATION.md section 11.1),
+    # with the dek_unwrap scope (and dek_issue to create keys).
+    base-url: http://localhost:3005
+    app-id: giftcard-deid-export
+    auth-mode: STATIC                   # STATIC | AZURE_AD | SELF_SIGNED_JWT | MTLS, see db-encrypt-example.yml
+    token: "<bearer token for app-id>"
+    private-key-pem: |
+      -----BEGIN PRIVATE KEY-----
+      <PKCS#8 private key; public half registered via POST /admin/apps/keys>
+      -----END PRIVATE KEY-----
+  db:
+    # The JDBC source, and the database holding deid_surrogate. Postgres, SQL Server
+    # and Oracle are supported. The job's user needs SELECT on the source and
+    # SELECT, INSERT on deid_surrogate.
+    source:
+      jdbc-url: jdbc:postgresql://localhost:5432/giftcards
+      username: deid_export
+      password: "<password>"
+      schema: public
+      table: giftcards
+      # query: "SELECT id, member_id, ... FROM giftcards WHERE status <> 'VOID'"   # instead of table
+    key-column: id                      # unique, non-sensitive, sortable
+    row-batch-size: 1000                # the page size
+  deid:
+    profile: /config/deid-profiles/zen-reporting.yml
+    source:
+      type: JDBC                        # JDBC | CSV | JSON
+      # A CSV file instead (header row required):
+      # type: CSV
+      # csv:
+      #   store: { type: LOCAL, root: /data/in }   # or ADLS / AZURE_BLOB, as for the FILE job
+      #   path: giftcards.csv
+      #   on-bad-row: FAIL                         # or SKIP: counted in the manifest
+      #   encrypted: false                         # true for a whole HSM-encrypted file
+      # Or a JSON file (profile: deid-profiles/json-source-example.yml):
+      # type: JSON
+      # json:
+      #   store: { type: LOCAL, root: /data/in }
+      #   path: members.jsonl
+      #   layout: LINES                            # or ARRAY: one top-level [ ... ]
+      #   on-bad-row: FAIL                         # or SKIP; invalid JSON in an ARRAY file always fails
+      #   encrypted: false
+    output:
+      # The client's MFT pick-up folder, one per vendor profile. The job writes
+      # <file>.csv.part, renames it to <file>.csv when complete, and writes
+      # <file>.manifest.json beside it. The MFT must pick up *.csv only.
+      root: /deid-out/zen
+    surrogate:
+      key-edek-id: "<edek_id of deid-giftcard-surrogate>"   # only if the profile uses surrogate
+      # schema: deid
+      # table: deid_surrogate
+    triggered-by: "<pipeline or schedule name>"

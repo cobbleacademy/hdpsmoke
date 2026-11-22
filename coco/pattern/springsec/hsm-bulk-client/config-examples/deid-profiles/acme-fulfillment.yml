@@ -1,0 +1,24 @@
+# A minimum-necessary profile for a fulfillment vendor (java/docs/DEIDENTIFICATION.md).
+# Acme ships cards, so it needs the name and a way to contact the member; the email
+# and card number are masked, and the member is a token computed with Acme's own key.
+# Approved by the data owner's onboarding team; changes go through pull requests.
+id: acme-fulfillment
+version: 1
+vendor: acme-rewards                   # a label for the manifest and audit only
+hipaa-basis: minimum-necessary
+# Acme's token key: deid-giftcard-acme-tok, created with --deid.init-key. Replace with its edek_id.
+token-key-edek-id: 00000000-0000-4000-8000-000000000000
+token-domain: member
+fields:                                 # anything not listed is dropped; output columns follow this order
+  - { name: member_id,   phi: member-id,   method: tokenize }
+  - { name: first_name,  phi: name,        method: passthrough }
+  - { name: last_name,   phi: name,        method: passthrough }
+  - { name: email,       phi: email,       decrypt: true, method: mask, keep: domain, keep-first: 1 }
+  - { name: phone,       phi: phone,       method: mask, keep-last: 4, preserve: ["-"] }
+  - { name: card_number, phi: card-number, decrypt: true, method: mask, keep-last: 4 }
+  - { name: card_pin,    method: drop }   # never-export: drop is the only method allowed
+  - { name: card_type,   method: passthrough }
+  - { name: amount,      method: passthrough }
+  - { name: status,      method: passthrough }
+output:
+  file: "giftcards_acme_{yyyyMMdd}.csv"

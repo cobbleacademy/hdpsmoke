@@ -1,0 +1,36 @@
+# A Safe Harbor profile over a JSON source (java/docs/DEIDENTIFICATION.md section 9).
+# Each record is one member with nested details and an array of gift cards:
+#
+#   {"member_id":"M1234567","name":{"first":"Jane","last":"Doe"},"dob":"1985-03-14",
+#    "address":{"zip":"60614-2231","city":"Chicago"},"email":"<HSM ciphertext>",
+#    "cards":[{"card_number":"<HSM ciphertext>","pin":"4821","amount":25.00,"issued":"2026-11-02"},
+#             {"card_number":"<HSM ciphertext>","pin":"1122","amount":10.00,"issued":"2026-11-05"}]}
+#
+# Paths: a.b reads a nested key; cards[].x reads x from every element of the cards
+# array, giving one CSV row per card (the member's fields repeated). Only one array
+# can be expanded. A member with no cards still gives one row, with the card fields
+# empty. Output columns drop the [] (cards.amount) unless renamed. Quote a path
+# with [] in YAML ("cards[].x"): unquoted, [ starts a YAML list.
+#
+# Source settings, in the job config:
+#   client.deid.source:
+#     type: JSON
+#     json: { store: { type: LOCAL, root: /data/in }, path: members.jsonl, layout: LINES }
+id: zen-members-json
+version: 1
+vendor: zen-analytics
+hipaa-basis: safe-harbor
+surrogate-scope: zen-analytics
+fields:
+  - { name: member_id,         phi: member-id,   method: surrogate, domain: member }
+  - { name: name.first,        phi: name,        method: drop }
+  - { name: dob,               phi: birth-date,  method: generalize, to: birth-year }
+  - { name: address.zip,       phi: zip,         method: generalize, to: zip3 }
+  - { name: email,             phi: email,       method: drop }
+  - { name: "cards[].card_number", phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }
+  - { name: "cards[].issued",    phi: date,        method: generalize, to: year }
+  - { name: "cards[].amount",                      method: passthrough }
+  - { name: "cards[].pin",                         method: drop }   # never-export: must be drop
+output:
+  file: "members_zen_{yyyyMMdd}.csv"
+  rename: { member_id: member_ref, "cards[].card_number": card_ref }

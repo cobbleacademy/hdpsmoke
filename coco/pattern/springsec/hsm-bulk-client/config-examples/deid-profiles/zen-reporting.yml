@@ -1,0 +1,21 @@
+# A Safe Harbor profile for a reporting vendor (java/docs/DEIDENTIFICATION.md).
+# Zen sees no identifiers: members and cards are random surrogates kept in the
+# deid_surrogate table (so the same member gets the same surrogate every month),
+# dates become years, ZIPs become ZIP3s, and birth years over 89 are capped.
+id: zen-reporting
+version: 1
+vendor: zen-analytics
+hipaa-basis: safe-harbor
+surrogate-scope: zen-analytics          # one series of surrogates per vendor
+fields:
+  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }
+  - { name: card_number, phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }
+  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }
+  - { name: issued_date, phi: date,        method: generalize, to: year }
+  - { name: zip,         phi: zip,         method: generalize, to: zip3 }
+  - { name: amount,                        method: passthrough }
+  - { name: card_type,                     method: passthrough }
+  - { name: status,                        method: passthrough }
+output:
+  file: "giftcards_zen_{yyyyMMdd}.csv"
+  rename: { member_id: member_ref, card_number: card_ref }
