@@ -14,6 +14,19 @@ dependencies = [
     "pyyaml>=6.0",        # deid: reads de-identification profiles (safe loading only)
 ]
 
+[project.optional-dependencies]
+# The Databricks DEID job (java/docs/DEIDENTIFICATION.md section 17). Databricks
+# runtimes already have pyspark, pandas and pyarrow; the job's environment adds psycopg.
+deid = [
+    "pyspark>=3.5",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "psycopg[binary]>=3.1",
+]
+
+[project.scripts]
+hsm-deid = "hsm_databricks_udf.deid.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
