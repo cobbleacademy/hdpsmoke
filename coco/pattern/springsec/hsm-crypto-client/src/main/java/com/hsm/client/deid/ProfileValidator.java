@@ -138,14 +138,15 @@ public final class ProfileValidator {
                             + " (an age measured at an older date understates today's age)");
                 }
             }
-            case DATE -> requireGeneralize(f, generalize, Set.of("year"), where, category, problems);
-            case ZIP -> requireGeneralize(f, generalize, Set.of("zip3"), where, category, problems);
-            case AGE -> requireGeneralize(f, generalize, Set.of("age-90", "age-band"), where, category, problems);
+            case DATE -> requireGeneralize(f, generalize, List.of("year"), where, category, problems);
+            case ZIP -> requireGeneralize(f, generalize, List.of("zip3"), where, category, problems);
+            case AGE -> requireGeneralize(f, generalize, List.of("age-90", "age-band"), where, category, problems);
         }
     }
 
-    private static void requireGeneralize(DeidProfile.Field f, GeneralizeTransform generalize, Set<String> allowedTo,
+    private static void requireGeneralize(DeidProfile.Field f, GeneralizeTransform generalize, List<String> allowedTo,
                                           String where, String category, List<String> problems) {
+        // A list, not a set: the message names the methods in a fixed order.
         Object to = generalize == null ? null : generalize.describe().get("to");
         if (!allowedTo.contains(String.valueOf(to))) {
             problems.add(where + " (" + category + "): safe-harbor allows only drop or generalize to: "
