@@ -1,6 +1,6 @@
 # De-identification: CSV Export
 
-**Status: phases 1, 2 and 3 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source.
+**Status: phases 1–4 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source. Phase 4: the Python library for Databricks (`hsm-databricks-udf`, package `hsm_databricks_udf.deid`). Phases 5–6 (the Spark job and its deployment) designed, not built: section 17.
 
 Read a database table, CSV file or JSON file holding gift-card reward data.
 De-identify it according to a **profile**, and write **one CSV file** plus a
@@ -21,8 +21,8 @@ process (MFT/SFTP). This job doesn't deliver files.
 | **Output** | CSV (UTF-8, RFC 4180), written to local disk, ADLS or Blob through the existing `hsm-file-store` adapters |
 | **Methods** | `drop` (default for anything unlisted), `mask`, `generalize`, `tokenize`, `surrogate`, plus `passthrough` |
 | **Vendors** | One profile per vendor. A vendor-specific token key goes in the profile, so tokens differ between vendors. |
-| **Where it runs** | `hsm-bulk-client`, new job type `DEID` (`JOB_TYPE=DEID`), as a Kubernetes Job (`helm/hsm-bulk-client-job`) |
-| **Where the logic lives** | `hsm-crypto-client`, package `com.hsm.client.deid`, so the Spark adapter can reuse it later |
+| **Where it runs** | `hsm-bulk-client`, new job type `DEID` (`JOB_TYPE=DEID`), as a Kubernetes Job (`helm/hsm-bulk-client-job`). On Databricks: a Python job reading Delta tables and writing to a volume (section 17) |
+| **Where the logic lives** | `hsm-crypto-client`, package `com.hsm.client.deid`. On Databricks: `hsm-databricks-udf`, package `hsm_databricks_udf.deid`, matching it exactly (section 17.2) |
 | **hsm-core changes** | **None.** Keys are ordinary named DEKs, pinned by `edek_id` (section 7). |
 | **Encrypted columns** | A column holding HSM ciphertext is marked `decrypt: true`: decrypted in memory, then the method applies (section 6.3) |
 | **Surrogate table** | Needed **only when a profile uses `surrogate`.** It lives in the data owner's database (section 8). |
@@ -749,6 +749,9 @@ VALUES ('giftcard-deid-export', 'giftcard-svc', 'giftcards.email', 'decrypt', CU
 | **1. `hsm-crypto-client`** | The `deid` package: the six methods, `FieldDecryptor` (`decrypt: true`), the `SurrogateStore` interface, `TokenKeyProvider` (HKDF), profile parsing and validation, test vectors |
 | **2. `hsm-bulk-client`** | The `DEID` job with JDBC and CSV sources; CSV output; manifest; audit; dry run; `--deid.init-key`; JDBC surrogate store with its DDL; example profiles; Helm values example |
 | **3. JSON** | The JSON source (`lines` / `array`, field paths) |
+| **4. Python library** | `hsm_databricks_udf.deid`: profile parsing and validator, the six methods, HKDF keys, lookup hash and `value_enc`; passes `deid-test-vectors.json` (section 17.2) |
+| **5. Spark job** | Delta source, decrypt, transforms, surrogate resolution against Postgres or Lakebase, staged CSV and manifest to a volume, dry run, audit; local tests with PySpark and Postgres; the Java/Python cross-check (sections 17.3, 17.4) |
+| **6. Databricks deployment** | Wheel, job definitions for serverless and dedicated compute, secret scope, egress allowlist, Lakebase setup, RUNBOOK section (sections 17.5, 17.6) |
 
 ## 14. Files
 
@@ -880,6 +883,90 @@ Notes on phase 3 as built:
   absent from the first records may still be present later, so failing on it
   would make runs depend on the data's order.
 
+### Phase 4: `hsm-databricks-udf`, Python library
+
+| | Path |
+|---|---|
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/__init__.py` |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/errors.py` (`DeidError`, `DeidValidationError`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/_java.py` (the Java string and number rules the methods rely on) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/profile.py` (profile, `phi` categories, bases, methods, `parse_yaml`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/validator.py` |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/keys.py` (HKDF labels, `KeyProvider`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/methods.py` (options, normalize, drop, passthrough, mask, generalize, tokenize; `create`, `check_options`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/surrogate.py` (lookup hash, `value_enc`, surrogate format) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/restricted-zip3.txt` (a copy of the Java resource) |
+| A | `hsm-databricks-udf/tests/deid/test_vectors.py` (reads `deid-test-vectors.json`) |
+| A | `hsm-databricks-udf/tests/deid/test_methods.py` |
+| A | `hsm-databricks-udf/tests/deid/test_validator.py` |
+| A | `hsm-databricks-udf/tests/deid/test_method_cases.py` (reads `deid-method-cases.json`) |
+| A | `hsm-databricks-udf/tests/deid/test_profile_cases.py` (reads `deid-profile-cases.json`; covers the example profiles) |
+| M | `hsm-databricks-udf/pyproject.toml` (PyYAML; package data) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-method-cases.json` (172 edge cases with the Java outputs) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-profile-cases.json` (120 profiles with the Java problems) |
+| A | `java/hsm-crypto-client/src/test/java/com/hsm/client/deid/DeidMethodCasesTest.java` |
+| A | `java/hsm-bulk-client/src/test/java/com/hsm/client/deidjob/DeidProfileCasesTest.java` |
+| M | `java/hsm-crypto-client/src/main/java/com/hsm/client/deid/ProfileValidator.java` (fixed method order in one message) |
+
+Notes on phase 4 as built:
+
+- **Two shared case files** pin behaviour from the Java side, and both test
+  suites check them: `deid-method-cases.json` (mask, generalize and normalize
+  on edge inputs, error messages included) and `deid-profile-cases.json`
+  (YAML read, structure and validator problems in order, output names). They
+  were produced by running the Java classes; neither side may change an
+  expected value to pass. The planned `deid-crosscheck/` folder (phase 5)
+  adds whole files on top.
+- **Java rules reproduced exactly** (`_java.py`): `String.strip` and `trim`
+  (Python's `strip` also removes the no-break space), `Integer.parseInt`
+  (no `_`, no surrounding spaces), `String.valueOf` (`true`, `4.0`, `1.0E7`),
+  Java's ASCII-only `[0-9]` and regex classes, and how `java.time` reads ISO
+  dates (offsets with or without colons, an empty fraction, leap seconds
+  only as an instant).
+- **`input-format`:** the Python job reads the pattern letters date columns
+  use (`y u M d D H k K h m s S a`, `MMM`, literals), with Java's `SMART`
+  rules (for example `24:00` on 31 December is the next year). A profile
+  using any other letter, or `MMMM`, is refused when checked, rather than
+  read differently. This is the one difference from the Java validator.
+- **`value_enc` interoperates:** a value encrypted by the Java
+  `SurrogateTransform` decrypts here and the other way round (a Java-made
+  value is pinned in `test_methods.py`), so both jobs can share one
+  surrogate table.
+- **Randomness:** new surrogates and IVs come from the OS CSPRNG (`secrets`),
+  not BC-FIPS's DRBG (section 16, question 6).
+- **Fixed in Java:** `ProfileValidator` named the allowed `age` methods from a
+  `Set`, so "age-90 / age-band" could come out in either order between JVM
+  runs. It now uses a list.
+
+### Phase 5: `hsm-databricks-udf`, Spark job (planned)
+
+| | Path |
+|---|---|
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/job.py` (the run: checks, stages, write, manifest) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/source.py` (Delta table or query, values as strings) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/spark_methods.py` (Spark expressions and vectorised functions) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/surrogate_store.py` (Postgres / Lakebase, `ON CONFLICT DO NOTHING`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/csv_output.py` (RFC 4180 lines, formula guard, `.part`, SHA-256, no overwrite) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/manifest.py` |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (`hsm-deid` entry point, `--dry-run`, `--init-key`) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/pipeline.py` (decrypt, transforms and stats per batch of rows, used by the Spark functions) |
+| A | `hsm-databricks-udf/tests/deid/test_csv_output.py` |
+| A | `hsm-databricks-udf/tests/deid/test_surrogate_store.py` (Postgres; skipped without Docker) |
+| A | `hsm-databricks-udf/tests/deid/test_job_local.py` (local PySpark, end to end) |
+| A | `hsm-databricks-udf/tests/deid/test_crosscheck.py` |
+| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/` (input rows, profiles, the Java job's CSVs) |
+| M | `hsm-databricks-udf/pyproject.toml` (`[deid]` extra: `pyspark`, `psycopg`; the `hsm-deid` entry point) |
+
+### Phase 6: Databricks deployment (planned)
+
+| | Path |
+|---|---|
+| A | `hsm-databricks-udf/jobs/deid-serverless.json` (job definition, serverless environment) |
+| A | `hsm-databricks-udf/jobs/deid-dedicated.json` (job definition, dedicated job cluster) |
+| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (wheel, volumes, secret scope, egress, Lakebase, registration) |
+| M | `hsm-databricks-udf/README.md` |
+| M | `java/docs/RUNBOOK.md` (Databricks DEID section) |
+
 ### Design
 
 | | Path |
@@ -899,7 +986,7 @@ the profile format.
 | Files coming back from vendors | Map surrogates or tokens back to member IDs |
 | JSON Lines or Parquet output | Output is CSV only for now |
 | Reversible pseudonymization, FF1 format-preserving | Only if a vendor needs it |
-| Spark adapter / Databricks functions | Reuse `com.hsm.client.deid`; Python must pass the test vectors |
+| JVM Spark adapter (`hsm-spark-adapter`) | Reuse `com.hsm.client.deid` on self-managed Spark. Databricks is covered by the Python job instead (section 17) |
 | Unstructured files | A separate effort (PII detection, OCR, review) |
 
 ## 16. Decisions and open questions
@@ -910,6 +997,10 @@ the profile format.
 | 2 | **Approval:** who approves profiles? | **Decided: the onboarding team.** The job runs on the client side, in the data owner's namespace, so the data owner's onboarding team owns each profile and its approval (with privacy sign-off as their process requires). **Still open:** should production refuse a profile whose SHA-256 isn't on an approved list? |
 | 3 | **Retention:** how long are a vendor's surrogate rows kept? | **Decided: as long as the member is needed.** A member's surrogate row is kept while that member is still exported or may still be asked about. See "Surrogate retention" below. |
 | 4 | **Hand-off:** who moves the file to the vendor, push or pull? | **Decided: push, set up by the client.** `hsm-bulk-client` runs in the client's scope, so the client sets up the MFT, its pick-up folder and the vendor target. See "Hand-off" below. |
+| 5 | **Lakebase login:** a Postgres password role, or OAuth tokens from the Databricks SDK? | **Open.** Recommended: a password role in the secret scope. Tokens expire (about an hour) and the workers can't fetch new ones (section 17.5). |
+| 6 | **FIPS on Databricks:** does the once-per-DEK RSA unwrap need a FIPS-validated module? | **Open**, shared with `DATABRICKS_UDF_DESIGN.md` §8. Per-row work is out of FIPS scope there. |
+| 7 | **Databricks compute:** serverless, dedicated, or both? | **Decided: both**, from one wheel. JAR deployment isn't available, so the job is Python (section 17.1). |
+| 8 | **Surrogate table on Databricks:** where? | **Decided: Postgres or Lakebase**, never Delta (section 17.1). The Java and Python jobs can share one table. |
 
 ### Surrogate retention
 
@@ -968,3 +1059,187 @@ hsm-bulk-client (DEID Job)  ──►  outbound folder  ──►  client's MFT 
 - A separate "done" marker file isn't needed: the rename happens only
   when the file is complete. One can be added if a client's MFT requires
   it.
+
+## 17. Databricks (Python)
+
+**Status: phase 4 (the Python library) built; phases 5–6 (the Spark job, deployment) designed, not built.** The same export for data that
+lives in Databricks: read a **Delta table**, de-identify it with the same
+profile, and write **one CSV plus its manifest to a Unity Catalog volume**.
+
+### 17.1 Constraints and the choice
+
+| Constraint | Consequence |
+|---|---|
+| Must run on **serverless and dedicated** compute | JVM code is out: Java/Scala UDFs and Spark extensions don't run on serverless or shared compute (`DATABRICKS_UDF_DESIGN.md` §2) |
+| **No JAR deployment**, Python only | The job is a **Python wheel task**; the `hsm-bulk-client` jar can't be reused there |
+| **Millions of rows** per file | The work runs on the executors, not row by row on the driver |
+| Surrogate table in **Postgres or Lakebase** | Delta can't hold it: it doesn't enforce the unique constraints that keep two runs from giving one member two surrogates (section 8.3). Lakebase is Postgres, so the existing Postgres DDL applies unchanged |
+
+**Choice: a Python implementation of this spec**, in the existing
+`hsm-databricks-udf` package (new subpackage `hsm_databricks_udf.deid`),
+run as a Databricks job from one wheel on serverless or a dedicated cluster.
+It is a **second implementation of the same design**, not a new design:
+same profile format, same validator rules, same methods and the same
+surrogate table. The Java Kubernetes job (sections 5–11) stays as it is for
+the databases it reads.
+
+### 17.2 Same spec, same results
+
+A vendor must get the same surrogates and tokens whichever job produced the
+file. The Python side therefore matches the Java side exactly on:
+
+- **profiles:** the YAML format (section 6), the validator rules (section 6.2),
+  never-export fields (section 4.7), and the profile SHA-256 in the manifest;
+- **keys:** pinned `edek_id`s and HKDF-SHA256 with the same labels
+  (section 7);
+- **tokens:** `tk_` + base64url of the truncated HMAC (section 4.4);
+- **surrogates:** `lookup_hash`, `value_enc` (AES-GCM, AAD binding scope and
+  domain), the surrogate format (`S-` + Crockford base32) and the same
+  `deid_surrogate` rows. The Java and Python jobs can share one table and
+  one scope;
+- **`mask` and `generalize`:** every option, the restricted ZIP3 list, the
+  over-89 rule with the run's year;
+- **values as strings:** as the Java JDBC source converts them (decimals as
+  plain text with their scale, dates `yyyy-MM-dd`, date-times in Java's ISO
+  form, which leaves out zero seconds; binary columns are rejected);
+- **output:** RFC 4180 quoting, the formula guard, `rename`, column order;
+  the manifest fields (section 10.2); the audit events
+  `deid_export_completed` / `deid_export_failed` (section 10.4).
+
+How this is proved:
+
+1. **Test vectors.** The Python tests read the same
+   `deid-test-vectors.json` as the Java tests (tokens, HKDF labels, lookup
+   hashes).
+2. **Shared case files** (built in phase 4): `deid-method-cases.json` and
+   `deid-profile-cases.json`, produced by the Java classes and checked by
+   both test suites: edge-case inputs to mask, generalize and normalize, and
+   profiles with their validator problems.
+3. **Cross-check** (phase 5). A fixed input table and profiles, with the CSVs the Java
+   job produces for them checked in as expected output. The Python job must
+   produce the same bytes (rows sorted, since Spark doesn't keep row order).
+
+### 17.3 How a run works
+
+```
+Delta table (catalog.schema.table, or a SQL query)
+   │  only the profile's columns are selected; anything unlisted is never read (deny by default)
+   ▼
+0. checks        profile parsed and validated against the table schema; keys unwrapped;
+                 one sample value per decrypt: true field decrypted; unmarked ciphertext
+                 in a sample fails the run (as section 6.3); output file must not exist
+1. decrypt       vectorised Python function per decrypt: true field; DEK cached per worker
+2. transforms    drop          column not selected
+                 passthrough   cast to string
+                 generalize    Spark expressions (year, birth-year, zip3, age-90, age-band)
+                 mask          vectorised Python function (keeps the options' exact behaviour)
+                 tokenize      vectorised Python function (HMAC)
+3. surrogates    lookup hash per row (Python) ─► group by (domain, hash) ─► each partition
+                 resolves its distinct hashes against deid_surrogate ─► joined back
+4. stage         the transformed rows are written once to a temporary Parquet folder
+5. stats         null counts, row count, surrogate counters from the staged rows
+6. write         staged rows ─► CSV lines (RFC 4180, formula guard) ─► one text part
+                 file ─► header + part streamed into <file>.csv.part with SHA-256 ─►
+                 renamed to <file>.csv ─► <file>.manifest.json ─► audit event
+7. clean up      the temporary folder is deleted, also on failure
+```
+
+- **Serverless uses Spark Connect,** which has no RDD API, accumulators,
+  `SparkContext` or `cache()`. The job uses only the DataFrame API and
+  vectorised functions (`pandas_udf`, `mapInPandas`), so the same code runs
+  on both compute types. The staging step (4) replaces `cache()`: the
+  expensive part (decrypt, surrogates) runs once.
+- **One CSV file.** The lines are written by one task into a text file, so
+  Spark's CSV writer (backslash escapes, quoting of empty strings) is never
+  used: the quoting is the job's own and matches the Java output. The temp
+  files are `.txt` in a hidden `_deid_tmp/` folder, so an MFT that picks up
+  `*.csv` never sees them.
+- **Row order** is not kept. Files are compared and checked by their SHA-256
+  and the manifest, not by order.
+- **Errors** name the field and, when the source has a non-sensitive
+  `key-column`, that row's key; otherwise only the field. Never a value.
+
+### 17.4 Surrogates on Spark
+
+1. Each row's `lookup_hash` is computed on the executors (HMAC with
+   `K_lookup`, section 8.2).
+2. Rows are **repartitioned by `(domain, lookup_hash)`**, so every distinct
+   value is in exactly one partition: a run never competes with itself.
+3. Each partition (`mapInPandas`) opens one connection and, for its distinct
+   hashes, in chunks:
+   - reads the existing rows;
+   - inserts the missing ones with `INSERT … ON CONFLICT DO NOTHING`
+     (Postgres and Lakebase only), then re-reads, so rows another run
+     inserted first are picked up;
+   - retries a surrogate that clashed with an existing one with a new
+     random value, up to 5 times, then fails (as section 8.3).
+4. The `hash → surrogate` pairs are joined back to the rows.
+
+- **Two runs at once** still agree on one surrogate: the table's primary
+  key and unique constraint decide, as for the Java job.
+- **Connections:** one per partition of this step, so its partition count
+  (`surrogate-partitions`, default 8) caps the database connections.
+- **Counters** (`new`, `existing`) count distinct values exactly here,
+  unlike the Java job's per-page counts (section 10.2).
+- **Dry run:** nothing is inserted. New surrogates stay in memory for the
+  sample; each value is in one partition, so they're consistent.
+
+### 17.5 Keys, credentials and network
+
+- **Keys are unwrapped on each worker** with `/dek/unwrap` and cached per
+  worker process, as `hsm_encrypt` / `hsm_decrypt` do (`cache.py`). Derived
+  keys are never broadcast and never put in the Spark plan.
+- **hsm-core credentials** (app_id, token or signing key, transport private
+  key) come from a **secret scope**, read on the driver with
+  `dbutils.secrets.get`, and are passed to the workers' functions as their
+  configuration. Workers can't read secrets themselves
+  (`hsm-databricks-udf/DEPLOYMENT.md`). The svc credentials therefore travel
+  in the job's function definitions; the DEKs never do.
+- **Registration:** the Databricks job has its **own `app_id`**
+  (for example `giftcard-deid-databricks`) with `dek_unwrap` (and `dek_issue`
+  for creating keys), and its own decrypt grants (section 11.1).
+- **Surrogate database login:**
+  - **Postgres:** a password from the secret scope.
+  - **Lakebase:** a Postgres role with a password, or a short-lived OAuth
+    token from the Databricks SDK. A token expires (about an hour), so with
+    tokens the surrogate step must finish within that time or get a fresh
+    token; a password role avoids the problem (section 16, question 5).
+- **Network:** the workers reach hsm-core-service and the surrogate
+  database. On a workspace with **restricted serverless egress**, both
+  domains must be on the allowed list (`DATABRICKS_UDF_DESIGN.md` §10).
+- **FIPS:** the same open question as `DATABRICKS_UDF_DESIGN.md` §8: whether
+  the once-per-DEK RSA unwrap needs a FIPS-validated module. Per-row HMAC,
+  HKDF and AES-GCM use `cryptography` (section 16, question 6).
+
+### 17.6 Running it
+
+A Databricks job with one **Python wheel task**, entry point `hsm-deid`,
+defined once and run on serverless or a dedicated job cluster:
+
+```
+hsm-deid
+  --profile               /Volumes/<catalog>/<schema>/deid/profiles/zen-reporting.yml
+  --source-table          <catalog>.<schema>.giftcards      # or --source-query "SELECT …"
+  --key-column            id                                # optional, non-sensitive; named in errors
+  --output-root           /Volumes/<catalog>/<schema>/deid_out/zen
+  --surrogate-key-edek-id <edek_id of deid-<app>-surrogate>
+  --surrogate-db          postgres | lakebase               # + host, database, user, secret key names
+  --secret-scope          hsm
+  --triggered-by          <job or schedule name>
+  [--dry-run --sample 100]
+```
+
+- **Profiles** sit in a volume, deployed from version control as for the
+  Kubernetes job; the manifest records each profile's SHA-256.
+- **Output** goes to a volume folder, one per vendor profile. The client's
+  MFT picks up from the storage behind that volume, `*.csv` only (section
+  16, "Hand-off"). An existing file is never overwritten.
+- **Dry run** prints the same review document as section 10.3 to the job's
+  output and writes nothing, no surrogate rows either.
+- **Audit:** the events go to the driver log as JSON lines on logger
+  `hsm_databricks_udf.deid.audit`; ship the job's logs to the SIEM.
+- **Exit:** the task fails on any validation or processing error, and no
+  `.csv` is left behind. Surrogate rows inserted before the failure stay
+  and are reused by the next run (as section 8.3).
+- **Keys** are created as for the Java job (`--deid.init-key`, section 7),
+  or with `hsm-deid --init-key --name deid-…`.
