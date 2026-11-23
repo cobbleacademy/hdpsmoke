@@ -1,0 +1,54 @@
+{
+  "name": "deid-giftcards-zen-reporting",
+  "description": "De-identified CSV of the gift-card table for zen-analytics (java/docs/DEIDENTIFICATION.md section 17). See hsm-databricks-udf/DEID_DEPLOYMENT.md.",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 14400,
+  "tags": { "purpose": "deid-export", "vendor": "zen-analytics" },
+  "schedule": {
+    "quartz_cron_expression": "0 0 6 1 * ?",
+    "timezone_id": "UTC",
+    "pause_status": "PAUSED"
+  },
+  "environments": [
+    {
+      "environment_key": "deid",
+      "spec": {
+        "environment_version": "2",
+        "dependencies": [
+          "/Volumes/<catalog>/<schema>/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl",
+          "psycopg[binary]==3.2.3"
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "deid",
+      "environment_key": "deid",
+      "max_retries": 0,
+      "python_wheel_task": {
+        "package_name": "hsm_databricks_udf",
+        "entry_point": "hsm-deid",
+        "parameters": [
+          "--profile", "/Volumes/<catalog>/<schema>/deid/profiles/zen-reporting.yml",
+          "--source-table", "<catalog>.<schema>.giftcards",
+          "--key-column", "id",
+          "--output-root", "/Volumes/<catalog>/<schema>/deid_out/zen",
+          "--secret-scope", "hsm",
+          "--hsm-base-url", "https://<hsm-core-service host>/api/sensec/hsm/v1",
+          "--hsm-app-id", "giftcard-deid-databricks",
+          "--hsm-auth-mode", "STATIC",
+          "--hsm-private-key-key", "deid-private-key",
+          "--hsm-token-key", "deid-token",
+          "--surrogate-key-edek-id", "<edek_id of deid-giftcard-surrogate>",
+          "--surrogate-db", "lakebase",
+          "--surrogate-db-host", "<instance host, e.g. instance-….database.azuredatabricks.net>",
+          "--surrogate-db-name", "databricks_postgres",
+          "--surrogate-db-user", "deid_export",
+          "--surrogate-db-password-key", "deid-surrogate-db-password",
+          "--triggered-by", "databricks-job:deid-giftcards-zen-reporting"
+        ]
+      }
+    }
+  ]
+}
