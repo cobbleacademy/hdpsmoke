@@ -1,0 +1,15 @@
+id: crosscheck-acme
+version: 1
+vendor: acme-rewards
+hipaa-basis: minimum-necessary
+token-key-edek-id: 6f1c0000-0000-4000-8000-000000000001
+token-domain: member
+fields:
+  - { name: member_id,   phi: member-id,   method: tokenize }
+  - { name: first_name,  phi: name,        method: mask, keep-first: 1 }
+  - { name: email,       phi: email,       decrypt: true, method: tokenize, domain: email, normalize: lower }
+  - { name: card_number, phi: card-number, decrypt: true, method: mask, keep-last: 4, preserve: ["-"] }
+  - { name: zip,         phi: zip,         method: mask, keep-first: 3 }
+  - { name: dob,         phi: birth-date,  method: generalize, to: year }
+  - { name: amount,                        method: passthrough }
+output: { file: "acme_{yyyyMMdd}.csv", formula-guard: false, delimiter: ";", line-ending: crlf }

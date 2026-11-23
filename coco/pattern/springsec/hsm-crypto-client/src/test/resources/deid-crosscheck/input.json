@@ -1,0 +1,197 @@
+{
+ "description": "Input for the Java/Python cross-check (DEIDENTIFICATION.md section 17.2). email and card_number are HSM ciphertext under the column DEK of the Java and Python tests (DeidJobTestSupport.dek(9), owner giftcard-svc). Values are SQL literals cast to each column's type; null is SQL NULL.",
+ "columns": [
+  {
+   "name": "id",
+   "type": "integer"
+  },
+  {
+   "name": "member_id",
+   "type": "varchar(20)"
+  },
+  {
+   "name": "first_name",
+   "type": "varchar(40)"
+  },
+  {
+   "name": "email",
+   "type": "varchar(400)"
+  },
+  {
+   "name": "dob",
+   "type": "date"
+  },
+  {
+   "name": "zip",
+   "type": "varchar(10)"
+  },
+  {
+   "name": "card_number",
+   "type": "varchar(400)"
+  },
+  {
+   "name": "card_pin",
+   "type": "varchar(8)"
+  },
+  {
+   "name": "amount",
+   "type": "decimal(12,4)"
+  },
+  {
+   "name": "rate",
+   "type": "double"
+  },
+  {
+   "name": "ratio",
+   "type": "real"
+  },
+  {
+   "name": "points",
+   "type": "bigint"
+  },
+  {
+   "name": "active",
+   "type": "boolean"
+  },
+  {
+   "name": "status",
+   "type": "varchar(40)"
+  },
+  {
+   "name": "note",
+   "type": "varchar(200)"
+  },
+  {
+   "name": "issued_date",
+   "type": "timestamp"
+  }
+ ],
+ "rows": [
+  [
+   "1",
+   "M1234567",
+   "Jane",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKrH4sgnVxev6vDzdnbaGLFS4dx9mGMrnYaELJw8W-tSIBAymvi3JBuq-mA6COg=",
+   "1985-03-14",
+   "60614-2231",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKqftAO2gVojlTZIvglPZcCLYeNFzkO7PCTlie2M6OW3hSmb0zcJRzE4Vi3wcQ==",
+   "4821",
+   "25.0000",
+   "0.1",
+   "0.5",
+   "12345678901",
+   "true",
+   "ACTIVE",
+   "plain",
+   "2026-11-02 10:15:00"
+  ],
+  [
+   "2",
+   "M7654321",
+   "Raj",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKo1oIw1BaG6Gn_vxIJZReb71yPr34kscl8lEUnEtinmG5YR8h15WZUk91A=",
+   "1936-07-01",
+   "03601",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKoGOWcNrhcm3Lsl0HUInUMLGh6GZVYg403HSoy4xZSNOjd6XgOH-hQjOYNXruaLEw==",
+   "1122",
+   "100.5000",
+   "1.0E7",
+   "3.25",
+   "0",
+   "false",
+   "REDEEMED",
+   "with,comma",
+   "2026-10-18 08:00:07"
+  ],
+  [
+   "3",
+   "M1234567 ",
+   "Jane",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKqijG1z_pnp_os6YeETblIUFHGM_vHv4JtTzKqSNnyOZRgRgRAaRadrEAXIpKM=",
+   "1985-03-14",
+   "60614",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKpog3F5BObE1aqpYgbHq0_LNHvJ0D775aT8rP0Qv36oXgNe8XUD7qIXT53PXQ==",
+   "4821",
+   "-5.0000",
+   "-2.5E-5",
+   "1.0E10",
+   "-7",
+   "true",
+   "ADJUSTED",
+   "say \"hi\"",
+   "2026-11-05 12:00:00.25"
+  ],
+  [
+   "4",
+   "M5550001",
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   "0.0001",
+   "123.456",
+   "0.1",
+   "1",
+   "false",
+   "",
+   null,
+   null
+  ],
+  [
+   "5",
+   "M5550002",
+   "Zoë",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKp5ya8UA5Fy-pgutvJaLDAxemHcF8Apxgf5v-zyTctRd-Q0b8io",
+   "1950-12-31",
+   "89301",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKoe8SpGRqoSqxj0B_Gd4-fr4CBbfilzXyCTFSKEuZsa9ET3TWt39iw0lehwHA==",
+   "0000",
+   "1000.0000",
+   "1.0E-4",
+   "0.002",
+   "9223372036854775807",
+   "true",
+   "=SUM(A1)",
+   "two\nlines",
+   "2026-12-31 23:59:59.123456"
+  ],
+  [
+   "6",
+   "M5550003",
+   "",
+   "",
+   "1937-01-01",
+   "94107-1234",
+   "",
+   "",
+   "7.1000",
+   "100.0",
+   "1.5E-7",
+   "-1",
+   "false",
+   "+44 20",
+   "@home\tx",
+   "2026-01-01 00:00:00.000001"
+  ],
+  [
+   "7",
+   "M5550004",
+   "Ann Lee",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKqHVsTUunJowRkhIzGorK8htL3KyYvU7dD4_6BiGH59oYqIicsxsA==",
+   "2000-02-29",
+   "02134",
+   "v1.AQwMAAAAAEAAgAAAAAAAAKq0wir3TSjDglYMm3zWDzVLel2GtpINqogDDhMHxQZKJ5Cs4LGwbx5fG08EjQ==",
+   "9999",
+   "-0.5000",
+   "9999999.0",
+   "16777216.0",
+   "42",
+   "true",
+   "-1",
+   "  spaced  ",
+   "2025-06-15 07:05:00.100"
+  ]
+ ]
+}

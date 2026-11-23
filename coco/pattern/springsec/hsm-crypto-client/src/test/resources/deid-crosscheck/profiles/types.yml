@@ -1,0 +1,16 @@
+id: crosscheck-types
+version: 1
+hipaa-basis: minimum-necessary
+fields:
+  - { name: id,          method: passthrough }
+  - { name: amount,      method: passthrough }
+  - { name: rate,        method: passthrough }
+  - { name: ratio,       method: passthrough }
+  - { name: points,      method: passthrough }
+  - { name: active,      method: passthrough }
+  - { name: dob,         method: passthrough }
+  - { name: issued_date, method: passthrough }
+  - { name: status,      method: passthrough }
+  - { name: note,        method: passthrough }
+  - { name: first_name,  method: mask, char: "#", keep-last: 1 }
+output: { file: "types_{yyyyMMdd}.csv" }

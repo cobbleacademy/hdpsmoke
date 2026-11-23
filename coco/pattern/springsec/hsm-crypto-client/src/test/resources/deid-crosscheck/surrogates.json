@@ -1,0 +1,65 @@
+{
+  "description" : "deid_surrogate rows a first run of the cross-check created (key: DeidJobTestSupport.dek(3), edek_id 6f1c0000-0000-4000-8000-000000000003). Loaded before each run on both sides, so the surrogates in the expected files are reused, not created.",
+  "key_edek_id" : "6f1c0000-0000-4000-8000-000000000003",
+  "rows" : [ {
+    "scope" : "zen-analytics",
+    "domain" : "card",
+    "lookup_hash" : "d05bca04d1d5e2ac4d380afbede1be3b9f6ddc6c3dc3358f4da0871001621bea",
+    "value_enc" : "6d6b6123fa013ceb68e671bf50db2aa93d3ab7888657951fa4d84c429967eb22170aea84be24e29c0784020e",
+    "surrogate" : "S-G42N9-RWDRZ"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "card",
+    "lookup_hash" : "bc3fd0ffbe20fcd3c4f7f57876934079b92ee8b0b551bed6bbd4e0c59deb8ca6",
+    "value_enc" : "cb1a5f170514e52a46db065d3ae73f04dbbad2c4b18b437b603e745974d7916be363caea493ff7936079fb97",
+    "surrogate" : "S-N6E7F-PWQQV"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "card",
+    "lookup_hash" : "8d82f9668dcdc0c1be662989e9f96e5a17bb0612e2ae31a0749c074f5ccf7cc4",
+    "value_enc" : "2abf81572055f459496fbb7f62d16c4c714fc9f70be0df3ecc6d23b4723d0d4c7357f873f4bed607537789ed",
+    "surrogate" : "S-XR45B-3HTMD"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "card",
+    "lookup_hash" : "387da426dac977289536e694520cb0afa37ec66bc13273d44f6ae09161a3516e",
+    "value_enc" : "6748594313f0e64cd1736234b56ef0e099efd5318e268329c9c8efb2d858bd21864a27b3a8d2d71c77f33333",
+    "surrogate" : "S-YD4DX-3KKZQ"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "8b87933d707e592d807b63a720da2a70aa7d0bb6d1e2a882bdd5b13bb919c7a6",
+    "value_enc" : "a63edf15ba70f86a6c50f2202f26ba11750dd65c22d54b19db2d0fa435e456a44704a9d2",
+    "surrogate" : "S-2Z0JM-M9Y3H"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "17b8b5644ca31f6da0b4b0373d2451b71670742dcd9214831047f578df7585b7",
+    "value_enc" : "bf8f15c781f4879a9aaccc035ee33be2ff78a0a296b26784279e065c75ea81f692490ac8",
+    "surrogate" : "S-3P16W-X5HNY"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "63a84e9890ef374603ee1db2de82035fc1f6db5d2bcaacdb90c936744510c4a8",
+    "value_enc" : "9d83f9abf68031d13f7a6dd5cd6ec07f6ef858acbb283a4da6bd2a56021bd345552b9c59",
+    "surrogate" : "S-42PKS-SDC6M"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "d81f4159db95ffbb87f6efb13193e44430101f840a25513a06f0f187d4ebec25",
+    "value_enc" : "92b7a1b1e9fbec2ed76931100dfe0e22123062dca680601c0dd939ec101f007ee1742cb5",
+    "surrogate" : "S-J8SBC-PBW9D"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "64aa7909ef5508102f194991841eb7ebd3e9502e7b755b10855c4ebbbc1e8d8d",
+    "value_enc" : "bb761e1373dc428c8418a03310938f7affa1a8255a43c02881d882118655caaedcb17e88",
+    "surrogate" : "S-M9M9B-FMA13"
+  }, {
+    "scope" : "zen-analytics",
+    "domain" : "member",
+    "lookup_hash" : "47b2210a1c152b88b52cab2fa5d5d4165ec81a3b42316226309a1e7952f61a97",
+    "value_enc" : "717f96a6a3b1118ab9be3fe9b70403143b073d60383eaee494316b1239d62ccd3eee7808",
+    "surrogate" : "S-VB665-9VP60"
+  } ]
+}

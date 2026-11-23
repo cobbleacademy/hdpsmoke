@@ -1,0 +1,18 @@
+id: crosscheck-zen
+version: 1
+vendor: zen-analytics
+hipaa-basis: safe-harbor
+surrogate-scope: zen-analytics
+fields:
+  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }
+  - { name: card_number, phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }
+  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }
+  - { name: issued_date, phi: date,        method: generalize, to: year }
+  - { name: zip,         phi: zip,         method: generalize, to: zip3 }
+  - { name: email,       phi: email,       method: drop }
+  - { name: card_pin,                      method: drop }
+  - { name: amount,                        method: passthrough }
+  - { name: status,                        method: passthrough }
+output:
+  file: "zen_{yyyyMMdd}.csv"
+  rename: { member_id: member_ref, card_number: card_ref }

@@ -1,0 +1,88 @@
+{
+  "profile" : {
+    "id" : "crosscheck-acme",
+    "version" : 1,
+    "sha256" : "0b689403fd8770f330665b80754fc66f15ca6523df631c847879214c676f1bed",
+    "vendor" : "acme-rewards",
+    "hipaa_basis" : "minimum-necessary"
+  },
+  "keys" : {
+    "token" : {
+      "epoch" : 1,
+      "edek_id" : "6f1c0000-0000-4000-8000-000000000001"
+    },
+    "surrogate" : null
+  },
+  "fields" : [ {
+    "source" : "member_id",
+    "output" : "member_id",
+    "phi" : "member-id",
+    "method" : "tokenize@v1",
+    "domain" : "member",
+    "normalize" : "trim",
+    "values" : 7,
+    "empty" : 0
+  }, {
+    "source" : "first_name",
+    "output" : "first_name",
+    "phi" : "name",
+    "method" : "mask@v1",
+    "keep-first" : 1,
+    "values" : 7,
+    "empty" : 2
+  }, {
+    "source" : "email",
+    "output" : "email",
+    "phi" : "email",
+    "method" : "tokenize@v1",
+    "domain" : "email",
+    "normalize" : "lower",
+    "decrypted" : true,
+    "values" : 7,
+    "empty" : 2
+  }, {
+    "source" : "card_number",
+    "output" : "card_number",
+    "phi" : "card-number",
+    "method" : "mask@v1",
+    "keep-last" : 4,
+    "preserve" : [ "-" ],
+    "decrypted" : true,
+    "values" : 7,
+    "empty" : 2
+  }, {
+    "source" : "zip",
+    "output" : "zip",
+    "phi" : "zip",
+    "method" : "mask@v1",
+    "keep-first" : 3,
+    "values" : 7,
+    "empty" : 1
+  }, {
+    "source" : "dob",
+    "output" : "dob",
+    "phi" : "birth-date",
+    "method" : "generalize@v1",
+    "to" : "year",
+    "values" : 7,
+    "empty" : 1
+  }, {
+    "source" : "amount",
+    "output" : "amount",
+    "method" : "passthrough@v1",
+    "values" : 7,
+    "empty" : 0
+  } ],
+  "dropped_by_default" : [ "id", "card_pin", "rate", "ratio", "points", "active", "status", "note", "issued_date" ],
+  "decrypt" : {
+    "fields" : [ "email", "card_number" ],
+    "distinct_edek_ids" : 1
+  },
+  "output" : {
+    "file" : "acme_20261120.csv",
+    "rows_in" : 7,
+    "rows_out" : 7,
+    "rows_skipped" : 0,
+    "sha256" : "2febd4b9cd0632ecac9d264c85849ae53a5d848316c77e2331994aa2922d9277"
+  }
+}
