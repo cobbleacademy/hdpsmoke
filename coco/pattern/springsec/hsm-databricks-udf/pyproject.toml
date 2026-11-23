@@ -11,10 +11,14 @@ dependencies = [
     "cryptography>=42.0",
     "requests>=2.31",
     "certifi",            # imported directly by svc_client (CA bundle support); already a requests dependency
+    "pyyaml>=6.0",        # deid: reads de-identification profiles (safe loading only)
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"hsm_databricks_udf.deid" = ["restricted-zip3.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
