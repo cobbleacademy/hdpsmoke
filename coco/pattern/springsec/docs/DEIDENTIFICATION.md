@@ -1,6 +1,6 @@
 # De-identification: CSV Export
 
-**Status: phases 1–4 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source. Phase 4: the Python library for Databricks (`hsm-databricks-udf`, package `hsm_databricks_udf.deid`). Phases 5–6 (the Spark job and its deployment) designed, not built: section 17.
+**Status: phases 1–5 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source. Phase 4: the Python library for Databricks (`hsm-databricks-udf`, package `hsm_databricks_udf.deid`). Phase 5: the Databricks Spark job (`hsm-deid`). Phase 6 (its Databricks deployment) designed, not built: section 17.
 
 Read a database table, CSV file or JSON file holding gift-card reward data.
 De-identify it according to a **profile**, and write **one CSV file** plus a
@@ -852,7 +852,8 @@ Notes on phase 2 as built:
 - **`DeidContainerTest`** covers the shipped DDL and `JdbcSurrogateStore` on
   Postgres, SQL Server and Oracle, and the whole job on Postgres. Like
   `CheckpointStoreTest` it's skipped without Docker. The other tests run on
-  H2 with the Postgres DDL.
+  H2 with the Postgres DDL. **Run on all three databases** (Docker, during
+  phase 5): all pass.
 - **Unmarked ciphertext fails a real run** (not only flagged by the dry
   run): exporting ciphertext is useless to the vendor and shows our
   `edek_id`s.
@@ -938,24 +939,59 @@ Notes on phase 4 as built:
   `Set`, so "age-90 / age-band" could come out in either order between JVM
   runs. It now uses a list.
 
-### Phase 5: `hsm-databricks-udf`, Spark job (planned)
+### Phase 5: `hsm-databricks-udf`, Spark job
 
 | | Path |
 |---|---|
-| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/job.py` (the run: checks, stages, write, manifest) |
-| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/source.py` (Delta table or query, values as strings) |
-| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/spark_methods.py` (Spark expressions and vectorised functions) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/pipeline.py` (decrypt, transforms and counts per batch of rows) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/source.py` (Delta table or query, values as Java strings) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/spark_methods.py` (stage 1, surrogate resolution, join, CSV lines) |
 | A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/surrogate_store.py` (Postgres / Lakebase, `ON CONFLICT DO NOTHING`) |
 | A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/csv_output.py` (RFC 4180 lines, formula guard, `.part`, SHA-256, no overwrite) |
-| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/manifest.py` |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/manifest.py` (Jackson's layout) |
+| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/job.py` (the run: checks, stages, write, manifest, audit, dry run) |
 | A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (`hsm-deid` entry point, `--dry-run`, `--init-key`) |
-| A | `hsm-databricks-udf/src/hsm_databricks_udf/deid/pipeline.py` (decrypt, transforms and stats per batch of rows, used by the Spark functions) |
-| A | `hsm-databricks-udf/tests/deid/test_csv_output.py` |
-| A | `hsm-databricks-udf/tests/deid/test_surrogate_store.py` (Postgres; skipped without Docker) |
-| A | `hsm-databricks-udf/tests/deid/test_job_local.py` (local PySpark, end to end) |
+| A | `hsm-databricks-udf/tests/deid/conftest.py` (fake hsm-core, local Spark, a fresh Postgres table) |
+| A | `hsm-databricks-udf/tests/deid/test_pipeline.py` |
+| A | `hsm-databricks-udf/tests/deid/test_output.py` (CSV, manifest, source values, file names) |
+| A | `hsm-databricks-udf/tests/deid/test_surrogate_store.py` (Postgres) |
+| A | `hsm-databricks-udf/tests/deid/test_job.py` (local Spark and Postgres, end to end) |
 | A | `hsm-databricks-udf/tests/deid/test_crosscheck.py` |
-| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/` (input rows, profiles, the Java job's CSVs) |
-| M | `hsm-databricks-udf/pyproject.toml` (`[deid]` extra: `pyspark`, `psycopg`; the `hsm-deid` entry point) |
+| A | `hsm-databricks-udf/tests/deid/spark/Dockerfile` (Spark 4.0 with Python, for the tests) |
+| A | `hsm-databricks-udf/tests/deid/spark/run-tests.sh` (every test, with Spark and Postgres, in Docker) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/input.json` (7 rows, 16 typed columns, two encrypted) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/profiles/` (`zen.yml`, `acme.yml`, `types.yml`) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/surrogates.json` (the surrogate rows both sides load first) |
+| A | `java/hsm-crypto-client/src/test/resources/deid-crosscheck/expected/` (the Java job's CSVs and manifests) |
+| A | `java/hsm-bulk-client/src/test/java/com/hsm/client/deidjob/DeidCrossCheckTest.java` |
+| M | `hsm-databricks-udf/pyproject.toml` (`[deid]` extra: `pyspark`, `pandas`, `pyarrow`, `psycopg`; the `hsm-deid` entry point) |
+
+Notes on phase 5 as built:
+
+- **The cross-check passes:** on the same 7 rows (decimals, doubles, floats,
+  big integers, booleans, dates, timestamps with and without fractions,
+  quotes, commas, a line break, formula characters, `Zoë`) the Python job
+  writes the same rows, byte for byte, as the Java job for all three
+  profiles: surrogates with decrypt and Safe Harbor generalizing; tokens
+  and masks with `;` and CRLF; every type passed through. The manifests
+  match too (counts, settings, dropped columns). `DeidCrossCheckTest`
+  checks the Java side against the same files; it regenerates them with
+  `-Ddeid.crosscheck.write=true`.
+- **Values as strings:** Spark's own casts already give Java's text for
+  integers, doubles (`1.0E7`), floats (`1.6777216E7`), booleans and dates;
+  decimals and timestamps get a small fix-up (`source.py`). Timestamps are
+  read in UTC (the job sets the session time zone).
+- **Errors** name the field and the row's `--key-column` value, never a
+  value. A worker's error reaches the driver inside Spark's exception text;
+  the audit reason takes just the job's own message from it.
+- **Surrogate counts are exact** distinct values per field (`new`,
+  `existing`), unlike the Java job's per-page counts. In the cross-check
+  every value is in one page, so both agree.
+- **Tested locally in Docker** (`tests/deid/spark/run-tests.sh`): the
+  official Spark 4.0.1 Python image plus pandas, pyarrow and psycopg, with
+  Postgres 16 beside it. Not yet run on Databricks itself (phase 6): Spark
+  Connect on serverless, volumes, Lakebase and the secret scope are
+  untested.
 
 ### Phase 6: Databricks deployment (planned)
 
@@ -1062,7 +1098,7 @@ hsm-bulk-client (DEID Job)  ──►  outbound folder  ──►  client's MFT 
 
 ## 17. Databricks (Python)
 
-**Status: phase 4 (the Python library) built; phases 5–6 (the Spark job, deployment) designed, not built.** The same export for data that
+**Status: phases 4 (the Python library) and 5 (the Spark job) built; phase 6 (the Databricks deployment) designed, not built.** The same export for data that
 lives in Databricks: read a **Delta table**, de-identify it with the same
 profile, and write **one CSV plus its manifest to a Unity Catalog volume**.
 
@@ -1128,17 +1164,17 @@ Delta table (catalog.schema.table, or a SQL query)
 0. checks        profile parsed and validated against the table schema; keys unwrapped;
                  one sample value per decrypt: true field decrypted; unmarked ciphertext
                  in a sample fails the run (as section 6.3); output file must not exist
-1. decrypt       vectorised Python function per decrypt: true field; DEK cached per worker
-2. transforms    drop          column not selected
-                 passthrough   cast to string
-                 generalize    Spark expressions (year, birth-year, zip3, age-90, age-band)
-                 mask          vectorised Python function (keeps the options' exact behaviour)
-                 tokenize      vectorised Python function (HMAC)
-3. surrogates    lookup hash per row (Python) ─► group by (domain, hash) ─► each partition
-                 resolves its distinct hashes against deid_surrogate ─► joined back
-4. stage         the transformed rows are written once to a temporary Parquet folder
-5. stats         null counts, row count, surrogate counters from the staged rows
-6. write         staged rows ─► CSV lines (RFC 4180, formula guard) ─► one text part
+1-2. stage 1     per Arrow batch (mapInPandas), the library's own code (pipeline.py):
+                 decrypt (DEK cached per worker), then each field's method; a surrogate
+                 field carries its lookup hash and value_enc instead of the value; one
+                 extra row per batch carries the batch's counts ─► written once to
+                 _deid_tmp/<run>/stage1 (Parquet)
+3. surrogates    distinct (domain, hash) ─► repartitioned so each is in one partition ─►
+                 resolved against deid_surrogate ─► _deid_tmp/<run>/surrogates (Parquet)
+4. join          stage 1 rows + surrogates, by hash
+5. stats         row count, null counts and method counters added up from the count
+                 rows; new / existing surrogates per field from the surrogate step
+6. write         rows ─► CSV lines (RFC 4180, formula guard) ─► one text part
                  file ─► header + part streamed into <file>.csv.part with SHA-256 ─►
                  renamed to <file>.csv ─► <file>.manifest.json ─► audit event
 7. clean up      the temporary folder is deleted, also on failure
@@ -1146,16 +1182,23 @@ Delta table (catalog.schema.table, or a SQL query)
 
 - **Serverless uses Spark Connect,** which has no RDD API, accumulators,
   `SparkContext` or `cache()`. The job uses only the DataFrame API and
-  vectorised functions (`pandas_udf`, `mapInPandas`), so the same code runs
-  on both compute types. The staging step (4) replaces `cache()`: the
-  expensive part (decrypt, surrogates) runs once.
+  `mapInPandas`, so the same code runs on both compute types. The two
+  staging folders replace `cache()`: decrypting and inserting surrogates
+  each run once, and the counts come from what was written, so a retried
+  task isn't counted twice.
+- **The methods run as the library's Python code,** not as Spark
+  expressions: one implementation, already proved against the Java one
+  (phase 4), rather than a second one to keep in step.
+- **Nothing staged holds an identifier:** stage 1 holds output values,
+  lookup hashes and `value_enc` (encrypted), never a source value.
 - **One CSV file.** The lines are written by one task into a text file, so
   Spark's CSV writer (backslash escapes, quoting of empty strings) is never
   used: the quoting is the job's own and matches the Java output. The temp
   files are `.txt` in a hidden `_deid_tmp/` folder, so an MFT that picks up
   `*.csv` never sees them.
-- **Row order** is not kept. Files are compared and checked by their SHA-256
-  and the manifest, not by order.
+- **Row order** is not kept (the Java job writes in key order). The
+  cross-check compares rows as a sorted list; a file's SHA-256 is in its
+  manifest.
 - **Errors** name the field and, when the source has a non-sensitive
   `key-column`, that row's key; otherwise only the field. Never a value.
 
