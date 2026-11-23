@@ -843,6 +843,44 @@ updates or deletes `deid_surrogate` rows. A vendor's relationship ending:
 owner's DBA, recorded in the change log. After that, files already sent to
 that vendor can never be mapped back.
 
+## De-identification export on Databricks (`hsm-deid`)
+
+A Databricks job (one per vendor profile, Python wheel task, serverless or a
+dedicated cluster) writes the same CSV and manifest as the Kubernetes DEID job,
+from a Delta table, to a volume folder the client's MFT picks up from. Setup:
+`hsm-databricks-udf/DEID_DEPLOYMENT.md`; design: `DEIDENTIFICATION.md` section 17.
+Errors name the field and the `--key-column` value only, never a value.
+
+- **Success:** `<file>.csv` and `<file>.manifest.json` in the output folder; the
+  task succeeds; a JSON line `{"event": "deid_export_completed", …}` on logger
+  `hsm_databricks_udf.deid.audit` in the driver log.
+- **Failure:** the task fails; `deid_export_failed` with the reason; no `.csv`
+  and no `_deid_tmp/<run id>/` folder are left.
+
+| Symptom (driver log or task error) | Cause | Action |
+|---|---|---|
+| `deid_profile_problem … problem=…` | The profile breaks a rule | Fix the profile (pull request, onboarding-team approval); dry-run it |
+| `decrypt failed for edek_id=<id>: … 403 …` | No decrypt grant for the job's `app_id`, or no `dek_unwrap` scope | Grant per encrypted column (`DEIDENTIFICATION.md` section 11.1) |
+| `the surrogate table … is missing or unusable` | Table or grants missing in Postgres / Lakebase | Create from `deid-surrogate-postgres.sql`; `GRANT SELECT, INSERT` |
+| `output file … already exists` | A re-run with the same file name | Move the sent file away, or use `{run}` in `output.file` |
+| `secret '…' can't be read outside Databricks` | `dbutils` not available to the task | `DEID_DEPLOYMENT.md` section 9 |
+| Connection timeout | Egress to hsm-core or the database | Allow both hosts (serverless network policy) |
+
+**Re-running** is safe: the job never updates or deletes surrogate rows, so
+members inserted by a failed run keep their surrogates. Run it again (run now)
+once the cause is fixed.
+
+**Dry run:** run now with `--dry-run --sample 100` added to the parameters.
+Writes nothing; prints the review JSON to the run output.
+
+**The Java and Python jobs must agree.** `DeidCrossCheckTest` (Java) and
+`test_crosscheck.py` (Python) check both against the same expected files in
+`hsm-crypto-client/src/test/resources/deid-crosscheck/`. If a deliberate method
+change alters them (it changes every vendor's files, so only with the privacy
+officer's agreement), regenerate with
+`mvn -pl hsm-bulk-client test -Dtest=DeidCrossCheckTest -Ddeid.crosscheck.write=true`
+and run `hsm-databricks-udf/tests/deid/spark/run-tests.sh`.
+
 ## `TODO`: fill in before this is a real on-call doc
 
 - [ ] Escalation path / on-call rotation for each failure mode above

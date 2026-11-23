@@ -1,6 +1,6 @@
 # De-identification: CSV Export
 
-**Status: phases 1–5 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source. Phase 4: the Python library for Databricks (`hsm-databricks-udf`, package `hsm_databricks_udf.deid`). Phase 5: the Databricks Spark job (`hsm-deid`). Phase 6 (its Databricks deployment) designed, not built: section 17.
+**Status: phases 1–6 built.** Phase 1: the library (`hsm-crypto-client`, package `com.hsm.client.deid`). Phase 2: the `DEID` job (`hsm-bulk-client`, package `com.hsm.client.deidjob`) with JDBC and CSV sources. Phase 3: the JSON source. Phase 4: the Python library for Databricks (`hsm-databricks-udf`, package `hsm_databricks_udf.deid`). Phase 5: the Databricks Spark job (`hsm-deid`). Phase 6: its Databricks deployment (job definitions, guide). Not yet run on a Databricks workspace: section 17.
 
 Read a database table, CSV file or JSON file holding gift-card reward data.
 De-identify it according to a **profile**, and write **one CSV file** plus a
@@ -993,15 +993,39 @@ Notes on phase 5 as built:
   Connect on serverless, volumes, Lakebase and the secret scope are
   untested.
 
-### Phase 6: Databricks deployment (planned)
+### Phase 6: Databricks deployment
 
 | | Path |
 |---|---|
 | A | `hsm-databricks-udf/jobs/deid-serverless.json` (job definition, serverless environment) |
 | A | `hsm-databricks-udf/jobs/deid-dedicated.json` (job definition, dedicated job cluster) |
-| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (wheel, volumes, secret scope, egress, Lakebase, registration) |
+| A | `hsm-databricks-udf/jobs/deid-init-key.json` (one-off: create a key, print its edek_id) |
+| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (registration, secrets, volumes, surrogate table, network, keys, first run, troubleshooting) |
+| A | `hsm-databricks-udf/tests/deid/test_cli.py` |
+| M | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (credentials from separate secrets; exits non-zero on failure) |
 | M | `hsm-databricks-udf/README.md` |
 | M | `java/docs/RUNBOOK.md` (Databricks DEID section) |
+
+Notes on phase 6 as built:
+
+- **Credentials as the functions store them:** `hsm-deid` builds hsm-core's
+  credentials from separate secret-scope keys (`--hsm-private-key-key`,
+  `--hsm-token-key` or `--hsm-signing-key-key`, `--hsm-ca-cert-key`), so one
+  scope serves both; one JSON secret (`--hsm-credentials-key`) still works.
+- **`main` exits non-zero** on any failure, so the wheel task fails even if
+  Databricks ignores the entry point's return value.
+- **The wheel is checked** (built with setuptools 75 in the test image):
+  `hsm_databricks_udf-0.1.0-py3-none-any.whl` includes
+  `restricted-zip3.txt` and registers the `hsm-deid` console script; both
+  `hsm_databricks_udf` and `hsm-databricks-udf` resolve to it, and the
+  installed command runs. Building needs setuptools 61 or later (the
+  `pyproject.toml` `[project]` table); older ones produce `UNKNOWN-0.0.0`.
+- **Retries off** (`max_retries: 0`) in the job definitions: a failure should
+  be looked at; a re-run is safe.
+- **Not yet run on Databricks.** `DEID_DEPLOYMENT.md` section 9 lists what the
+  first deployment must check: the entry point lookup, serverless behaviour
+  (`mapInPandas`, volume reads and writes, the session time zone), `dbutils`
+  from a wheel task, egress, the rename on a volume, a Lakebase login.
 
 ### Design
 
@@ -1098,7 +1122,7 @@ hsm-bulk-client (DEID Job)  ──►  outbound folder  ──►  client's MFT 
 
 ## 17. Databricks (Python)
 
-**Status: phases 4 (the Python library) and 5 (the Spark job) built; phase 6 (the Databricks deployment) designed, not built.** The same export for data that
+**Status: phases 4 (the Python library), 5 (the Spark job) and 6 (the deployment: job definitions and `hsm-databricks-udf/DEID_DEPLOYMENT.md`) built. Tested on local Spark and Postgres, not yet on a Databricks workspace (`DEID_DEPLOYMENT.md` section 9).** The same export for data that
 lives in Databricks: read a **Delta table**, de-identify it with the same
 profile, and write **one CSV plus its manifest to a Unity Catalog volume**.
 
@@ -1234,8 +1258,9 @@ Delta table (catalog.schema.table, or a SQL query)
   keys are never broadcast and never put in the Spark plan.
 - **hsm-core credentials** (app_id, token or signing key, transport private
   key) come from a **secret scope**, read on the driver with
-  `dbutils.secrets.get`, and are passed to the workers' functions as their
-  configuration. Workers can't read secrets themselves
+  `dbutils.secrets.get`, either as separate secrets (as the encrypt/decrypt
+  functions store them) or as one JSON secret, and are passed to the
+  workers' functions as their configuration. Workers can't read secrets themselves
   (`hsm-databricks-udf/DEPLOYMENT.md`). The svc credentials therefore travel
   in the job's function definitions; the DEKs never do.
 - **Registration:** the Databricks job has its **own `app_id`**
