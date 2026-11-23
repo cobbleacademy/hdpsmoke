@@ -1,0 +1,21 @@
+# ZIP3 areas with 20,000 or fewer people, written as 000 by generalize: zip3.
+# Source: the HHS guidance on the Safe Harbor method (2000 Census list).
+# Reviewed resource: change only with the privacy officer's approval, and
+# override per run through TransformContext.restrictedZip3 when HHS updates it.
+036
+059
+063
+102
+203
+556
+692
+790
+821
+823
+830
+831
+878
+879
+884
+890
+893
