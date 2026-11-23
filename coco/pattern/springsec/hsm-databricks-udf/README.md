@@ -10,6 +10,13 @@ by Databricks design).
 - **Deployment steps per compute type + example queries:** [`DEPLOYMENT.md`](DEPLOYMENT.md)
 - **`CREATE FUNCTION` DDL:** [`sql/create_functions.sql`](sql/create_functions.sql)
 
+It also holds **`hsm-deid`**, the de-identified CSV export for Databricks: reads a
+Delta table, de-identifies it with an approved profile, writes one CSV and its
+manifest to a volume (package `hsm_databricks_udf.deid`).
+
+- **Design:** [`../java/docs/DEIDENTIFICATION.md`](../java/docs/DEIDENTIFICATION.md) section 17
+- **Deployment:** [`DEID_DEPLOYMENT.md`](DEID_DEPLOYMENT.md); job definitions in [`jobs/`](jobs/)
+
 ## Layout
 
 ```
@@ -21,6 +28,8 @@ src/hsm_databricks_udf/
   cache.py              # per-worker-process DEK cache, mirrors HsmCryptoClient's model
   config.py              # environment-variable configuration
   udf.py                  # hsm_encrypt / hsm_decrypt entry points
+  deid/                   # hsm-deid: profiles, validator, methods, the Spark job (DEIDENTIFICATION.md §17)
+jobs/                     # Databricks job definitions for hsm-deid (serverless, dedicated, init-key)
 ```
 
 ## Running the tests
@@ -28,6 +37,13 @@ src/hsm_databricks_udf/
 ```bash
 pip install -e ".[dev]"  # or: pip install -e . && pip install pytest
 pytest tests/ -v
+```
+
+The `hsm-deid` Spark and Postgres tests are skipped there. To run every test with
+them, in Docker (Spark 4.0.1 and Postgres 16):
+
+```bash
+tests/deid/spark/run-tests.sh
 ```
 
 `tests/test_dek_manager.py`, `tests/test_transport.py`, and
