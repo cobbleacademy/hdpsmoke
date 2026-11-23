@@ -1,0 +1,1462 @@
+{
+ "description": "Outputs of the Java mask, generalize and normalize for edge-case inputs, with a run clock of 2026-11-20T15:30:00Z. Produced by the Java implementation and checked by both DeidMethodCasesTest (Java) and test_method_cases.py (Python), so the two implementations can't drift apart. Never edit an expected value to make a test pass.",
+ "clock": "2026-11-20T15:30:00Z",
+ "cases": [
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14t09:15:00.123456789",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:30",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:59:59Z",
+   "out": "2025"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:59:59z",
+   "out": "2025"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:00:00-05:00",
+   "out": "2025"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-02-30",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-13-01",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "20261014",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14 09:15",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T24:00",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-1-14",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "+2026-10-14",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+19:00",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+18:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:59:60Z",
+   "out": "2025"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:59:60-01:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2025-12-31T23:59:60",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2024-02-29",
+   "out": "2024"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2023-02-29",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": " 2026-10-14 ",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00.1234567890",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:30:15",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "12th March 1958",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "-0001-01-01",
+   "out": "-1"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "12026-01-01",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "+12026-01-01",
+   "out": "12026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "03/12/1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "13/12/1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "3/12/1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "03/32/1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "02/30/1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy"
+   },
+   "value": "03/12/58",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyyMMdd"
+   },
+   "value": "19580312",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyyMMdd"
+   },
+   "value": "195803120",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd.MM.yy"
+   },
+   "value": "12.03.58",
+   "out": "2058"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd.MM.yy"
+   },
+   "value": "12.03.1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "d MMM uuuu"
+   },
+   "value": "1 Mar 1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "d MMM uuuu"
+   },
+   "value": "1 mar 1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "d MMM uuuu"
+   },
+   "value": "1 MAR 1958",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "d MMM uuuu"
+   },
+   "value": "01 Mar 1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd'T'HH:mm"
+   },
+   "value": "1958-03-12T07:05",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd'T'HH:mm"
+   },
+   "value": "1958-03-12T25:05",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy hh:mm a"
+   },
+   "value": "03/12/1958 07:05 PM",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy hh:mm a"
+   },
+   "value": "03/12/1958 07:05 pm",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd/yyyy hh:mm a"
+   },
+   "value": "03/12/1958 13:05 PM",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-DDD"
+   },
+   "value": "1958-071",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-DDD"
+   },
+   "value": "1958-71",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-DDD"
+   },
+   "value": "1958-367",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "''yyyy''"
+   },
+   "value": "'1958'",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy"
+   },
+   "value": "0000",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy"
+   },
+   "value": "1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy"
+   },
+   "value": "19580",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MM/dd"
+   },
+   "value": "03/12",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "M/d/yyyy"
+   },
+   "value": "3/12/1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "M/d/yyyy"
+   },
+   "value": "03/012/1958",
+   "out": "1958"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "60614",
+   "out": "606"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "94107-1234",
+   "out": "941"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "941071234",
+   "out": "941"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": " 60614 ",
+   "out": "606"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "03601",
+   "out": "000"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "6061",
+   "err": "not a 5-digit ZIP or ZIP+4"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "ABCDE",
+   "err": "not a 5-digit ZIP or ZIP+4"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "６０６１４",
+   "err": "not a 5-digit ZIP or ZIP+4"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "60614-",
+   "err": "not a 5-digit ZIP or ZIP+4"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "zip3"
+   },
+   "value": "606141",
+   "err": "not a 5-digit ZIP or ZIP+4"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "89",
+   "out": "89"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "90",
+   "out": "90+"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "+5",
+   "out": "5"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "-1",
+   "err": "age out of range 0-150"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "forty",
+   "err": "not a whole-number age"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "1_0",
+   "err": "not a whole-number age"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "151",
+   "err": "age out of range 0-150"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": " 42 ",
+   "out": "42"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "٤٢",
+   "out": "42"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-90"
+   },
+   "value": "0042",
+   "out": "42"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-band",
+    "width": 7
+   },
+   "value": "88",
+   "out": "84-89"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-band",
+    "width": 7
+   },
+   "value": "0",
+   "out": "0-6"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-band",
+    "width": 7
+   },
+   "value": "6",
+   "out": "0-6"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "age-band",
+    "width": 7
+   },
+   "value": "7",
+   "out": "7-13"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": 1
+   },
+   "value": "a😀b",
+   "out": "**b"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": 1
+   },
+   "value": "😀😀",
+   "out": "*😀"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": 4.0
+   },
+   "value": "6035712345678901",
+   "out": "************8901"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": "4"
+   },
+   "value": "6035712345678901",
+   "out": "************8901"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": " 4 "
+   },
+   "value": "6035712345678901",
+   "out": "************8901"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": true
+   },
+   "value": "x",
+   "err": "option 'keep-last' must be a whole number"
+  },
+  {
+   "method": "mask",
+   "options": {
+    "keep-last": 4.5
+   },
+   "value": "x",
+   "err": "option 'keep-last' must be a whole number"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": " M1234567\t",
+   "out": "M1234567"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": " M1 ",
+   "out": " M1 "
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": " M1 ",
+   "out": "M1"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": "M1",
+   "out": "M1"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": "​M1",
+   "out": "​M1"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "trim"
+   },
+   "value": "\u001cM1",
+   "out": "M1"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "lower"
+   },
+   "value": " Jane.Doe@Mail.COM ",
+   "out": "jane.doe@mail.com"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "lower"
+   },
+   "value": "İSTANBUL",
+   "out": "i̇stanbul"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "lower"
+   },
+   "value": "ΣΊΣΥΦΟΣ",
+   "out": "σίσυφος"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "lower"
+   },
+   "value": "Straße",
+   "out": "straße"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "digits"
+   },
+   "value": "6035-7123 4567/8901",
+   "out": "6035712345678901"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "digits"
+   },
+   "value": "٦٠٣٥1",
+   "out": "1"
+  },
+  {
+   "method": "normalize",
+   "options": {
+    "normalize": "digits"
+   },
+   "value": "--",
+   "err": "nothing left after normalize: digits"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+0530",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:3",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+5",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00-05",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+18",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+19",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00-18:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:60",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00.Z",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00Z[UTC]",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T9:15",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:5",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "0000-01-01",
+   "out": "0"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "-2026-01-01",
+   "out": "-2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T23:59:60+05:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-12-31T23:59:60+00:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "+12026",
+   "out": "12026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "12026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "-0001",
+   "out": "-1"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "0000",
+   "out": "0"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "uuuu"
+   },
+   "value": "-12026",
+   "out": "-12026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy"
+   },
+   "value": "0001",
+   "out": "1"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy"
+   },
+   "value": "+2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "y"
+   },
+   "value": "5",
+   "out": "5"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "y"
+   },
+   "value": "2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "y"
+   },
+   "value": "0",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "y"
+   },
+   "value": "12026",
+   "out": "12026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyy"
+   },
+   "value": "026",
+   "out": "26"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyy"
+   },
+   "value": "2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MMM yyyy"
+   },
+   "value": "Sep 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MMM yyyy"
+   },
+   "value": "Sept 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "MMM yyyy"
+   },
+   "value": "sep 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "HH:mm yyyy"
+   },
+   "value": "24:00 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "HH:mm yyyy"
+   },
+   "value": "23:60 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "HH:mm yyyy"
+   },
+   "value": "7:05 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "kk:mm yyyy"
+   },
+   "value": "24:00 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "kk:mm yyyy"
+   },
+   "value": "00:00 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "KK:mm a yyyy"
+   },
+   "value": "11:00 PM 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "KK:mm a yyyy"
+   },
+   "value": "12:00 PM 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd HH:mm:ss.SSS"
+   },
+   "value": "2026-10-14 09:15:00.123",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd HH:mm:ss.SSS"
+   },
+   "value": "2026-10-14 09:15:00.12",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy"
+   },
+   "value": "31/04/2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy"
+   },
+   "value": "29/02/2025",
+   "out": "2025"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd"
+   },
+   "value": "2026-10-14",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd"
+   },
+   "value": "2026-10-14 ",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy HH:mm"
+   },
+   "value": "31/12/2026 24:00",
+   "out": "2027"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy HH:mm"
+   },
+   "value": "31/12/2026 24:01",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy HH:mm"
+   },
+   "value": "30/12/2026 24:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy HH:mm:ss"
+   },
+   "value": "31/12/2026 24:00:00",
+   "out": "2027"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy HH:mm:ss"
+   },
+   "value": "31/12/2026 24:00:01",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy kk:mm"
+   },
+   "value": "31/12/2026 24:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy kk:mm"
+   },
+   "value": "31/12/2026 00:00",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy kk:mm"
+   },
+   "value": "31/12/2026 25:00",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy KK:mm a"
+   },
+   "value": "31/12/2026 11:00 PM",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy KK:mm a"
+   },
+   "value": "31/12/2026 12:00 PM",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy KK:mm a"
+   },
+   "value": "31/12/2026 00:00 AM",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy hh:mm a"
+   },
+   "value": "31/12/2026 12:00 AM",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy hh:mm a"
+   },
+   "value": "31/12/2026 00:00 AM",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "dd/MM/yyyy hh:mm a"
+   },
+   "value": "31/12/2026 13:00 PM",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "HH yyyy"
+   },
+   "value": "24 2026",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "HH yyyy"
+   },
+   "value": "25 2026",
+   "err": "not a date in the input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year",
+    "input-format": "yyyy-MM-dd HH"
+   },
+   "value": "2026-12-31 24",
+   "out": "2027"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00.",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15.Z",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:30:1",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+053015",
+   "out": "2026"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+05:3015",
+   "err": "not an ISO date or date-time; set input-format"
+  },
+  {
+   "method": "generalize",
+   "options": {
+    "to": "year"
+   },
+   "value": "2026-10-14T09:15:00+0530:15",
+   "err": "not an ISO date or date-time; set input-format"
+  }
+ ]
+}

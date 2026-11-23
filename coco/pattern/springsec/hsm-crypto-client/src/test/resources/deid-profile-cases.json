@@ -1,0 +1,2321 @@
+{
+ "description": "Profiles read and validated by the Java implementation (SnakeYAML safe loading, DeidProfile.fromMap, ProfileValidator.problems), with the problems in order and the output column names. Checked by DeidProfileCasesTest (Java, hsm-bulk-client) and test_profile_cases.py (Python), so both implementations accept and refuse the same profiles with the same messages. columns null means no source check. Never edit an expected value to make a test pass.",
+ "cases": [
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, method: surrogate, domain: card, decrypt: true }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: age,         phi: age,         method: generalize, to: age-band, width: 10 }\n  - { name: email,       phi: email,       method: drop }\n  - { name: amount,                        method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "card_number",
+    "dob",
+    "issued_date",
+    "zip",
+    "age",
+    "email",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'member_id' (phi: member-id): safe-harbor allows only drop or surrogate (a token is derived from the value, which §164.514(c) forbids)",
+    "field 'email' (phi: email): safe-harbor allows only drop",
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'dob' (phi: birth-date): safe-harbor allows only drop or generalize to: birth-year (to: year would show ages over 89)",
+    "field 'issued_date' (phi: date): safe-harbor allows only drop or generalize to: year",
+    "field 'zip' (phi: zip): safe-harbor allows only drop or generalize to: zip3",
+    "field 'age' (phi: age): safe-harbor allows only drop or generalize to: age-90 / age-band"
+   ],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'member_id' (phi: member-id): safe-harbor allows only drop or surrogate (a token is derived from the value, which §164.514(c) forbids)",
+    "field 'email' (phi: email): safe-harbor allows only drop",
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'dob' (phi: birth-date): safe-harbor allows only drop or generalize to: birth-year (to: year would show ages over 89)",
+    "field 'issued_date' (phi: date): safe-harbor allows only drop or generalize to: year",
+    "field 'zip' (phi: zip): safe-harbor allows only drop or generalize to: zip3",
+    "field 'age' (phi: age): safe-harbor allows only drop or generalize to: age-90 / age-band"
+   ],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,  method: tokenize }\n  - { name: email,       phi: email,      method: mask, keep: domain }\n  - { name: first_name,  phi: name,       method: passthrough }\n  - { name: dob,         phi: birth-date, method: generalize, to: year }\n  - { name: issued_date, phi: date,       method: passthrough }\n  - { name: zip,         phi: zip,        method: mask, keep-first: 3 }\n  - { name: age,         phi: age,        method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "email",
+    "first_name",
+    "dob",
+    "issued_date",
+    "zip",
+    "age"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'dob' (phi: birth-date): safe-harbor doesn't allow as-of (an age measured at an older date understates today's age)"
+   ],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": null,
+   "problems": [
+    "field 'dob' (phi: birth-date): safe-harbor doesn't allow as-of (an age measured at an older date understates today's age)"
+   ],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: dob, phi: birth-date, method: generalize, to: birth-year, as-of: issued_date }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "dob"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'member_id' (phi: member-id): safe-harbor allows only drop or surrogate (a token is derived from the value, which §164.514(c) forbids)",
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'email' (phi: email): safe-harbor allows only drop",
+    "field 'card_number' (phi: card-number): safe-harbor allows only drop or surrogate"
+   ],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": null,
+   "problems": [
+    "field 'member_id' (phi: member-id): safe-harbor allows only drop or surrogate (a token is derived from the value, which §164.514(c) forbids)",
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'email' (phi: email): safe-harbor allows only drop",
+    "field 'card_number' (phi: card-number): safe-harbor allows only drop or surrogate"
+   ],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: email,       phi: email,       method: mask, keep: domain, keep-first: 1, decrypt: true }\n  - { name: card_number, phi: card-number, method: mask, keep-last: 4, decrypt: true }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "email",
+    "card_number"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin, method: mask }\n  - { name: amount,   method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'card_pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'card_pin': output column 'card_pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "card_pin",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_pin,     method: drop }\n  - { name: shipping_zip, method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "card_pin",
+    "shipping_zip"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'cards[].pin' is not in the source",
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it",
+    "field 'cards[].amount' is not in the source"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'cards[].pin' is not in the source",
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it",
+    "field 'cards[].amount' is not in the source"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'cards[].pin' is not in the source",
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it",
+    "field 'cards[].amount' is not in the source"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].pin\",    method: passthrough }\n  - { name: \"cards[].amount\", method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'cards[].pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'cards[].pin': output column 'cards.pin' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "cards.pin",
+    "cards.amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount, method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: card_number, method: drop, decrypt: true }\n  - { name: amount,      method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'card_number': decrypt: true with drop has nothing to decrypt for; remove decrypt"
+   ],
+   "outputs": [
+    "card_number",
+    "amount"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'missing' is not in the source",
+    "field 'dob': as-of field 'no_such_field' is not in the source",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": null,
+   "problems": [
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'missing' is not in the source",
+    "field 'dob': as-of field 'no_such_field' is not in the source",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": null,
+   "problems": [
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'missing' is not in the source",
+    "field 'dob': as-of field 'no_such_field' is not in the source",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: amount,   method: passthrough }\n  - { name: amount,   method: passthrough }\n  - { name: missing,  method: passthrough }\n  - { name: dob,      method: generalize, to: birth-year, as-of: no_such_field }\n  - { name: phone,    method: mask, keep-lst: 4 }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'amount' is listed more than once",
+    "field 'amount': output column 'amount' is used more than once",
+    "field 'phone': unknown option(s) for mask: keep-lst"
+   ],
+   "outputs": [
+    "amount",
+    "amount",
+    "missing",
+    "dob",
+    "phone"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'email' (phi: email): safe-harbor allows only drop"
+   ],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "field 'first_name' (phi: name): safe-harbor allows only drop",
+    "field 'email' (phi: email): safe-harbor allows only drop"
+   ],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: first_name, phi: name, method: passthrough }\n  - { name: email,      phi: email, method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "first_name",
+    "email"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'cards[].amount' is not in the source",
+    "field 'cards[].sku' is not in the source"
+   ],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: safe-harbor\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'cards[].amount' is not in the source",
+    "field 'cards[].sku' is not in the source"
+   ],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'cards[].amount' is not in the source",
+    "field 'cards[].sku' is not in the source"
+   ],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "id: test\nversion: 1\nhipaa-basis: expert-determination\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\ntoken-domain: member\nsurrogate-scope: test-vendor\noutput: { file: \"out.csv\" }\nfields:\n  - { name: \"cards[].amount\", method: passthrough }\n  - { name: \"cards[].sku\",    method: passthrough }\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>"
+   ],
+   "outputs": [
+    "cards.amount",
+    "cards.sku"
+   ]
+  },
+  {
+   "yaml": "# A Safe Harbor profile for a reporting vendor (java/docs/DEIDENTIFICATION.md).\n# Zen sees no identifiers: members and cards are random surrogates kept in the\n# deid_surrogate table (so the same member gets the same surrogate every month),\n# dates become years, ZIPs become ZIP3s, and birth years over 89 are capped.\nid: zen-reporting\nversion: 1\nvendor: zen-analytics\nhipaa-basis: safe-harbor\nsurrogate-scope: zen-analytics          # one series of surrogates per vendor\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: amount,                        method: passthrough }\n  - { name: card_type,                     method: passthrough }\n  - { name: status,                        method: passthrough }\noutput:\n  file: \"giftcards_zen_{yyyyMMdd}.csv\"\n  rename: { member_id: member_ref, card_number: card_ref }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_ref",
+    "card_ref",
+    "dob",
+    "issued_date",
+    "zip",
+    "amount",
+    "card_type",
+    "status"
+   ]
+  },
+  {
+   "yaml": "# A Safe Harbor profile for a reporting vendor (java/docs/DEIDENTIFICATION.md).\n# Zen sees no identifiers: members and cards are random surrogates kept in the\n# deid_surrogate table (so the same member gets the same surrogate every month),\n# dates become years, ZIPs become ZIP3s, and birth years over 89 are capped.\nid: zen-reporting\nversion: 1\nvendor: zen-analytics\nhipaa-basis: safe-harbor\nsurrogate-scope: zen-analytics          # one series of surrogates per vendor\nfields:\n  - { name: member_id,   phi: member-id,   method: surrogate, domain: member }\n  - { name: card_number, phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }\n  - { name: dob,         phi: birth-date,  method: generalize, to: birth-year }\n  - { name: issued_date, phi: date,        method: generalize, to: year }\n  - { name: zip,         phi: zip,         method: generalize, to: zip3 }\n  - { name: amount,                        method: passthrough }\n  - { name: card_type,                     method: passthrough }\n  - { name: status,                        method: passthrough }\noutput:\n  file: \"giftcards_zen_{yyyyMMdd}.csv\"\n  rename: { member_id: member_ref, card_number: card_ref }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_ref",
+    "card_ref",
+    "dob",
+    "issued_date",
+    "zip",
+    "amount",
+    "card_type",
+    "status"
+   ]
+  },
+  {
+   "yaml": "# A minimum-necessary profile for a fulfillment vendor (java/docs/DEIDENTIFICATION.md).\n# Acme ships cards, so it needs the name and a way to contact the member; the email\n# and card number are masked, and the member is a token computed with Acme's own key.\n# Approved by the data owner's onboarding team; changes go through pull requests.\nid: acme-fulfillment\nversion: 1\nvendor: acme-rewards                   # a label for the manifest and audit only\nhipaa-basis: minimum-necessary\n# Acme's token key: deid-giftcard-acme-tok, created with --deid.init-key. Replace with its edek_id.\ntoken-key-edek-id: 00000000-0000-4000-8000-000000000000\ntoken-domain: member\nfields:                                 # anything not listed is dropped; output columns follow this order\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: last_name,   phi: name,        method: passthrough }\n  - { name: email,       phi: email,       decrypt: true, method: mask, keep: domain, keep-first: 1 }\n  - { name: phone,       phi: phone,       method: mask, keep-last: 4, preserve: [\"-\"] }\n  - { name: card_number, phi: card-number, decrypt: true, method: mask, keep-last: 4 }\n  - { name: card_pin,    method: drop }   # never-export: drop is the only method allowed\n  - { name: card_type,   method: passthrough }\n  - { name: amount,      method: passthrough }\n  - { name: status,      method: passthrough }\noutput:\n  file: \"giftcards_acme_{yyyyMMdd}.csv\"\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "card_number",
+    "card_pin",
+    "card_type",
+    "amount",
+    "status"
+   ]
+  },
+  {
+   "yaml": "# A minimum-necessary profile for a fulfillment vendor (java/docs/DEIDENTIFICATION.md).\n# Acme ships cards, so it needs the name and a way to contact the member; the email\n# and card number are masked, and the member is a token computed with Acme's own key.\n# Approved by the data owner's onboarding team; changes go through pull requests.\nid: acme-fulfillment\nversion: 1\nvendor: acme-rewards                   # a label for the manifest and audit only\nhipaa-basis: minimum-necessary\n# Acme's token key: deid-giftcard-acme-tok, created with --deid.init-key. Replace with its edek_id.\ntoken-key-edek-id: 00000000-0000-4000-8000-000000000000\ntoken-domain: member\nfields:                                 # anything not listed is dropped; output columns follow this order\n  - { name: member_id,   phi: member-id,   method: tokenize }\n  - { name: first_name,  phi: name,        method: passthrough }\n  - { name: last_name,   phi: name,        method: passthrough }\n  - { name: email,       phi: email,       decrypt: true, method: mask, keep: domain, keep-first: 1 }\n  - { name: phone,       phi: phone,       method: mask, keep-last: 4, preserve: [\"-\"] }\n  - { name: card_number, phi: card-number, decrypt: true, method: mask, keep-last: 4 }\n  - { name: card_pin,    method: drop }   # never-export: drop is the only method allowed\n  - { name: card_type,   method: passthrough }\n  - { name: amount,      method: passthrough }\n  - { name: status,      method: passthrough }\noutput:\n  file: \"giftcards_acme_{yyyyMMdd}.csv\"\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [],
+   "outputs": [
+    "member_id",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "card_number",
+    "card_pin",
+    "card_type",
+    "amount",
+    "status"
+   ]
+  },
+  {
+   "yaml": "# A Safe Harbor profile over a JSON source (java/docs/DEIDENTIFICATION.md section 9).\n# Each record is one member with nested details and an array of gift cards:\n#\n#   {\"member_id\":\"M1234567\",\"name\":{\"first\":\"Jane\",\"last\":\"Doe\"},\"dob\":\"1985-03-14\",\n#    \"address\":{\"zip\":\"60614-2231\",\"city\":\"Chicago\"},\"email\":\"<HSM ciphertext>\",\n#    \"cards\":[{\"card_number\":\"<HSM ciphertext>\",\"pin\":\"4821\",\"amount\":25.00,\"issued\":\"2026-11-02\"},\n#             {\"card_number\":\"<HSM ciphertext>\",\"pin\":\"1122\",\"amount\":10.00,\"issued\":\"2026-11-05\"}]}\n#\n# Paths: a.b reads a nested key; cards[].x reads x from every element of the cards\n# array, giving one CSV row per card (the member's fields repeated). Only one array\n# can be expanded. A member with no cards still gives one row, with the card fields\n# empty. Output columns drop the [] (cards.amount) unless renamed. Quote a path\n# with [] in YAML (\"cards[].x\"): unquoted, [ starts a YAML list.\n#\n# Source settings, in the job config:\n#   client.deid.source:\n#     type: JSON\n#     json: { store: { type: LOCAL, root: /data/in }, path: members.jsonl, layout: LINES }\nid: zen-members-json\nversion: 1\nvendor: zen-analytics\nhipaa-basis: safe-harbor\nsurrogate-scope: zen-analytics\nfields:\n  - { name: member_id,         phi: member-id,   method: surrogate, domain: member }\n  - { name: name.first,        phi: name,        method: drop }\n  - { name: dob,               phi: birth-date,  method: generalize, to: birth-year }\n  - { name: address.zip,       phi: zip,         method: generalize, to: zip3 }\n  - { name: email,             phi: email,       method: drop }\n  - { name: \"cards[].card_number\", phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }\n  - { name: \"cards[].issued\",    phi: date,        method: generalize, to: year }\n  - { name: \"cards[].amount\",                      method: passthrough }\n  - { name: \"cards[].pin\",                         method: drop }   # never-export: must be drop\noutput:\n  file: \"members_zen_{yyyyMMdd}.csv\"\n  rename: { member_id: member_ref, \"cards[].card_number\": card_ref }\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "member_ref",
+    "name.first",
+    "dob",
+    "address.zip",
+    "email",
+    "card_ref",
+    "cards.issued",
+    "cards.amount",
+    "cards.pin"
+   ]
+  },
+  {
+   "yaml": "# A Safe Harbor profile over a JSON source (java/docs/DEIDENTIFICATION.md section 9).\n# Each record is one member with nested details and an array of gift cards:\n#\n#   {\"member_id\":\"M1234567\",\"name\":{\"first\":\"Jane\",\"last\":\"Doe\"},\"dob\":\"1985-03-14\",\n#    \"address\":{\"zip\":\"60614-2231\",\"city\":\"Chicago\"},\"email\":\"<HSM ciphertext>\",\n#    \"cards\":[{\"card_number\":\"<HSM ciphertext>\",\"pin\":\"4821\",\"amount\":25.00,\"issued\":\"2026-11-02\"},\n#             {\"card_number\":\"<HSM ciphertext>\",\"pin\":\"1122\",\"amount\":10.00,\"issued\":\"2026-11-05\"}]}\n#\n# Paths: a.b reads a nested key; cards[].x reads x from every element of the cards\n# array, giving one CSV row per card (the member's fields repeated). Only one array\n# can be expanded. A member with no cards still gives one row, with the card fields\n# empty. Output columns drop the [] (cards.amount) unless renamed. Quote a path\n# with [] in YAML (\"cards[].x\"): unquoted, [ starts a YAML list.\n#\n# Source settings, in the job config:\n#   client.deid.source:\n#     type: JSON\n#     json: { store: { type: LOCAL, root: /data/in }, path: members.jsonl, layout: LINES }\nid: zen-members-json\nversion: 1\nvendor: zen-analytics\nhipaa-basis: safe-harbor\nsurrogate-scope: zen-analytics\nfields:\n  - { name: member_id,         phi: member-id,   method: surrogate, domain: member }\n  - { name: name.first,        phi: name,        method: drop }\n  - { name: dob,               phi: birth-date,  method: generalize, to: birth-year }\n  - { name: address.zip,       phi: zip,         method: generalize, to: zip3 }\n  - { name: email,             phi: email,       method: drop }\n  - { name: \"cards[].card_number\", phi: card-number, decrypt: true, method: surrogate, domain: card, normalize: digits }\n  - { name: \"cards[].issued\",    phi: date,        method: generalize, to: year }\n  - { name: \"cards[].amount\",                      method: passthrough }\n  - { name: \"cards[].pin\",                         method: drop }   # never-export: must be drop\noutput:\n  file: \"members_zen_{yyyyMMdd}.csv\"\n  rename: { member_id: member_ref, \"cards[].card_number\": card_ref }\n",
+   "columns": [
+    "member_id",
+    "first_name",
+    "email",
+    "phone",
+    "dob",
+    "zip",
+    "card_number",
+    "card_pin",
+    "program",
+    "card_type",
+    "amount",
+    "status",
+    "issued_date",
+    "age",
+    "shipping_zip",
+    "last_name"
+   ],
+   "problems": [
+    "field 'name.first' is not in the source",
+    "field 'address.zip' is not in the source",
+    "field 'cards[].card_number' is not in the source",
+    "field 'cards[].issued' is not in the source",
+    "field 'cards[].amount' is not in the source",
+    "field 'cards[].pin' is not in the source"
+   ],
+   "outputs": [
+    "member_ref",
+    "name.first",
+    "dob",
+    "address.zip",
+    "email",
+    "card_ref",
+    "cards.issued",
+    "cards.amount",
+    "cards.pin"
+   ]
+  },
+  {
+   "yaml": "id: 7\nversion: 1.0\nhipaa-basis: safe-harbor\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: 7\nversion: 1.0\nhipaa-basis: safe-harbor\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: '2'\nhipaa-basis: ' safe-harbor '\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: '2'\nhipaa-basis: ' safe-harbor '\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: yes\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: yes\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 99999999999\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 99999999999\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: drop} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "version is required and must be a whole number"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c000000004000800000000000000\nfields: [ {name: a, method: tokenize, domain: d} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "token-key-edek-id must be a UUID (an edek_id from --deid.init-key)"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c000000004000800000000000000\nfields: [ {name: a, method: tokenize, domain: d} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "token-key-edek-id must be a UUID (an edek_id from --deid.init-key)"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c-0-4000-8000-1\nfields: [ {name: a, method: tokenize, domain: d} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-key-edek-id: 6f1c-0-4000-8000-1\nfields: [ {name: a, method: tokenize, domain: d} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, keep-last: '4', on: 1} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'a': unknown option(s) for mask: true"
+   ],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, keep-last: '4', on: 1} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'a': unknown option(s) for mask: true"
+   ],
+   "outputs": [
+    "a"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, decrypt: 'true'} ]\noutput: {file: o.csv, delimiter: ' ', formula-guard: 'no'}\n",
+   "columns": null,
+   "structural": [
+    "field 'a': decrypt must be true or false",
+    "output.formula-guard must be true or false"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, decrypt: 'true'} ]\noutput: {file: o.csv, delimiter: ' ', formula-guard: 'no'}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "field 'a': decrypt must be true or false",
+    "output.formula-guard must be true or false"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv, delimiter: ';;'}\n",
+   "columns": null,
+   "structural": [
+    "output.delimiter must be one character other than a quote or line break"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv, delimiter: ';;'}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "output.delimiter must be one character other than a quote or line break"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv, delimiter: '|', line-ending: crlf, rename: {a: '', b: c}}\n",
+   "columns": null,
+   "problems": [
+    "output.rename: 'a' has an empty output name",
+    "output.rename: 'b' is not a listed, exported field"
+   ],
+   "outputs": [
+    ""
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv, delimiter: '|', line-ending: crlf, rename: {a: '', b: c}}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "output.rename: 'a' has an empty output name",
+    "output.rename: 'b' is not a listed, exported field"
+   ],
+   "outputs": [
+    ""
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nforbidden-fields: '(?i)secret'\nfields: [ {name: my_secret, method: passthrough}, {name: card_pin, method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'my_secret' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'my_secret': output column 'my_secret' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "my_secret",
+    "card_pin"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nforbidden-fields: '(?i)secret'\nfields: [ {name: my_secret, method: passthrough}, {name: card_pin, method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'my_secret' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'my_secret': output column 'my_secret' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "my_secret",
+    "card_pin"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nforbidden-fields: '(unclosed'\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "forbidden-fields is not a valid regular expression"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nforbidden-fields: '(unclosed'\nfields: [ {name: a, method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "forbidden-fields is not a valid regular expression"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: []\noutput: {file: o.csv}\n",
+   "columns": null,
+   "structural": [
+    "fields must be a non-empty list"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: []\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "fields must be a non-empty list"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ a, {name: b} , {name: c, method: drop, phi: nope}]\noutput: o.csv\n",
+   "columns": null,
+   "structural": [
+    "fields[0] must be a map with name and method",
+    "field 'b': method is required",
+    "field 'c': unknown phi category 'nope'",
+    "output must be a map with at least file"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ a, {name: b} , {name: c, method: drop, phi: nope}]\noutput: o.csv\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "fields[0] must be a map with name and method",
+    "field 'b': method is required",
+    "field 'c': unknown phi category 'nope'",
+    "output must be a map with at least file"
+   ]
+  },
+  {
+   "yaml": "- a\n- b\n",
+   "columns": null,
+   "structural": [
+    "the profile is not a YAML mapping"
+   ]
+  },
+  {
+   "yaml": "- a\n- b\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "structural": [
+    "the profile is not a YAML mapping"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: PIN, method: mask}, {name: cvv2, method: drop}, {name: Activation_Code, method: passthrough}, {name: pinned, method: passthrough}, {name: 'x.pin', method: passthrough}, {name: 'x[].cvc', method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'PIN' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'PIN': output column 'PIN' looks like a never-export field; rename it",
+    "field 'Activation_Code' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'Activation_Code': output column 'Activation_Code' looks like a never-export field; rename it",
+    "field 'x.pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'x.pin': output column 'x.pin' looks like a never-export field; rename it",
+    "field 'x[].cvc' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'x[].cvc': output column 'x.cvc' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "PIN",
+    "cvv2",
+    "Activation_Code",
+    "pinned",
+    "x.pin",
+    "x.cvc"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: PIN, method: mask}, {name: cvv2, method: drop}, {name: Activation_Code, method: passthrough}, {name: pinned, method: passthrough}, {name: 'x.pin', method: passthrough}, {name: 'x[].cvc', method: passthrough} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'PIN' is not in the source",
+    "field 'PIN' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'PIN': output column 'PIN' looks like a never-export field; rename it",
+    "field 'cvv2' is not in the source",
+    "field 'Activation_Code' is not in the source",
+    "field 'Activation_Code' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'Activation_Code': output column 'Activation_Code' looks like a never-export field; rename it",
+    "field 'pinned' is not in the source",
+    "field 'x.pin' is not in the source",
+    "field 'x.pin' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'x.pin': output column 'x.pin' looks like a never-export field; rename it",
+    "field 'x[].cvc' is not in the source",
+    "field 'x[].cvc' is a never-export field (PIN, CVV, activation or security code): only drop is allowed",
+    "field 'x[].cvc': output column 'x.cvc' looks like a never-export field; rename it"
+   ],
+   "outputs": [
+    "PIN",
+    "cvv2",
+    "Activation_Code",
+    "pinned",
+    "x.pin",
+    "x.cvc"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, preserve: '-'}, {name: b, method: mask, preserve: ['--']}, {name: c, method: mask, char: ''}, {name: d, method: mask, fixed-length: 0}, {name: e, method: mask, keep: [domain]} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'a': option 'preserve' must be a list, e.g. [\"-\"]",
+    "field 'b': each 'preserve' entry must be one character",
+    "field 'c': option 'char' must be exactly one character",
+    "field 'd': option 'fixed-length' must be between 1 and 1000",
+    "field 'e': option 'keep' must be a single value"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nfields: [ {name: a, method: mask, preserve: '-'}, {name: b, method: mask, preserve: ['--']}, {name: c, method: mask, char: ''}, {name: d, method: mask, fixed-length: 0}, {name: e, method: mask, keep: [domain]} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'a': option 'preserve' must be a list, e.g. [\"-\"]",
+    "field 'b': each 'preserve' entry must be one character",
+    "field 'c': option 'char' must be exactly one character",
+    "field 'd': option 'fixed-length' must be between 1 and 1000",
+    "field 'e': option 'keep' must be a single value"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-domain: ' '\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\nfields: [ {name: a, method: tokenize}, {name: b, method: tokenize, normalize: upper, domain: m}, {name: c, method: tokenize, prefix: [x], domain: m} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'a': tokenize needs a domain (field domain or profile token-domain)",
+    "field 'b': option 'normalize' must be one of none, trim, lower, digits",
+    "field 'c': option 'prefix' must be a single value"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\ntoken-domain: ' '\ntoken-key-edek-id: 6f1c0000-0000-4000-8000-000000000001\nfields: [ {name: a, method: tokenize}, {name: b, method: tokenize, normalize: upper, domain: m}, {name: c, method: tokenize, prefix: [x], domain: m} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'a': tokenize needs a domain (field domain or profile token-domain)",
+    "field 'b': option 'normalize' must be one of none, trim, lower, digits",
+    "field 'c': option 'prefix' must be a single value"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nsurrogate-scope: s\nfields: [ {name: a, method: surrogate}, {name: b, method: surrogate, domain: m, length: 27}, {name: c, method: surrogate, domain: m, length: '8'} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'a': surrogate needs a domain (e.g. member, card)",
+    "field 'b': option 'length' must be between 8 and 26"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: minimum-necessary\nsurrogate-scope: s\nfields: [ {name: a, method: surrogate}, {name: b, method: surrogate, domain: m, length: 27}, {name: c, method: surrogate, domain: m, length: '8'} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'a': surrogate needs a domain (e.g. member, card)",
+    "field 'b': option 'length' must be between 8 and 26"
+   ],
+   "outputs": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: expert-determination\nexpert-report: '  '\nfields: [ {name: a, method: passthrough}, {name: b, method: passthrough} ]\noutput: {file: o.csv, rename: {a: b}}\n",
+   "columns": null,
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'b': output column 'b' is used more than once"
+   ],
+   "outputs": [
+    "b",
+    "b"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: expert-determination\nexpert-report: '  '\nfields: [ {name: a, method: passthrough}, {name: b, method: passthrough} ]\noutput: {file: o.csv, rename: {a: b}}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "expert-determination needs expert-report: <reference to the expert's report>",
+    "field 'b': output column 'b' is used more than once"
+   ],
+   "outputs": [
+    "b",
+    "b"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: safe-harbor\nfields: [ {name: d, phi: birth-date, method: generalize, to: birth-yr}, {name: z, phi: zip, method: generalize}, {name: g, phi: age, method: generalize, to: age-90} ]\noutput: {file: o.csv}\n",
+   "columns": null,
+   "problems": [
+    "field 'd': option 'to' must be one of year, birth-year, zip3, age-90, age-band",
+    "field 'd' (phi: birth-date): safe-harbor allows only drop or generalize to: birth-year (to: year would show ages over 89)",
+    "field 'z': option 'to' is required (year, birth-year, zip3, age-90 or age-band)",
+    "field 'z' (phi: zip): safe-harbor allows only drop or generalize to: zip3"
+   ],
+   "outputs": [
+    "d",
+    "z",
+    "g"
+   ]
+  },
+  {
+   "yaml": "id: x\nversion: 1\nhipaa-basis: safe-harbor\nfields: [ {name: d, phi: birth-date, method: generalize, to: birth-yr}, {name: z, phi: zip, method: generalize}, {name: g, phi: age, method: generalize, to: age-90} ]\noutput: {file: o.csv}\n",
+   "columns": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "g",
+    "z",
+    "my_secret",
+    "card_pin"
+   ],
+   "problems": [
+    "field 'd': option 'to' must be one of year, birth-year, zip3, age-90, age-band",
+    "field 'd' (phi: birth-date): safe-harbor allows only drop or generalize to: birth-year (to: year would show ages over 89)",
+    "field 'z': option 'to' is required (year, birth-year, zip3, age-90 or age-band)",
+    "field 'z' (phi: zip): safe-harbor allows only drop or generalize to: zip3"
+   ],
+   "outputs": [
+    "d",
+    "z",
+    "g"
+   ]
+  }
+ ]
+}
