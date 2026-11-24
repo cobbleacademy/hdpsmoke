@@ -29,7 +29,7 @@ src/hsm_databricks_udf/
   config.py              # environment-variable configuration
   udf.py                  # hsm_encrypt / hsm_decrypt entry points
   deid/                   # hsm-deid: profiles, validator, methods, the Spark job (DEIDENTIFICATION.md §17)
-jobs/                     # Databricks job definitions for hsm-deid (serverless, dedicated, init-key)
+jobs/                     # Databricks job definitions for hsm-deid (serverless, dedicated, init-key STATIC and JWT)
   test/                   # a first test on a workspace: table, profiles, job (DEID_DEPLOYMENT.md §11)
 ```
 

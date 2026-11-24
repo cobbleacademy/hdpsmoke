@@ -1,0 +1,59 @@
+{
+  "name": "deid-surrogate-dedicated-test",
+  "description": "Test only: hsm-deid on the deid_test table with the surrogate profile on a dedicated job cluster, calling hsm-core API v2 (with its CA bundle) and the surrogate table in Lakebase. The same parameters as jobs/test/deid-surrogate-test.json. See hsm-databricks-udf/DEID_DEPLOYMENT.md section 11.",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 3600,
+  "tags": { "purpose": "deid-export-test" },
+  "job_clusters": [
+    {
+      "job_cluster_key": "deid",
+      "new_cluster": {
+        "spark_version": "16.4.x-scala2.12",
+        "node_type_id": "Standard_D8ds_v5",
+        "num_workers": 1,
+        "data_security_mode": "SINGLE_USER",
+        "single_user_name": "<service principal application id>",
+        "spark_conf": {
+          "spark.sql.session.timeZone": "UTC"
+        },
+        "custom_tags": { "purpose": "deid-export-test" }
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "deid",
+      "job_cluster_key": "deid",
+      "max_retries": 0,
+      "libraries": [
+        { "whl": "/Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl" },
+        { "pypi": { "package": "psycopg[binary]==3.2.3" } }
+      ],
+      "python_wheel_task": {
+        "package_name": "hsm_databricks_udf",
+        "entry_point": "hsm-deid",
+        "parameters": [
+          "--profile", "/Volumes/<catalog>/deid_test/deid/profiles/surrogate.yml",
+          "--source-table", "<catalog>.deid_test.giftcards",
+          "--key-column", "id",
+          "--output-root", "/Volumes/<catalog>/deid_test/deid_out/surrogate",
+          "--secret-scope", "hsm",
+          "--hsm-base-url", "https://<hsm-core-service host>/api/sensec/hsm/v2",
+          "--hsm-api-version", "V2",
+          "--hsm-app-id", "giftcard-deid-databricks",
+          "--hsm-auth-mode", "STATIC",
+          "--hsm-private-key-key", "deid-private-key",
+          "--hsm-token-key", "deid-token",
+          "--hsm-ca-cert-key", "deid-ca-bundle",
+          "--surrogate-key-edek-id", "<edek_id of deid-test-surrogate>",
+          "--surrogate-db", "lakebase",
+          "--surrogate-db-host", "<instance host>",
+          "--surrogate-db-name", "databricks_postgres",
+          "--surrogate-db-user", "deid_export",
+          "--surrogate-db-password-key", "deid-surrogate-db-password",
+          "--triggered-by", "databricks-job:deid-surrogate-dedicated-test"
+        ]
+      }
+    }
+  ]
+}

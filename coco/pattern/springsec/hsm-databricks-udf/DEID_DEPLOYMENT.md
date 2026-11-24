@@ -36,7 +36,24 @@ its own audit trail (`DEIDENTIFICATION.md` section 11.1).
    (section 7). Nothing else.
 2. **Transport keypair:** generate it unencrypted and register the public half,
    exactly as in [`DEPLOYMENT.md`](DEPLOYMENT.md) §0.2–0.3 (with this `app_id`).
-3. **Auth:** `STATIC` (a bearer token) or `SELF_SIGNED_JWT` (§0.4 there).
+3. **Auth:** one of two, as in `DEPLOYMENT.md` §0 step 4:
+   - **`STATIC`:** a bearer token for this `app_id`, stored as `deid-token`.
+   - **`SELF_SIGNED_JWT`:** the job signs its own short-lived token on every
+     call, so there's no token to renew. Generate a second keypair just for
+     signing (unencrypted) and register its public half as
+     `signing_public_key_pem`:
+     ```bash
+     openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out deid-signing-key.pem
+     openssl pkey -in deid-signing-key.pem -pubout -out deid-signing-key.pub.pem
+     curl -X POST "$BASE/admin/apps/keys" \
+       -H "Authorization: Bearer $OPS_ADMIN_TOKEN" -H "X-App-ID: ops-admin" \
+       -H "Content-Type: application/json" \
+       -d "{\"app_id\": \"giftcard-deid-databricks\", \"signing_public_key_pem\": \"$(cat deid-signing-key.pub.pem)\"}"
+     ```
+     The token's audience is `hsm-core-service`. If hsm-core's
+     `hsm.jwt.audience` is something else, the separate-secret flags can't set
+     it: use the one-JSON form (`--hsm-credentials-key`, section 3) with
+     `HSM_SELF_SIGNED_AUDIENCE` in it.
 4. **Decrypt grants:** one `app_dek_grants` row per encrypted source column's
    DEK, as for the Kubernetes job (`DEIDENTIFICATION.md` section 11.1). A missing
    grant fails the run before anything is written, naming the `edek_id`.
@@ -49,8 +66,8 @@ encoded (`DEPLOYMENT.md` §0.2 explains why):
 ```bash
 databricks secrets create-scope hsm
 databricks secrets put-secret hsm deid-private-key --string-value "$(base64 -w0 deid-transport-key.pem)"
-databricks secrets put-secret hsm deid-token --string-value "$TOKEN"            # STATIC
-# databricks secrets put-secret hsm deid-signing-key --string-value "$(base64 -w0 deid-signing-key.pem)"   # SELF_SIGNED_JWT
+databricks secrets put-secret hsm deid-token --string-value "$TOKEN"                                  # STATIC only
+databricks secrets put-secret hsm deid-signing-key --string-value "$(base64 -w0 deid-signing-key.pem)"   # SELF_SIGNED_JWT only
 databricks secrets put-secret hsm deid-ca-bundle --string-value "$(base64 < ca.pem | tr -d '\n')"            # hsm-core's CA
 databricks secrets put-secret hsm deid-surrogate-db-password --string-value "$DB_PASSWORD"
 ```
@@ -185,8 +202,11 @@ GRANT SELECT, INSERT ON deid_surrogate TO deid_export;
 | Token key, one per vendor | `deid-<app>-<vendor>-tok` | The profile: `token-key-edek-id` |
 | Surrogate-table key, one per data owner | `deid-<app>-surrogate` | The job: `--surrogate-key-edek-id` |
 
-Run [`jobs/deid-init-key.json`](jobs/deid-init-key.json) once per key (edit
-`--name`); the run output prints `{"edek_id": "…", "owner_app_id": "…",
+Run the init-key job once per key (edit `--name`):
+[`jobs/deid-init-key.json`](jobs/deid-init-key.json) for `STATIC` auth, or
+[`jobs/deid-init-key-jwt.json`](jobs/deid-init-key-jwt.json) for
+`SELF_SIGNED_JWT` (`--hsm-signing-key-key` instead of `--hsm-token-key`; the
+rest is the same). The run output prints `{"edek_id": "…", "owner_app_id": "…",
 "reused": false}`. It needs the `dek_issue` scope. Keys created by the Kubernetes
 job's `--deid.init-key` work here too: they're the same named DEKs.
 
@@ -254,6 +274,9 @@ walks through them in order on a test schema:
 | `HSM_CA_CERT_PEM has no '-----BEGIN CERTIFICATE-----' block` / `contains a private key` | The CA secret holds the wrong file | Store the CA certificate(s) only, PEM or base64 of PEM |
 | `HSM_API_VERSION is V2 but HSM_SERVICE_BASE_URL ends in /v1` (or the reverse) | `--hsm-api-version` and the URL don't match | Change both together (section 3.1) |
 | `/dek/unwrap -> 400: …` or `/dek/issue -> 400: …` | A V1/V2 mix-up behind a gateway path that doesn't end in `/v1` or `/v2`, so it couldn't be checked | Set `--hsm-api-version` to the version that path serves |
+| `/dek/issue -> 401: Invalid token signature` (`SELF_SIGNED_JWT`) | The signing key in `deid-signing-key` doesn't match the `signing_public_key_pem` registered for this `app_id`, or the private and signing keys are swapped in the scope | `openssl pkey -in <the signing key file> -pubout` and register that public key again (section 2, step 3) |
+| `/dek/issue -> 401` with the right signing key (`SELF_SIGNED_JWT`) | hsm-core's `hsm.jwt.audience` isn't `hsm-core-service` | Use `--hsm-credentials-key` with `HSM_SELF_SIGNED_AUDIENCE` (section 2, step 3) |
+| `HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty` | The `--hsm-signing-key-key` secret is empty | Put the signing key in it (section 3) |
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
 | The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
 | `ImportError: psycopg` | The task's environment or libraries miss `psycopg[binary]` | Section 8, step 1 |
@@ -277,6 +300,7 @@ its own `deid_test` schema, with made-up values only.
 | [`jobs/test/surrogate.yml`](jobs/test/surrogate.yml) | A safe-harbor profile with a `surrogate` field (stage 4) |
 | [`jobs/test/deid-plain-test.json`](jobs/test/deid-plain-test.json) | A serverless wheel-task job for `plain.yml`, with no secrets |
 | [`jobs/test/deid-surrogate-test.json`](jobs/test/deid-surrogate-test.json) | A serverless wheel-task job for `surrogate.yml`: hsm-core API v2 with its CA bundle, and Lakebase (stage 4) |
+| [`jobs/test/deid-plain-dedicated-test.json`](jobs/test/deid-plain-dedicated-test.json), [`jobs/test/deid-surrogate-dedicated-test.json`](jobs/test/deid-surrogate-dedicated-test.json) | The same two jobs on a dedicated job cluster (one worker); only the compute differs |
 
 ### Stage 0: build and check the wheel
 
@@ -386,8 +410,11 @@ databricks jobs get-run-output <task run id>
   audit event; the folder has a second CSV (the file name has `{run}` in it).
 - **"Entry point not found":** set `package_name` to `hsm-databricks-udf`.
 - **`environment_version` rejected:** use one your workspace lists.
-- **Dedicated:** create a copy of [`jobs/deid-dedicated.json`](jobs/deid-dedicated.json)
-  with only the same five parameters, and run it the same way.
+- **Dedicated:** [`jobs/test/deid-plain-dedicated-test.json`](jobs/test/deid-plain-dedicated-test.json),
+  the same parameters on a `SINGLE_USER` job cluster. Set `single_user_name`
+  (the run-as service principal) and check `spark_version` and `node_type_id`
+  against your workspace, then create and run it the same way. The parameters
+  are the same, so a failure here and not on serverless is the cluster's.
 
 ### Stage 4: hsm-core and the surrogate table
 
@@ -396,7 +423,8 @@ databricks jobs get-run-output <task run id>
 2. Serverless with network policies: allow the hsm-core and database hosts
    (section 6).
 3. Create the surrogate-table key: cell 3 of the notebook below, or
-   [`jobs/deid-init-key.json`](jobs/deid-init-key.json) with
+   [`jobs/deid-init-key.json`](jobs/deid-init-key.json) (`STATIC`) or
+   [`jobs/deid-init-key-jwt.json`](jobs/deid-init-key-jwt.json) (`SELF_SIGNED_JWT`) with
    `--name deid-test-surrogate`. Keep the `edek_id` it prints. This is the first
    call to hsm-core, so it proves the secrets, the CA bundle, V2 and the auth
    within seconds; it needs the `dek_issue` scope and prints `"reused": true` if
@@ -407,7 +435,9 @@ databricks jobs get-run-output <task run id>
    notebook below (cells 4 and 5), or as the job
    [`jobs/test/deid-surrogate-test.json`](jobs/test/deid-surrogate-test.json)
    (replace every `<…>`; `--surrogate-key-edek-id` is the one from step 3; for
-   Postgres, `--surrogate-db postgres` and its host and database):
+   Postgres, `--surrogate-db postgres` and its host and database). On a
+   dedicated cluster, the same with
+   [`jobs/test/deid-surrogate-dedicated-test.json`](jobs/test/deid-surrogate-dedicated-test.json):
 
    ```bash
    databricks jobs create --json @jobs/test/deid-surrogate-test.json

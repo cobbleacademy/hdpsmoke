@@ -1,0 +1,36 @@
+{
+  "name": "deid-init-key-jwt",
+  "description": "One-off, SELF_SIGNED_JWT auth (deid-init-key.json is the STATIC one): creates a de-identification key (token key per vendor, or the surrogate-table key) with /dek/issue and prints its edek_id in the run output. Edit --name, run once, then delete or keep paused.",
+  "max_concurrent_runs": 1,
+  "environments": [
+    {
+      "environment_key": "deid",
+      "spec": {
+        "environment_version": "2",
+        "dependencies": ["/Volumes/<catalog>/<schema>/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl"]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "init_key",
+      "environment_key": "deid",
+      "max_retries": 0,
+      "python_wheel_task": {
+        "package_name": "hsm_databricks_udf",
+        "entry_point": "hsm-deid",
+        "parameters": [
+          "--init-key", "--name", "deid-giftcard-surrogate",
+          "--secret-scope", "hsm",
+          "--hsm-base-url", "https://<hsm-core-service host>/api/sensec/hsm/v2",
+          "--hsm-api-version", "V2",
+          "--hsm-app-id", "giftcard-deid-databricks",
+          "--hsm-auth-mode", "SELF_SIGNED_JWT",
+          "--hsm-private-key-key", "deid-private-key",
+          "--hsm-signing-key-key", "deid-signing-key",
+          "--hsm-ca-cert-key", "deid-ca-bundle"
+        ]
+      }
+    }
+  ]
+}
