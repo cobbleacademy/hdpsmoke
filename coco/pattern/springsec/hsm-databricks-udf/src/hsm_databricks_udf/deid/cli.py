@@ -8,7 +8,8 @@ read secrets themselves). hsm-core's credentials either:
 - as separate values, like the encrypt/decrypt functions' (``DEPLOYMENT.md`` §0):
   ``--hsm-base-url``, ``--hsm-app-id``, ``--hsm-auth-mode``, ``--hsm-api-version``
   and the secret-scope keys ``--hsm-private-key-key``, ``--hsm-token-key`` (STATIC),
-  ``--hsm-signing-key-key`` (SELF_SIGNED_JWT), ``--hsm-ca-cert-key`` (optional);
+  ``--hsm-signing-key-key`` (SELF_SIGNED_JWT), ``--hsm-ca-cert-key`` (optional),
+  ``--hsm-jwt-audience`` (SELF_SIGNED_JWT, when hsm-core's audience isn't the default);
 - or as one secret holding the whole ``HSM_*`` JSON object: ``--hsm-credentials-key``.
 
 ``--surrogate-db-password-key``: the surrogate database password (a Lakebase
@@ -65,6 +66,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--hsm-token-key", help="secret-scope key: the bearer token (STATIC)")
     p.add_argument("--hsm-signing-key-key", help="secret-scope key: the JWT signing key (SELF_SIGNED_JWT)")
     p.add_argument("--hsm-ca-cert-key", help="secret-scope key: an internal CA bundle for hsm-core's TLS (optional)")
+    p.add_argument("--hsm-jwt-audience", help="SELF_SIGNED_JWT: the token's aud, hsm-core's hsm.jwt.audience "
+                                              "(default hsm-core-service)")
     p.add_argument("--triggered-by")
     p.add_argument("--dry-run", action="store_true", help="read --sample rows, print the review, write nothing")
     p.add_argument("--sample", type=int, default=100)
@@ -104,7 +107,12 @@ def credentials_json(args, secret=_secret) -> str | None:
     """hsm-core's credentials as the HSM_* JSON object the package's Config reads, or None."""
     whole = secret(args.secret_scope, args.hsm_credentials_key, "HSM_DEID_CREDENTIALS_JSON")
     if whole:
+        if args.hsm_jwt_audience:
+            raise SystemExit("--hsm-jwt-audience is for the separate secrets; with --hsm-credentials-key "
+                             "put HSM_SELF_SIGNED_AUDIENCE in the JSON")
         return whole
+    if args.hsm_jwt_audience and args.hsm_auth_mode != "SELF_SIGNED_JWT":
+        raise SystemExit("--hsm-jwt-audience needs --hsm-auth-mode SELF_SIGNED_JWT")
     if not (args.hsm_base_url or args.hsm_app_id or args.hsm_private_key_key):
         return None
     if not (args.hsm_base_url and args.hsm_app_id and args.hsm_private_key_key):
@@ -116,8 +124,11 @@ def credentials_json(args, secret=_secret) -> str | None:
         if not args.hsm_token_key:
             raise SystemExit("--hsm-auth-mode STATIC needs --hsm-token-key")
         fields["HSM_BEARER_TOKEN"] = secret(args.secret_scope, args.hsm_token_key)
-    elif args.hsm_signing_key_key:
-        fields["HSM_SIGNING_PRIVATE_KEY_PEM"] = secret(args.secret_scope, args.hsm_signing_key_key)
+    else:
+        if args.hsm_signing_key_key:
+            fields["HSM_SIGNING_PRIVATE_KEY_PEM"] = secret(args.secret_scope, args.hsm_signing_key_key)
+        if args.hsm_jwt_audience:
+            fields["HSM_SELF_SIGNED_AUDIENCE"] = args.hsm_jwt_audience
     if args.hsm_ca_cert_key:
         fields["HSM_CA_CERT_PEM"] = secret(args.secret_scope, args.hsm_ca_cert_key)
     return json.dumps(fields)
