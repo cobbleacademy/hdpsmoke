@@ -30,6 +30,7 @@ src/hsm_databricks_udf/
   udf.py                  # hsm_encrypt / hsm_decrypt entry points
   deid/                   # hsm-deid: profiles, validator, methods, the Spark job (DEIDENTIFICATION.md §17)
 jobs/                     # Databricks job definitions for hsm-deid (serverless, dedicated, init-key)
+  test/                   # a first test on a workspace: table, profiles, job (DEID_DEPLOYMENT.md §11)
 ```
 
 ## Running the tests

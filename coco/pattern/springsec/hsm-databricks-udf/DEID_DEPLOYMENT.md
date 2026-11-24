@@ -12,7 +12,8 @@ Job definitions to start from are in [`jobs/`](jobs/).
 
 > **First deployment: check the items in section 9.** The job is tested on local
 > Spark 4.0 and Postgres 16 (`tests/deid/spark/run-tests.sh`), not yet on
-> Databricks itself.
+> Databricks itself. Section 11 is a step-by-step first test on a workspace,
+> with its own test table and profiles in [`jobs/test/`](jobs/test/).
 
 ## 1. What you need
 
@@ -82,14 +83,36 @@ pass `--hsm-credentials-key` instead.
   with a `{yyyyMMdd}` file name fails. Use `{run}` in `output.file` if a vendor
   takes several files a day.
 
-Build and upload the wheel:
+Build, check and upload the wheel, from `hsm-databricks-udf/` on the release
+branch:
 
 ```bash
 cd hsm-databricks-udf
-python -m build      # dist/hsm_databricks_udf-<version>-py3-none-any.whl (needs setuptools >= 61)
-databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl \
-  dbfs:/Volumes/<catalog>/<schema>/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
+rm -rf build dist src/*.egg-info          # no output from an earlier build mixed in
+python -m pip install --upgrade build
+python -m build --wheel                   # dist/hsm_databricks_udf-0.1.0-py3-none-any.whl
+
+W=dist/hsm_databricks_udf-0.1.0-py3-none-any.whl
+unzip -l "$W" | grep -q 'hsm_databricks_udf/deid/restricted-zip3.txt' \
+  && unzip -p "$W" 'hsm_databricks_udf-0.1.0.dist-info/entry_points.txt' | grep -q 'hsm-deid = hsm_databricks_udf.deid.cli:main' \
+  && echo "wheel OK" || echo "WHEEL BROKEN: don't upload it"
+
+databricks fs cp "$W" dbfs:/Volumes/<catalog>/<schema>/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl
 ```
+
+Upload only after `wheel OK`. A wheel without `entry_points.txt` fails the job
+with "entry point not found". Two ways to get one:
+
+- **`--no-isolation`:** don't use it. It builds with the setuptools installed in
+  that Python and ignores `requires = ["setuptools>=68"]`; setuptools older than 61
+  ignores the whole `[project]` table, so the wheel has no entry point, no
+  packages, and is named `UNKNOWN-0.0.0-py3-none-any.whl`. Without the flag,
+  `build` installs a current setuptools in a temporary environment.
+- **An old wheel of the same name:** every build is `0.1.0`, so a wheel from
+  before the DEID code (no `hsm_databricks_udf/deid/` folder) has the same file
+  name. pip also keeps one in its cache (`pip cache list hsm_databricks_udf`;
+  clear it with `pip cache remove hsm_databricks_udf`). The `rm -rf` and the check
+  above catch both.
 
 Upload profiles the same way, to the profiles volume.
 
@@ -175,7 +198,8 @@ audit sources.
 
 ## 9. First deployment: check these
 
-Tested locally (Spark 4.0.1, Postgres 16), but not yet on Databricks:
+Tested locally (Spark 4.0.1, Postgres 16), but not yet on Databricks. Section 11
+walks through them in order on a test schema:
 
 | Check | How |
 |---|---|
@@ -203,8 +227,190 @@ Tested locally (Spark 4.0.1, Postgres 16), but not yet on Databricks:
 | `--surrogate-key-edek-id is required` | A `surrogate` profile without the key | Section 7 |
 | `secret '…' can't be read outside Databricks` | `dbutils` isn't available to the task | See section 9 |
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
+| The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
 | `ImportError: psycopg` | The task's environment or libraries miss `psycopg[binary]` | Section 8, step 1 |
 
 A failed run never leaves a `.csv`: the `.part` file and the temporary folder are
 deleted. Re-run once the cause is fixed; members inserted into the surrogate
 table by the failed run keep their surrogates.
+
+## 11. First test on a workspace, step by step
+
+Tests one dependency at a time: Spark and the volume first, then the job
+wrapper, then hsm-core and the surrogate database. When a stage fails, the
+previous one tells you what already works. The files are in
+[`jobs/test/`](jobs/test/); replace `<catalog>` everywhere. Everything goes in
+its own `deid_test` schema, with made-up values only.
+
+| File | What it is |
+|---|---|
+| [`jobs/test/giftcards.sql`](jobs/test/giftcards.sql) | The schema, three volumes and a four-row source table |
+| [`jobs/test/plain.yml`](jobs/test/plain.yml) | A profile that needs no hsm-core and no database (mask, generalize, passthrough) |
+| [`jobs/test/surrogate.yml`](jobs/test/surrogate.yml) | A safe-harbor profile with a `surrogate` field (stage 4) |
+| [`jobs/test/deid-plain-test.json`](jobs/test/deid-plain-test.json) | A serverless wheel-task job for `plain.yml`, with no secrets |
+
+### Stage 0: build and check the wheel
+
+Optionally, run the full suite in Docker first:
+
+```bash
+cd hsm-databricks-udf && tests/deid/spark/run-tests.sh
+```
+
+Then build and check the wheel exactly as in section 4 (the `rm -rf`, `python -m
+build --wheel`, then the check). Go on only when the check prints `wheel OK`.
+To see the contents yourself:
+
+```bash
+unzip -l dist/hsm_databricks_udf-0.1.0-py3-none-any.whl | grep -E "dist-info/entry_points.txt|deid/restricted-zip3.txt"
+unzip -p dist/hsm_databricks_udf-0.1.0-py3-none-any.whl 'hsm_databricks_udf-0.1.0.dist-info/entry_points.txt'
+```
+
+The first lists both files; the second prints `[console_scripts]` and
+`hsm-deid = hsm_databricks_udf.deid.cli:main`.
+
+### Stage 1: the test schema, volumes and table
+
+Run [`jobs/test/giftcards.sql`](jobs/test/giftcards.sql) in a SQL editor or
+notebook, then upload the wheel and the profiles:
+
+```bash
+databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl dbfs:/Volumes/<catalog>/deid_test/libs/
+databricks fs cp jobs/test/plain.yml dbfs:/Volumes/<catalog>/deid_test/deid/profiles/plain.yml
+databricks fs cp jobs/test/surrogate.yml dbfs:/Volumes/<catalog>/deid_test/deid/profiles/surrogate.yml
+```
+
+### Stage 2: a notebook run (fastest feedback)
+
+Attach a notebook to **serverless** first; repeat the stage on a **dedicated**
+cluster afterwards. `cli.run` takes the same arguments as the job and returns
+the exit status.
+
+```python
+# cell 1
+%pip install /Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl "psycopg[binary]==3.2.3"
+dbutils.library.restartPython()
+```
+
+```python
+# cell 2: dry run (writes nothing, prints the review JSON)
+from hsm_databricks_udf.deid import cli
+args = ["--profile", "/Volumes/<catalog>/deid_test/deid/profiles/plain.yml",
+        "--source-table", "<catalog>.deid_test.giftcards", "--key-column", "id",
+        "--output-root", "/Volumes/<catalog>/deid_test/deid_out/plain"]
+cli.run(args + ["--dry-run", "--sample", "4"])   # 0
+```
+
+Expect `0`, a review with `sample_rows: 4`, the method per field,
+`dropped_by_default` listing `id`, `member_id`, `dob` and `status`, and nothing
+in `deid_out/plain`.
+
+```python
+# cell 3: the real run
+cli.run(args)   # 0
+display(dbutils.fs.ls("/Volumes/<catalog>/deid_test/deid_out/plain"))
+```
+
+```python
+# cell 4: check the CSV and the manifest
+import glob, hashlib, json
+out = "/Volumes/<catalog>/deid_test/deid_out/plain"
+csv = glob.glob(out + "/*.csv")[0]
+print(open(csv, encoding="utf-8").read())
+m = json.load(open(glob.glob(out + "/*.manifest.json")[0]))
+print(json.dumps(m, indent=2))
+assert hashlib.sha256(open(csv, "rb").read()).hexdigest() == m["output"]["sha256"]
+assert not glob.glob(out + "/*.part"), "the rename didn't happen"
+assert not glob.glob(out + "/_deid_tmp/*"), "the temporary folder wasn't removed"
+```
+
+The rows, in any order (the same as the local test `test_job.py`):
+
+| first_name | zip | amount | issued_date |
+|---|---|---|---|
+| `J***` | `606` | `25.00` | `2026-11-02T10:15` |
+| `R**` | `000` | `100.00` | `2026-10-18T08:00` |
+| `J***` | `606` | `'-5.00` | `2026-11-05T12:00:00.250` |
+| | | `10.00` | |
+
+What the rows check:
+- **zip3 suppression:** `036` is a restricted zip3, so `03601` becomes `000`.
+- **Formula-injection guard:** `-5.00` is written as `'-5.00`.
+- **UTC session time zone:** the timestamps are written as stored, not shifted.
+
+This stage covers most of section 9: `mapInPandas`, Parquet and text writes to
+a volume, reading the output back on the driver, the session time zone and the
+rename.
+
+### Stage 3: the same profile as a wheel-task job
+
+Tests the entry point and the job's environment, still without secrets.
+
+```bash
+databricks jobs create --json @jobs/test/deid-plain-test.json     # after replacing <catalog>
+databricks jobs run-now <job_id> --python-params '["--profile","/Volumes/<catalog>/deid_test/deid/profiles/plain.yml","--source-table","<catalog>.deid_test.giftcards","--key-column","id","--output-root","/Volumes/<catalog>/deid_test/deid_out/plain","--dry-run","--sample","4"]'
+databricks jobs get-run-output <task run id>
+```
+
+- The output shows the review JSON. Then run it without `--python-params` (the
+  real run). The driver log has `deid_start` and a `deid_export_completed`
+  audit event; the folder has a second CSV (the file name has `{run}` in it).
+- **"Entry point not found":** set `package_name` to `hsm-databricks-udf`.
+- **`environment_version` rejected:** use one your workspace lists.
+- **Dedicated:** create a copy of [`jobs/deid-dedicated.json`](jobs/deid-dedicated.json)
+  with only the same five parameters, and run it the same way.
+
+### Stage 4: hsm-core and the surrogate table
+
+1. Register the `app_id`, keypair and token (section 2) and put them in the
+   secret scope (section 3).
+2. Serverless with network policies: allow the hsm-core and database hosts
+   (section 6).
+3. Run [`jobs/deid-init-key.json`](jobs/deid-init-key.json) with
+   `--name deid-test-surrogate` and keep the `edek_id` from the run output. This
+   also proves that secrets, `dbutils` and hsm-core work from a wheel task.
+4. Create the surrogate table and the `deid_export` role in Lakebase or
+   Postgres, and put the role's password in the scope (section 5).
+5. Run `surrogate.yml` with the full parameters of
+   [`jobs/deid-serverless.json`](jobs/deid-serverless.json) (`--profile`,
+   `--output-root …/deid_out/surrogate`, the `--hsm-*` and `--surrogate-*`
+   values, `--surrogate-key-edek-id` from step 3): first with `--dry-run`, then
+   for real. Check:
+   - rows 1 and 3 (both `M1234567`) have the same `member_ref`, row 4 another;
+   - `SELECT domain, count(*) FROM deid_surrogate WHERE scope = 'test-vendor' GROUP BY 1`
+     gives `member | 3` (one row per distinct member);
+   - `dob` holds birth years and `zip` zip3s.
+6. **Run it again.** Every `member_ref` must be the same as in the first file,
+   and the table must still have 3 rows: members are reused, never given a new
+   surrogate.
+
+### Stage 5 (optional): an encrypted column
+
+Add a column encrypted with the package's `hsm_encrypt` function and give this
+job's `app_id` a decrypt grant on its DEK (section 2, step 4). Then add a field
+for it with `decrypt: true, method: surrogate, domain: card, normalize: digits`.
+
+- Without `decrypt: true`, the dry run lists the column under
+  `ciphertext_not_marked_decrypt`.
+- With it, the run completes and the column holds surrogates.
+- Without the grant, the run fails before writing anything and names the
+  `edek_id`.
+
+### Failures to try (from the stage 2 notebook)
+
+| Do | Expect |
+|---|---|
+| Set `output.file` to `x_{yyyyMMdd}.csv` and run twice | The second run returns 1: "already exists; not overwriting it" |
+| Add a field the table doesn't have | Returns 1, with a `deid_profile_problem` in the log |
+| Comment out `hipaa-basis` | Returns 1: the profile fails validation |
+| After each failed run | No `.csv`, no `.csv.part` and no `_deid_tmp/<run id>` folder |
+
+### Clean up
+
+```sql
+DROP SCHEMA <catalog>.deid_test CASCADE;    -- the table, volumes and files
+DELETE FROM deid_surrogate WHERE scope = 'test-vendor';   -- only in a table used for testing
+```
+
+Delete the test jobs, and the `deid-test-surrogate` key's grants if you made
+any.
