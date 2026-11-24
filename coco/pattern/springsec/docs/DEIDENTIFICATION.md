@@ -997,15 +997,17 @@ Notes on phase 5 as built:
 
 | | Path |
 |---|---|
-| A | `hsm-databricks-udf/jobs/deid-serverless.json` (job definition, serverless environment) |
-| A | `hsm-databricks-udf/jobs/deid-dedicated.json` (job definition, dedicated job cluster) |
-| A | `hsm-databricks-udf/jobs/deid-init-key.json` (one-off: create a key, print its edek_id) |
-| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (registration, secrets, volumes, surrogate table, network, keys, first run, troubleshooting, a step-by-step first test on a workspace) |
+| A | `hsm-databricks-udf/jobs/deid-serverless.json` (export job, serverless; API v2, CA bundle, Lakebase) |
+| A | `hsm-databricks-udf/jobs/deid-dedicated.json` (export job, dedicated job cluster; API v2, CA bundle, Postgres) |
+| A | `hsm-databricks-udf/jobs/deid-init-key.json` (one-off: create a key and print its edek_id; STATIC auth) |
+| A | `hsm-databricks-udf/jobs/deid-init-key-jwt.json` (the same with SELF_SIGNED_JWT auth) |
 | A | `hsm-databricks-udf/jobs/test/giftcards.sql` (test schema, volumes, four-row source table) |
 | A | `hsm-databricks-udf/jobs/test/plain.yml`, `jobs/test/surrogate.yml` (test profiles) |
-| A | `hsm-databricks-udf/jobs/test/deid-plain-test.json` (test job, no secrets) |
+| A | `hsm-databricks-udf/jobs/test/deid-plain-test.json`, `jobs/test/deid-plain-dedicated-test.json` (test jobs for `plain.yml`, serverless and dedicated; no secrets) |
+| A | `hsm-databricks-udf/jobs/test/deid-surrogate-test.json`, `jobs/test/deid-surrogate-dedicated-test.json` (test jobs for `surrogate.yml`, serverless and dedicated; API v2, CA bundle, Lakebase) |
+| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (registration and both auth modes, secrets, API version and TLS, volumes, wheel build and check, surrogate table, network, keys, first run, troubleshooting, a step-by-step first test on a workspace) |
 | A | `hsm-databricks-udf/tests/deid/test_cli.py` |
-| M | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (credentials from separate secrets; exits non-zero on failure) |
+| M | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (credentials from separate secrets, including `--hsm-jwt-audience`; exits non-zero on failure) |
 | M | `hsm-databricks-udf/README.md` |
 | M | `java/docs/RUNBOOK.md` (Databricks DEID section) |
 
