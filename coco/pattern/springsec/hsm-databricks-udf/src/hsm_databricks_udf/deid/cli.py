@@ -135,8 +135,16 @@ def credentials_json(args, secret=_secret) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """The console entry point: exits with run()'s status, so a failed export fails the task."""
-    sys.exit(run(argv))
+    """The console entry point: returns on success, raises SystemExit(status) on failure.
+
+    Databricks runs a wheel task's entry point inside IPython, which reports any
+    SystemExit, even sys.exit(0), as an exception and fails the task. So a
+    successful run returns normally (a console script still exits 0), and only a
+    failed run (1) or a bad parameter (2) raises, which fails the task.
+    """
+    status = run(argv)
+    if status:
+        raise SystemExit(status)
 
 
 def run(argv: list[str] | None = None) -> int:
