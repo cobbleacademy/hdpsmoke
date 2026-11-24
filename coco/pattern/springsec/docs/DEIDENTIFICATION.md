@@ -1000,7 +1000,10 @@ Notes on phase 5 as built:
 | A | `hsm-databricks-udf/jobs/deid-serverless.json` (job definition, serverless environment) |
 | A | `hsm-databricks-udf/jobs/deid-dedicated.json` (job definition, dedicated job cluster) |
 | A | `hsm-databricks-udf/jobs/deid-init-key.json` (one-off: create a key, print its edek_id) |
-| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (registration, secrets, volumes, surrogate table, network, keys, first run, troubleshooting) |
+| A | `hsm-databricks-udf/DEID_DEPLOYMENT.md` (registration, secrets, volumes, surrogate table, network, keys, first run, troubleshooting, a step-by-step first test on a workspace) |
+| A | `hsm-databricks-udf/jobs/test/giftcards.sql` (test schema, volumes, four-row source table) |
+| A | `hsm-databricks-udf/jobs/test/plain.yml`, `jobs/test/surrogate.yml` (test profiles) |
+| A | `hsm-databricks-udf/jobs/test/deid-plain-test.json` (test job, no secrets) |
 | A | `hsm-databricks-udf/tests/deid/test_cli.py` |
 | M | `hsm-databricks-udf/src/hsm_databricks_udf/deid/cli.py` (credentials from separate secrets; exits non-zero on failure) |
 | M | `hsm-databricks-udf/README.md` |
