@@ -83,6 +83,17 @@ def test_main_exits_with_the_status():
     assert e.value.code == 2
 
 
+def test_main_returns_on_success_and_raises_on_failure(monkeypatch):
+    """Databricks runs the entry point in IPython, which fails the task on any SystemExit, even 0."""
+    monkeypatch.setattr(cli, "run", lambda argv=None: 0)
+    assert cli.main([]) is None
+    for status in (1, 2):
+        monkeypatch.setattr(cli, "run", lambda argv=None, s=status: s)
+        with pytest.raises(SystemExit) as e:
+            cli.main([])
+        assert e.value.code == status
+
+
 def test_a_dry_run_and_a_failed_run_through_the_cli(spark, table, tmp_path, capsys):  # noqa: F811
     profile = tmp_path / "plain.yml"
     profile.write_text(PLAIN, encoding="utf-8")
