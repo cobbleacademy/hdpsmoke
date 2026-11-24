@@ -822,5 +822,143 @@ Raj’s birth_year = 1933 breaks Safe Harbor. Raj is 93, and Safe Harbor require
 
 The fix would be one more rule on generalize: year for phi: date birth fields under safe-harbor: if the year means age 90 or over, output a cap such as 1936- or 90+ instead, with the validator requiring it. The doc has no such rule yet.
 ----------------------------------------------------------------------------------------------------------------------------------
+Here are the steps, from the wheel to a checked CSV on a volume. They go one dependency at a time: first just Spark and the volume, then the job wrapper, then hsm-core and the surrogate database. When a step fails, you'll know which piece caused it. Replace <catalog> throughout; I've used a deid_test schema.
+
+Stage 0: build and check the wheel locally
+cd hsm-databricks-udf && python -m build --no-isolation
+unzip -l dist/hsm_databricks_udf-0.1.0-py3-none-any.whl | grep -E "restricted-zip3|entry_points"
+
+You should see both restricted-zip3.txt and entry_points.txt. Optionally, run the full suite one last time with tests/deid/spark/run-tests.sh.
+
+Stage 1: workspace setup (once)
+
+In a SQL editor or notebook:
+
+CREATE SCHEMA IF NOT EXISTS <catalog>.deid_test;
+CREATE VOLUME IF NOT EXISTS <catalog>.deid_test.libs;
+CREATE VOLUME IF NOT EXISTS <catalog>.deid_test.deid;       -- profiles/
+CREATE VOLUME IF NOT EXISTS <catalog>.deid_test.deid_out;   -- one folder per vendor
+
+CREATE OR REPLACE TABLE <catalog>.deid_test.giftcards (
+  id INT, member_id STRING, first_name STRING, dob DATE, zip STRING,
+  amount DECIMAL(10,2), status STRING, issued_date TIMESTAMP);
+
+INSERT INTO <catalog>.deid_test.giftcards VALUES
+ (1,'M1234567','Jane','1985-03-14','60614-2231', 25.00,'ACTIVE',  TIMESTAMP'2026-11-02 10:15:00'),
+ (2,'M7654321','Raj', '1936-07-01','03601',     100.00,'REDEEMED',TIMESTAMP'2026-10-18 08:00:00'),
+ (3,'M1234567','Jane','1985-03-14','60614',      -5.00,'ADJUSTED',TIMESTAMP'2026-11-05 12:00:00.250'),
+ (4,'M5550001',NULL,  NULL,        NULL,         10.00,'ACTIVE',  NULL);
+
+The test profile is the same plain profile the local tests use. It needs no hsm-core and no database. Save it as plain.yml:
+
+id: plain-test
+version: 1
+hipaa-basis: minimum-necessary
+fields:
+  - { name: first_name,  phi: name, method: mask, keep-first: 1 }
+  - { name: zip,         phi: zip,  method: generalize, to: zip3 }
+  - { name: amount,                 method: passthrough }
+  - { name: issued_date,            method: passthrough }
+output: { file: "plain_{run}.csv" }
+
+Upload the wheel and the profile:
+
+databricks fs cp dist/hsm_databricks_udf-0.1.0-py3-none-any.whl dbfs:/Volumes/<catalog>/deid_test/libs/
+databricks fs cp plain.yml dbfs:/Volumes/<catalog>/deid_test/deid/profiles/plain.yml
+Stage 2: notebook smoke test (fastest feedback)
+
+Attach a notebook to serverless first, then repeat this stage on a dedicated cluster.
+
+Cell 1:
+
+%pip install /Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl "psycopg[binary]==3.2.3"
+dbutils.library.restartPython()
+
+Cell 2: dry run. It writes nothing and prints the review JSON.
+
+from hsm_databricks_udf.deid import cli
+args = ["--profile", "/Volumes/<catalog>/deid_test/deid/profiles/plain.yml",
+        "--source-table", "<catalog>.deid_test.giftcards", "--key-column", "id",
+        "--output-root", "/Volumes/<catalog>/deid_test/deid_out/plain"]
+cli.run(args + ["--dry-run", "--sample", "4"])   # expect 0
+
+Check that the call returns 0 and that the review shows sample_rows: 4, the method per field, and dropped_by_default listing member_id, dob, status, id. The folder deid_out/plain should be empty or absent.
+
+Cell 3: real run:
+
+cli.run(args)   # expect 0
+display(dbutils.fs.ls("/Volumes/<catalog>/deid_test/deid_out/plain"))
+
+Cell 4: check the output:
+
+import glob, hashlib, json
+out = "/Volumes/<catalog>/deid_test/deid_out/plain"
+csv = glob.glob(out + "/*.csv")[0]
+print(open(csv, encoding="utf-8").read())
+m = json.load(open(glob.glob(out + "/*.manifest.json")[0]))
+print(json.dumps(m, indent=2))
+assert hashlib.sha256(open(csv, "rb").read()).hexdigest() == m["output"]["sha256"]
+assert not glob.glob(out + "/*.part") and not glob.glob(out + "/_deid_tmp/*")
+
+The expected rows match the local test, in any order:
+
+first_name	zip	amount	issued_date
+J***	606	25.00	2026-11-02T10:15
+R**	000	100.00	2026-10-18T08:00
+J***	606	'-5.00	2026-11-05T12:00:00.250
+		10.00	
+
+These rows also check three behaviours:
+
+zip3 suppression: 036 is a restricted zip3, so it becomes 000.
+Formula-injection guard: the leading ' on -5.00.
+UTC session timezone: the timestamps show unshifted.
+
+This stage covers most of the §9 checklist: mapInPandas, Parquet and text writes to a volume, reading the output back on the driver, the session timezone, and the rename.
+
+Stage 3: the same profile as a wheel-task job
+
+This tests the entry point and dbutils inside a job. Copy jobs/deid-serverless.json and remove every --hsm-*, --surrogate-* and --secret-scope parameter, leaving only --profile, --source-table, --key-column, --output-root and --triggered-by. Point the paths at deid_test.
+
+databricks jobs create --json @deid-plain-test.json
+databricks jobs run-now <job_id> --python-params '["--profile","/Volumes/<catalog>/deid_test/deid/profiles/plain.yml","--source-table","<catalog>.deid_test.giftcards","--key-column","id","--output-root","/Volumes/<catalog>/deid_test/deid_out/plain","--dry-run","--sample","4"]'
+databricks jobs get-run-output <task_run_id>
+If the task fails with "entry point not found": set package_name to hsm-databricks-udf.
+If environment_version is rejected: pick one your workspace lists. My "2" was a guess.
+
+Then run it without --dry-run. In the driver log, look for deid_start and a deid_export_completed audit event. Repeat with jobs/deid-dedicated.json for the dedicated-cluster path.
+
+Stage 4: hsm-core and the surrogate table
+hsm-core: register the app_id, keypair and token as described in DEID_DEPLOYMENT.md §2. Then put the secrets in a scope as in §3.
+Egress: on serverless with network policies, allow the hsm-core host and the database host (§6).
+Surrogate key: run jobs/deid-init-key.json with --name deid-test-surrogate and note the edek_id from the run output. This step also proves that secrets, dbutils and the hsm-core connection work from a job.
+Database: on Lakebase or Postgres, run deid-surrogate-postgres.sql. Then create the deid_export role with SELECT, INSERT and put its password in the scope (§5).
+Surrogate profile: add a surrogate.yml that turns member_id into a surrogate:
+id: surrogate-test
+version: 1
+vendor: test-vendor
+hipaa-basis: safe-harbor
+surrogate-scope: test-vendor
+fields:
+  - { name: member_id, phi: member-id,  method: surrogate, domain: member }
+  - { name: dob,       phi: birth-date, method: generalize, to: birth-year }
+  - { name: zip,       phi: zip,        method: generalize, to: zip3 }
+  - { name: amount,                     method: passthrough }
+output: { file: "surrogate_{run}.csv", rename: { member_id: member_ref } }
+Run it: first with --dry-run, then for real, using the full parameter set from jobs/deid-serverless.json. Check the following:
+Rows 1 and 3 (both M1234567) get the same member_ref.
+SELECT domain, count(*) FROM deid_surrogate GROUP BY 1 shows member | 2, one row per distinct non-null member.
+The manifest's surrogates section shows created: 2, reused: 0.
+Run it again: every surrogate should be identical, with created: 0, reused: 2. That reuse is the main guarantee.
+Stage 5: an encrypted column with decrypt: true (optional)
+
+Add an encrypted column to the table using the package's existing encrypt function, then give this app_id a decrypt grant on that column's DEK. Next, add a field with decrypt: true, method: surrogate, domain: card, normalize: digits.
+
+Run it with decrypt: true removed first: the dry run should list the column under ciphertext_not_marked_decrypt. With it restored, the run should complete. Without the grant, the run should fail before writing anything, naming the edek_id.
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
 ----------------------------------------------------------------------------------------------------------------------------------
