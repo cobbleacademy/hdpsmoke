@@ -50,10 +50,10 @@ its own audit trail (`DEIDENTIFICATION.md` section 11.1).
        -H "Content-Type: application/json" \
        -d "{\"app_id\": \"giftcard-deid-databricks\", \"signing_public_key_pem\": \"$(cat deid-signing-key.pub.pem)\"}"
      ```
-     The token's audience is `hsm-core-service`. If hsm-core's
-     `hsm.jwt.audience` is something else, the separate-secret flags can't set
-     it: use the one-JSON form (`--hsm-credentials-key`, section 3) with
-     `HSM_SELF_SIGNED_AUDIENCE` in it.
+     The token's audience (`aud`) is `hsm-core-service` unless you pass
+     `--hsm-jwt-audience <value>`; it must match hsm-core's `hsm.jwt.audience`
+     (or one entry of its comma-separated list). With the one-JSON form
+     (`--hsm-credentials-key`), put `HSM_SELF_SIGNED_AUDIENCE` in the JSON instead.
 4. **Decrypt grants:** one `app_dek_grants` row per encrypted source column's
    DEK, as for the Kubernetes job (`DEIDENTIFICATION.md` section 11.1). A missing
    grant fails the run before anything is written, naming the `edek_id`.
@@ -61,13 +61,14 @@ its own audit trail (`DEIDENTIFICATION.md` section 11.1).
 ## 3. Secret scope
 
 The driver reads secrets with `dbutils`; the workers never do. Store keys base64
-encoded (`DEPLOYMENT.md` §0.2 explains why):
+encoded (`DEPLOYMENT.md` §0.2 explains why). `base64 < file | tr -d '\n'` works
+on both macOS and Linux (macOS `base64` has no `-w0`):
 
 ```bash
 databricks secrets create-scope hsm
-databricks secrets put-secret hsm deid-private-key --string-value "$(base64 -w0 deid-transport-key.pem)"
+databricks secrets put-secret hsm deid-private-key --string-value "$(base64 < deid-transport-key.pem | tr -d '\n')"
 databricks secrets put-secret hsm deid-token --string-value "$TOKEN"                                  # STATIC only
-databricks secrets put-secret hsm deid-signing-key --string-value "$(base64 -w0 deid-signing-key.pem)"   # SELF_SIGNED_JWT only
+databricks secrets put-secret hsm deid-signing-key --string-value "$(base64 < deid-signing-key.pem | tr -d '\n')"     # SELF_SIGNED_JWT only
 databricks secrets put-secret hsm deid-ca-bundle --string-value "$(base64 < ca.pem | tr -d '\n')"            # hsm-core's CA
 databricks secrets put-secret hsm deid-surrogate-db-password --string-value "$DB_PASSWORD"
 ```
@@ -92,9 +93,18 @@ the scope. Both are parameters only, no code change:
   the public CAs, not used instead of them, and certificate and host-name checks
   can't be turned off. Put the whole chain in the PEM
   (intermediate and root) if the server doesn't send its intermediate.
-- **One-JSON form:** with `--hsm-credentials-key`, the same three values are the
-  JSON's `HSM_SERVICE_BASE_URL`, `HSM_API_VERSION` and `HSM_CA_CERT_PEM` fields,
-  and the separate flags aren't used.
+- **Auth mode:** every job file uses `STATIC`, except
+  [`jobs/deid-init-key-jwt.json`](jobs/deid-init-key-jwt.json). For
+  `SELF_SIGNED_JWT` in any job (export, init-key or test), make the same change:
+  `--hsm-auth-mode SELF_SIGNED_JWT`, and `--hsm-signing-key-key deid-signing-key`
+  in place of `--hsm-token-key deid-token`; add `--hsm-jwt-audience` only if
+  hsm-core's audience isn't `hsm-core-service` (section 2, step 3). The URL,
+  version and CA flags stay as they are. In the stage 4 notebook (section 11),
+  change the same lines in `HSM`.
+- **One-JSON form:** with `--hsm-credentials-key`, the same values are the
+  JSON's `HSM_SERVICE_BASE_URL`, `HSM_API_VERSION`, `HSM_CA_CERT_PEM`,
+  `HSM_AUTH_MODE` and (JWT) `HSM_SIGNING_PRIVATE_KEY_PEM` and
+  `HSM_SELF_SIGNED_AUDIENCE` fields, and the separate flags aren't used.
 - The driver reads the CA secret and passes it to the workers with the other
   credentials; the workers don't read the scope.
 
@@ -275,7 +285,7 @@ walks through them in order on a test schema:
 | `HSM_API_VERSION is V2 but HSM_SERVICE_BASE_URL ends in /v1` (or the reverse) | `--hsm-api-version` and the URL don't match | Change both together (section 3.1) |
 | `/dek/unwrap -> 400: …` or `/dek/issue -> 400: …` | A V1/V2 mix-up behind a gateway path that doesn't end in `/v1` or `/v2`, so it couldn't be checked | Set `--hsm-api-version` to the version that path serves |
 | `/dek/issue -> 401: Invalid token signature` (`SELF_SIGNED_JWT`) | The signing key in `deid-signing-key` doesn't match the `signing_public_key_pem` registered for this `app_id`, or the private and signing keys are swapped in the scope | `openssl pkey -in <the signing key file> -pubout` and register that public key again (section 2, step 3) |
-| `/dek/issue -> 401` with the right signing key (`SELF_SIGNED_JWT`) | hsm-core's `hsm.jwt.audience` isn't `hsm-core-service` | Use `--hsm-credentials-key` with `HSM_SELF_SIGNED_AUDIENCE` (section 2, step 3) |
+| `/dek/issue -> 401` with the right signing key (`SELF_SIGNED_JWT`) | hsm-core's `hsm.jwt.audience` isn't `hsm-core-service` | Pass `--hsm-jwt-audience <hsm-core's audience>` (section 2, step 3) |
 | `HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty` | The `--hsm-signing-key-key` secret is empty | Put the signing key in it (section 3) |
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
 | The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
