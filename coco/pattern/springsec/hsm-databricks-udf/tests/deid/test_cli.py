@@ -33,6 +33,33 @@ def test_self_signed_jwt_credentials():
              "--hsm-api-version", "V2", "--hsm-private-key-key", "pk", "--hsm-signing-key-key", "sk")
     got = json.loads(cli.credentials_json(a, secrets({("hsm", "pk"): "PEM", ("hsm", "sk"): "SIGN"})))
     assert got["HSM_SIGNING_PRIVATE_KEY_PEM"] == "SIGN" and "HSM_BEARER_TOKEN" not in got
+    assert "HSM_SELF_SIGNED_AUDIENCE" not in got, "the default audience comes from Config"
+
+
+def test_jwt_audience():
+    jwt = ("--hsm-base-url", "https://hsm/v2", "--hsm-app-id", "x", "--hsm-auth-mode", "SELF_SIGNED_JWT",
+           "--hsm-api-version", "V2", "--hsm-private-key-key", "pk", "--hsm-signing-key-key", "sk")
+    values = secrets({("hsm", "pk"): "PEM", ("hsm", "sk"): "SIGN", ("hsm", "all"): "{}"})
+    got = json.loads(cli.credentials_json(args(*jwt, "--hsm-jwt-audience", "hsm-core-prod"), values))
+    assert got["HSM_SELF_SIGNED_AUDIENCE"] == "hsm-core-prod"
+    with pytest.raises(SystemExit, match="needs --hsm-auth-mode SELF_SIGNED_JWT"):
+        cli.credentials_json(args("--hsm-base-url", "u", "--hsm-app-id", "x", "--hsm-private-key-key", "pk",
+                                  "--hsm-token-key", "tok", "--hsm-jwt-audience", "a"), values)
+    with pytest.raises(SystemExit, match="put HSM_SELF_SIGNED_AUDIENCE in the JSON"):
+        cli.credentials_json(args("--hsm-credentials-key", "all", "--hsm-jwt-audience", "a"), values)
+
+
+def test_the_audience_reaches_the_client_config():
+    from hsm_databricks_udf.config import Config
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    a = args("--hsm-base-url", "https://hsm/api/sensec/hsm/v2", "--hsm-app-id", "x", "--hsm-auth-mode",
+             "SELF_SIGNED_JWT", "--hsm-api-version", "V2", "--hsm-private-key-key", "pk",
+             "--hsm-jwt-audience", "hsm-core-prod")
+    config = Config.from_json(cli.credentials_json(a, secrets({("hsm", "pk"): pem})))
+    assert config.self_signed_audience == "hsm-core-prod" and config.api_version == "V2"
 
 
 def test_one_json_secret_or_none():
