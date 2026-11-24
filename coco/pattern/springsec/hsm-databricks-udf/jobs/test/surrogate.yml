@@ -1,0 +1,16 @@
+# Test profile for the surrogate step (DEID_DEPLOYMENT.md section 11, stage 4):
+# needs hsm-core (the surrogate-table key) and the surrogate table.
+# Source: jobs/test/giftcards.sql.
+id: surrogate-test
+version: 1
+vendor: test-vendor
+hipaa-basis: safe-harbor
+surrogate-scope: test-vendor
+fields:
+  - { name: member_id, phi: member-id,  method: surrogate, domain: member }
+  - { name: dob,       phi: birth-date, method: generalize, to: birth-year }
+  - { name: zip,       phi: zip,        method: generalize, to: zip3 }
+  - { name: amount,                     method: passthrough }
+output:
+  file: "surrogate_{run}.csv"
+  rename: { member_id: member_ref }

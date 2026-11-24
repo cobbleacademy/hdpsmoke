@@ -1,0 +1,36 @@
+{
+  "name": "deid-plain-test",
+  "description": "Test only: hsm-deid on the deid_test table with the plain profile, no hsm-core and no surrogate database. See hsm-databricks-udf/DEID_DEPLOYMENT.md section 11.",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 3600,
+  "tags": { "purpose": "deid-export-test" },
+  "environments": [
+    {
+      "environment_key": "deid",
+      "spec": {
+        "environment_version": "2",
+        "dependencies": [
+          "/Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl"
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "deid",
+      "environment_key": "deid",
+      "max_retries": 0,
+      "python_wheel_task": {
+        "package_name": "hsm_databricks_udf",
+        "entry_point": "hsm-deid",
+        "parameters": [
+          "--profile", "/Volumes/<catalog>/deid_test/deid/profiles/plain.yml",
+          "--source-table", "<catalog>.deid_test.giftcards",
+          "--key-column", "id",
+          "--output-root", "/Volumes/<catalog>/deid_test/deid_out/plain",
+          "--triggered-by", "databricks-job:deid-plain-test"
+        ]
+      }
+    }
+  ]
+}

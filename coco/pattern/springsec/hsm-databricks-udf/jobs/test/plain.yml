@@ -1,0 +1,11 @@
+# Test profile for a first run on a workspace (DEID_DEPLOYMENT.md section 11):
+# no hsm-core, no surrogate database. Source: jobs/test/giftcards.sql.
+id: plain-test
+version: 1
+hipaa-basis: minimum-necessary
+fields:
+  - { name: first_name,  phi: name, method: mask, keep-first: 1 }
+  - { name: zip,         phi: zip,  method: generalize, to: zip3 }
+  - { name: amount,                 method: passthrough }
+  - { name: issued_date,            method: passthrough }
+output: { file: "plain_{run}.csv" }
