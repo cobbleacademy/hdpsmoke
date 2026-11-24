@@ -289,6 +289,7 @@ walks through them in order on a test schema:
 | `HSM_SIGNING_PRIVATE_KEY_PEM was provided but empty` | The `--hsm-signing-key-key` secret is empty | Put the signing key in it (section 3) |
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
 | The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
+| The CSV and manifest are written and `deid_export_completed` is logged, but the task fails with `SystemExit: 0` and "To exit: use 'exit', 'quit', or Ctrl-D" | A wheel built before the exit fix: its `main()` called `sys.exit(0)`, and Databricks runs the entry point in IPython, which reports any `SystemExit` as an exception | The output is complete and usable. Rebuild the wheel (section 4) and upload it again: `main()` now returns on success and raises `SystemExit` only for 1 (failed) or 2 (bad parameter) |
 | `ImportError: psycopg` | The task's environment or libraries miss `psycopg[binary]` | Section 8, step 1 |
 
 A failed run never leaves a `.csv`: the `.part` file and the temporary folder are
