@@ -51,11 +51,35 @@ databricks secrets create-scope hsm
 databricks secrets put-secret hsm deid-private-key --string-value "$(base64 -w0 deid-transport-key.pem)"
 databricks secrets put-secret hsm deid-token --string-value "$TOKEN"            # STATIC
 # databricks secrets put-secret hsm deid-signing-key --string-value "$(base64 -w0 deid-signing-key.pem)"   # SELF_SIGNED_JWT
-# databricks secrets put-secret hsm deid-ca-bundle --string-value "$(base64 < ca.pem | tr -d '\n')"          # internal CA
+databricks secrets put-secret hsm deid-ca-bundle --string-value "$(base64 < ca.pem | tr -d '\n')"            # hsm-core's CA
 databricks secrets put-secret hsm deid-surrogate-db-password --string-value "$DB_PASSWORD"
 ```
 
 The job's run-as identity (a service principal) needs `READ` on the scope.
+
+### 3.1 hsm-core's API version and TLS certificate
+
+The job files call hsm-core's **API v2** and trust hsm-core's **CA bundle** from
+the scope. Both are parameters only, no code change:
+
+| Parameter | Value | Notes |
+|---|---|---|
+| `--hsm-base-url` | `https://<host>/api/sensec/hsm/v2` | Ends in the version |
+| `--hsm-api-version` | `V2` | Must match the URL's ending; the job refuses `V2` with a `/v1` URL (and the reverse) before calling hsm-core |
+| `--hsm-ca-cert-key` | `deid-ca-bundle` | The secret holding the CA certificate(s) that signed hsm-core's TLS certificate, PEM or base64 of PEM; certificates only, no private key |
+
+- **V1:** change both together, `…/api/sensec/hsm/v1` and `--hsm-api-version V1`
+  (the default if the flag is left out).
+- **CA bundle:** needed whenever hsm-core's certificate comes from an internal
+  CA; without it every call fails with `CERTIFICATE_VERIFY_FAILED`. It's added to
+  the public CAs, not used instead of them, and certificate and host-name checks
+  can't be turned off. Put the whole chain in the PEM
+  (intermediate and root) if the server doesn't send its intermediate.
+- **One-JSON form:** with `--hsm-credentials-key`, the same three values are the
+  JSON's `HSM_SERVICE_BASE_URL`, `HSM_API_VERSION` and `HSM_CA_CERT_PEM` fields,
+  and the separate flags aren't used.
+- The driver reads the CA secret and passes it to the workers with the other
+  credentials; the workers don't read the scope.
 
 Pass the key **names** to `hsm-deid`, never the values: `--hsm-private-key-key`,
 `--hsm-token-key` (or `--hsm-signing-key-key`), `--hsm-ca-cert-key`,
@@ -226,6 +250,10 @@ walks through them in order on a test schema:
 | `output file … already exists; not overwriting it` | A second run with the same file name | Use `{run}` in `output.file`, or move the earlier file once sent |
 | `--surrogate-key-edek-id is required` | A `surrogate` profile without the key | Section 7 |
 | `secret '…' can't be read outside Databricks` | `dbutils` isn't available to the task | See section 9 |
+| `SSL: CERTIFICATE_VERIFY_FAILED` calling hsm-core | hsm-core's certificate is from an internal CA the job doesn't trust | Put the CA bundle in the scope and pass `--hsm-ca-cert-key` (section 3.1); include the intermediate if the server doesn't send it |
+| `HSM_CA_CERT_PEM has no '-----BEGIN CERTIFICATE-----' block` / `contains a private key` | The CA secret holds the wrong file | Store the CA certificate(s) only, PEM or base64 of PEM |
+| `HSM_API_VERSION is V2 but HSM_SERVICE_BASE_URL ends in /v1` (or the reverse) | `--hsm-api-version` and the URL don't match | Change both together (section 3.1) |
+| `/dek/unwrap -> 400: …` or `/dek/issue -> 400: …` | A V1/V2 mix-up behind a gateway path that doesn't end in `/v1` or `/v2`, so it couldn't be checked | Set `--hsm-api-version` to the version that path serves |
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
 | The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
 | `ImportError: psycopg` | The task's environment or libraries miss `psycopg[binary]` | Section 8, step 1 |
@@ -248,6 +276,7 @@ its own `deid_test` schema, with made-up values only.
 | [`jobs/test/plain.yml`](jobs/test/plain.yml) | A profile that needs no hsm-core and no database (mask, generalize, passthrough) |
 | [`jobs/test/surrogate.yml`](jobs/test/surrogate.yml) | A safe-harbor profile with a `surrogate` field (stage 4) |
 | [`jobs/test/deid-plain-test.json`](jobs/test/deid-plain-test.json) | A serverless wheel-task job for `plain.yml`, with no secrets |
+| [`jobs/test/deid-surrogate-test.json`](jobs/test/deid-surrogate-test.json) | A serverless wheel-task job for `surrogate.yml`: hsm-core API v2 with its CA bundle, and Lakebase (stage 4) |
 
 ### Stage 0: build and check the wheel
 
@@ -362,20 +391,33 @@ databricks jobs get-run-output <task run id>
 
 ### Stage 4: hsm-core and the surrogate table
 
-1. Register the `app_id`, keypair and token (section 2) and put them in the
-   secret scope (section 3).
+1. Register the `app_id`, keypair and token (section 2) and put them, with
+   hsm-core's CA bundle, in the secret scope (sections 3 and 3.1).
 2. Serverless with network policies: allow the hsm-core and database hosts
    (section 6).
-3. Run [`jobs/deid-init-key.json`](jobs/deid-init-key.json) with
-   `--name deid-test-surrogate` and keep the `edek_id` from the run output. This
-   also proves that secrets, `dbutils` and hsm-core work from a wheel task.
+3. Create the surrogate-table key: cell 3 of the notebook below, or
+   [`jobs/deid-init-key.json`](jobs/deid-init-key.json) with
+   `--name deid-test-surrogate`. Keep the `edek_id` it prints. This is the first
+   call to hsm-core, so it proves the secrets, the CA bundle, V2 and the auth
+   within seconds; it needs the `dek_issue` scope and prints `"reused": true` if
+   the key already exists.
 4. Create the surrogate table and the `deid_export` role in Lakebase or
    Postgres, and put the role's password in the scope (section 5).
-5. Run `surrogate.yml` with the full parameters of
-   [`jobs/deid-serverless.json`](jobs/deid-serverless.json) (`--profile`,
-   `--output-root …/deid_out/surrogate`, the `--hsm-*` and `--surrogate-*`
-   values, `--surrogate-key-edek-id` from step 3): first with `--dry-run`, then
-   for real. Check:
+5. Run `surrogate.yml`: first with `--dry-run`, then for real. Either from the
+   notebook below (cells 4 and 5), or as the job
+   [`jobs/test/deid-surrogate-test.json`](jobs/test/deid-surrogate-test.json)
+   (replace every `<…>`; `--surrogate-key-edek-id` is the one from step 3; for
+   Postgres, `--surrogate-db postgres` and its host and database):
+
+   ```bash
+   databricks jobs create --json @jobs/test/deid-surrogate-test.json
+   databricks jobs run-now <job_id>
+   databricks jobs get-run-output <task run id>
+   ```
+
+   `--python-params` replaces the whole parameter list, so for the job's dry run
+   either pass the full list from the file with `"--dry-run","--sample","100"`
+   added, or do the dry run from the notebook. Check:
    - rows 1 and 3 (both `M1234567`) have the same `member_ref`, row 4 another;
    - `SELECT domain, count(*) FROM deid_surrogate WHERE scope = 'test-vendor' GROUP BY 1`
      gives `member | 3` (one row per distinct member);
@@ -383,6 +425,73 @@ databricks jobs get-run-output <task run id>
 6. **Run it again.** Every `member_ref` must be the same as in the first file,
    and the table must still have 3 rows: members are reused, never given a new
    surrogate.
+
+The notebook for this stage: the same parameters as the job, secret key names
+only (the values stay in the scope). For a real vendor profile, change `JOB`.
+
+```python
+# cell 1: install
+%pip install /Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl "psycopg[binary]==3.2.3"
+dbutils.library.restartPython()
+```
+
+```python
+# cell 2: the parameters
+from hsm_databricks_udf.deid import cli
+
+HSM = ["--secret-scope", "hsm",
+       "--hsm-base-url", "https://<hsm-core-service host>/api/sensec/hsm/v2",
+       "--hsm-api-version", "V2",
+       "--hsm-app-id", "giftcard-deid-databricks",
+       "--hsm-auth-mode", "STATIC",                  # SELF_SIGNED_JWT: and --hsm-signing-key-key instead of --hsm-token-key
+       "--hsm-private-key-key", "deid-private-key",
+       "--hsm-token-key", "deid-token",
+       "--hsm-ca-cert-key", "deid-ca-bundle"]
+
+DB = ["--surrogate-key-edek-id", "<edek_id from cell 3>",
+      "--surrogate-db", "lakebase",                  # or postgres
+      "--surrogate-db-host", "<instance host>",
+      "--surrogate-db-name", "databricks_postgres",
+      "--surrogate-db-user", "deid_export",
+      "--surrogate-db-password-key", "deid-surrogate-db-password"]
+
+OUT = "/Volumes/<catalog>/deid_test/deid_out/surrogate"
+JOB = ["--profile", "/Volumes/<catalog>/deid_test/deid/profiles/surrogate.yml",
+       "--source-table", "<catalog>.deid_test.giftcards",
+       "--key-column", "id",
+       "--output-root", OUT,
+       "--triggered-by", "notebook:" + spark.sql("SELECT current_user()").first()[0]]
+```
+
+```python
+# cell 3: the first call to hsm-core (TLS, V2, auth); creates the key or reuses it
+cli.run(["--init-key", "--name", "deid-test-surrogate"] + HSM)   # 0, and prints {"edek_id": …}
+```
+
+```python
+# cell 4: dry run (writes nothing, prints the review)
+cli.run(JOB + HSM + DB + ["--dry-run", "--sample", "100"])        # 0
+```
+
+```python
+# cell 5: the real run
+rc = cli.run(JOB + HSM + DB)
+print("exit status", rc)                                         # 0; 1 = failed (reason above), 2 = a wrong parameter
+display(dbutils.fs.ls(OUT))
+```
+
+```python
+# cell 6: check the newest CSV and its manifest
+import glob, hashlib, json, os
+csv = max(glob.glob(OUT + "/*.csv"), key=os.path.getmtime)
+manifest = json.load(open(csv[:-4] + ".manifest.json"))
+print(open(csv, encoding="utf-8").read())
+print(json.dumps(manifest, indent=2))
+assert hashlib.sha256(open(csv, "rb").read()).hexdigest() == manifest["output"]["sha256"]
+assert not glob.glob(OUT + "/*.part") and not glob.glob(OUT + "/_deid_tmp/*")
+```
+
+Run cell 5 twice for step 6, and compare the two newest files.
 
 ### Stage 5 (optional): an encrypted column
 

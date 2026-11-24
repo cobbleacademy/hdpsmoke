@@ -1,0 +1,51 @@
+{
+  "name": "deid-surrogate-test",
+  "description": "Test only: hsm-deid on the deid_test table with the surrogate profile, calling hsm-core API v2 (with its CA bundle) and the surrogate table in Lakebase. See hsm-databricks-udf/DEID_DEPLOYMENT.md section 11, stage 4.",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 3600,
+  "tags": { "purpose": "deid-export-test" },
+  "environments": [
+    {
+      "environment_key": "deid",
+      "spec": {
+        "environment_version": "2",
+        "dependencies": [
+          "/Volumes/<catalog>/deid_test/libs/hsm_databricks_udf-0.1.0-py3-none-any.whl",
+          "psycopg[binary]==3.2.3"
+        ]
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "deid",
+      "environment_key": "deid",
+      "max_retries": 0,
+      "python_wheel_task": {
+        "package_name": "hsm_databricks_udf",
+        "entry_point": "hsm-deid",
+        "parameters": [
+          "--profile", "/Volumes/<catalog>/deid_test/deid/profiles/surrogate.yml",
+          "--source-table", "<catalog>.deid_test.giftcards",
+          "--key-column", "id",
+          "--output-root", "/Volumes/<catalog>/deid_test/deid_out/surrogate",
+          "--secret-scope", "hsm",
+          "--hsm-base-url", "https://<hsm-core-service host>/api/sensec/hsm/v2",
+          "--hsm-api-version", "V2",
+          "--hsm-app-id", "giftcard-deid-databricks",
+          "--hsm-auth-mode", "STATIC",
+          "--hsm-private-key-key", "deid-private-key",
+          "--hsm-token-key", "deid-token",
+          "--hsm-ca-cert-key", "deid-ca-bundle",
+          "--surrogate-key-edek-id", "<edek_id of deid-test-surrogate>",
+          "--surrogate-db", "lakebase",
+          "--surrogate-db-host", "<instance host>",
+          "--surrogate-db-name", "databricks_postgres",
+          "--surrogate-db-user", "deid_export",
+          "--surrogate-db-password-key", "deid-surrogate-db-password",
+          "--triggered-by", "databricks-job:deid-surrogate-test"
+        ]
+      }
+    }
+  ]
+}
