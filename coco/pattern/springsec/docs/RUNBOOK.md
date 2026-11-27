@@ -162,10 +162,9 @@ Postgres schemas, set by the chart's `config.cryptoSchema` / `config.accessSchem
   existed failed with `relation "edek_records" does not exist` (or `app_registrations`)
   unless a DBA had run `ALTER ROLE <role> SET search_path = hsm_crypto, hsm_access`;
   that `ALTER ROLE` is also the workaround for such a build.
-- The same missing search_path made migration V14 fail on a fresh two-schema
-  database (it drops `idx_edek_current_name` by its bare name). If a namespace is stuck
-  with a failed V14 in `hsm_access.flyway_schema_history`, deploy this build and run
-  Flyway `repair` (or delete that failed row) so V14 is retried.
+- Migration V14 used to drop `idx_edek_current_name` by its bare name, so it ran
+  only through that search_path. It now names `${crypto_schema}`; see
+  [V14 was edited: `flyway repair` once per database](#v14-was-edited-flyway-repair-once-per-database).
 - The DB role needs `USAGE` and `CREATE` on both schemas (Flyway creates the tables),
   or ownership of them.
 - Neither value may be empty. An empty env var overrides the `public` default and
@@ -175,6 +174,74 @@ Postgres schemas, set by the chart's `config.cryptoSchema` / `config.accessSchem
 - Tests: every database-backed suite also runs as a `TwoSchema*` variant on H2, and
   `TwoSchemaPostgresContainerTest` runs against real Postgres with a role whose
   search_path is the default (skipped without Docker).
+
+## V14 was edited: `flyway repair` once per database
+
+V14 (`V14__add_scoped_grants_and_global_dek_name_ownership.sql`) was changed after it
+shipped: its `DROP INDEX` now names the crypto schema. Its SQL effect is the same, but
+its checksum changed, and Flyway checks the checksum of every applied migration at
+startup.
+
+**Symptom.** A build with the edited V14, against a database that ran the old one,
+fails to start:
+
+```
+Validate failed: Migrations have failed validation
+Migration checksum mismatch for migration version 14
+```
+
+**Fix.** Run `flyway repair` once per database (each environment's hsm-core
+database: dev, test, prod, tenant A, tenant B), with the new build's migration
+files. Repair rewrites the stored V14 checksum and removes failed rows from the
+history. It runs no migration and changes no table. Checked on Postgres 16 with
+Flyway 12.4.0:
+
+| Database | Before repair | After repair |
+|---|---|---|
+| Ran the old V14 | new build fails validation | starts; V14 isn't run again |
+| Old V14 failed there (no search_path) | Postgres rolled V14 back, so it's not in the history | no repair needed; the new build runs V14 and succeeds |
+| New, empty | no repair needed | |
+
+Run it from any machine that reaches the database, with a checkout of the commit
+being deployed. Use hsm-core's own database user and the release's `ACCESS_SCHEMA`
+(it holds `flyway_schema_history`). The placeholder values don't affect the checksum,
+but pass them anyway, as hsm-core does:
+
+```bash
+cd java/hsm-core-service/src/main/resources/db/migration
+docker run --rm -v "$PWD":/flyway/sql:ro flyway/flyway:12.4.0 \
+  -url='jdbc:postgresql://<host>:5432/<database>?sslmode=require' \
+  -user='<db user>' -password="$DATABASE_PASSWORD" \
+  -schemas='<ACCESS_SCHEMA>' \
+  -placeholders.crypto_schema='<CRYPTO_SCHEMA>' -placeholders.access_schema='<ACCESS_SCHEMA>' \
+  -locations=filesystem:/flyway/sql \
+  info repair validate
+```
+
+`info` lists what's applied, `repair` realigns V14, and `validate` (the check
+hsm-core runs at startup) must then pass. Then deploy (or restart) the new build.
+The image tag matches the Flyway version in hsm-core's jar; any Flyway CLI of that
+version works the same.
+
+**Order, and running two builds side by side.** Every pod validates at startup.
+Before the repair, pods of the new build fail; after it, pods of an older build
+(before this change) fail, including a v1 pod restarted or rescheduled during a
+[side-by-side rollout](#rolling-out-a-new-hsm-core-service-build-v1v2), and a rollback
+to an older tag. So:
+
+1. Repair right before the new build's pods start, and finish the move off older
+   tags without restarting their pods, or
+2. turn Flyway off in the older release for the overlap: add
+   `SPRING_FLYWAY_ENABLED=false` to that release's Secret (the chart loads it with
+   `envFrom`), as COMPATIBILITY_CONTRACT.md already asks for one of the two
+   releases.
+
+Rolling back to an older tag for good needs the reverse: `repair` again from the
+older commit's migration files.
+
+Demo mode (H2) keeps its database in `demo_hsm_h2.*` in the working directory. A
+fresh container starts empty and needs nothing; a file kept between runs needs
+deleting (it's demo data).
 
 ## Rotation jobs: one runner across all pods
 
@@ -573,7 +640,9 @@ Redis, because everything they share is pinned (COMPATIBILITY_CONTRACT.md).
 - **Rotation jobs:** v1 and v2 use the same advisory-lock keys (`hsm:kek-wrap`,
   `hsm:named-dek-rotation`), so only one pod of either version runs a sweep.
 - **Schema:** the build adds no Flyway migration, so v2's startup Flyway run is a
-  no-op validation. (A build that *does* add one needs the add-only rule and a single
+  no-op validation. (Except across the V14 edit: a build with the edited V14 and
+  one without it can't both validate against the same database; see
+  [V14 was edited](#v14-was-edited-flyway-repair-once-per-database).) (A build that *does* add one needs the add-only rule and a single
   migrating release -- not this procedure.)
 - **Data:** tokens, EDEKs and cache entries written by either version are read by
   the other -- pinned by the shared test vectors.

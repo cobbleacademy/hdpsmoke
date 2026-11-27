@@ -66,7 +66,7 @@ Dropping a `rotated` row makes that older data unreadable.
 
 ## 5. The tool: stage, verify, report, promote
 
-A separate one-off batch tool, `java/hsm-edek-migrate`, run as a job. It isn't part of hsm-core-service and isn't a live API, because:
+A separate one-off batch tool, `java/hsm-edek-migrate`, run by hand from any VM, desktop or laptop that can reach both databases, both vaults and `login.microsoftonline.com`. It isn't part of hsm-core-service and isn't a live API, because:
 
 - the running service would otherwise hold a credential for another tenant's
   HSM for good, for a job that runs once;
@@ -105,12 +105,15 @@ section 3, plus:
 | Source database and schema | postgres-A, `CRYPTO_SCHEMA`, `ACCESS_SCHEMA` |
 | Target database, schemas | postgres-B: the staging schema, and B's `CRYPTO_SCHEMA` for the promote |
 | Source vault URL and credential | HSM-AKV-A, a service principal in tenant A |
-| Target vault URL and credential | HSM-AKV-B, a managed identity or service principal in tenant B |
+| Target vault URL and credential | HSM-AKV-B, a service principal in tenant B (a managed identity only if the tool runs on an Azure-hosted machine) |
 | A's legacy default KEK name | A's `AZURE_KEK_NAME`, for rows with `kek_name` NULL |
 | KEK name map | `hsm-master-kek` → `<B's KEK>`; every KEK name used in A must be mapped, or the tool stops before it starts |
 
 There is **no app_id map** for `edek_records`: `app_id` is copied as is, always
 (section 6).
+
+The settings file, with every key explained, is printed by `template`; see
+[`../hsm-edek-migrate/README.md`](../hsm-edek-migrate/README.md).
 
 ### 5.3 Commands
 
@@ -123,6 +126,7 @@ There is **no app_id map** for `edek_records`: `app_id` is copied as is, always
 | `report` | Per KEK (and per `app_id`): counts by `migrate_status`, and the failed `edek_id`s with `error_type` |
 | `promote` | Copies `verified` rows into B's `edek_records` in one transaction (section 5.5) |
 | `reset --yes` | Empties the staging table (or one KEK's or app's rows of it) |
+| `template` | Prints a settings file with every key explained (`template > migrate.properties`) |
 
 Every command takes `--kek <source KEK>` and `--app <app_id>`, so each KEK can be
 staged, run, checked, reported on and promoted on its own before the next.

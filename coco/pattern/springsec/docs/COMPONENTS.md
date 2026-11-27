@@ -91,7 +91,7 @@ every DEK, `edek_id` and token stays the same.
 |---|---|
 | **Does** | `analyze`, `stage`, `wrap`, `verify`, `report`, `promote`, `reset`: builds and checks every row in a staging table in the new database, then promotes it into the new `edek_records` in one transaction. |
 | **Depends on** | Both Postgres databases, both HSMs (unwrap on the old one, wrap and unwrap on the new one) |
-| **Runs as** | A job, once per move: `java -jar hsm-edek-migrate.jar <command> --config <file>`. Not deployed as a service. |
+| **Runs as** | A command run by hand, once per move, from any VM, desktop or laptop that reaches both databases and both vaults: `java -jar hsm-edek-migrate.jar <command> --config <file>`. Signs in to each vault with a service principal in that tenant. No image, chart or service. |
 | **Docs** | `EDEK_TENANT_MIGRATION.md`, `hsm-edek-migrate/README.md` |
 
 ### hsm-file-service
