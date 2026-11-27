@@ -56,7 +56,11 @@ WHERE current_dek_name IS NOT NULL
       LIMIT 1
   );
 
-DROP INDEX idx_edek_current_name;
+-- Schema-qualified: an index lives in its table's schema, and a bare name
+-- resolved only through the connection's search_path. Edited after V14 was
+-- first applied, so a database that already ran it needs `flyway repair`
+-- once (java/docs/RUNBOOK.md, "Database schemas").
+DROP INDEX ${crypto_schema}.idx_edek_current_name;
 CREATE UNIQUE INDEX idx_edek_current_name ON ${crypto_schema}.edek_records (current_dek_name);
 
 -- app_decrypt_grants (V1) is replaced, not extended: it has no scope column
