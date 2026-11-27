@@ -17,48 +17,52 @@ mvn -pl hsm-edek-migrate -am package
 ```
 
 The jar is `hsm-edek-migrate/target/hsm-edek-migrate.jar`; it needs Java 21 or later.
+Copy that one file to the machine that runs it.
+
+## Where it runs
+
+Any machine (VM, desktop or laptop) with Java 21 or later that can reach:
+
+- both Postgres servers (5432);
+- both vault URLs (443);
+- `login.microsoftonline.com`, for both tenants.
+
+If the vaults or databases are behind private endpoints or firewalls, that means
+a VPN or peering, or allowing the machine's IP. The tool never calls hsm-core.
 
 ## Settings
 
-A properties file. Secrets aren't in it: each `*-env` key names the environment
-variable that holds the value.
+A properties file. Print one with every key explained, then fill in the `<...>`
+values:
 
-```properties
-# A: read only
-source.jdbc-url=jdbc:postgresql://pg-a.example:5432/hsm?sslmode=require
-source.user=edek_migrate_reader
-source.password-env=EDEK_SOURCE_DB_PASSWORD
-source.crypto-schema=hsm_crypto
-source.vault-url=https://hsm-a.managedhsm.azure.net
-# A's AZURE_KEK_NAME: the KEK of rows whose kek_name is NULL
-source.legacy-kek-name=hsm-master-kek
-source.credential=client-secret
-source.tenant-id=<tenant A>
-source.client-id=<service principal in tenant A>
-source.client-secret-env=EDEK_SOURCE_CLIENT_SECRET
-
-# B: the staging schema, and the promote into B's edek_records
-target.jdbc-url=jdbc:postgresql://pg-b.example:5432/hsm?sslmode=require
-target.user=edek_migrate_writer
-target.password-env=EDEK_TARGET_DB_PASSWORD
-target.crypto-schema=hsm_crypto
-target.access-schema=hsm_access
-target.staging-schema=edek_migrate
-target.vault-url=https://hsm-b.managedhsm.azure.net
-target.credential=managed-identity
-target.client-id=<user-assigned identity in tenant B>
-
-# every KEK name used in A, and B's KEK for it
-kek-map.hsm-master-kek=hsm-b-kek
-
-page-size=500
-max-consecutive-failures=10
+```bash
+java -jar hsm-edek-migrate.jar template > migrate.properties
 ```
 
-`*.credential` is one of `client-secret`, `client-certificate`
-(`*.client-certificate-path`, a PEM with the key), `workload-identity`
-(`*.token-file`, else `AZURE_FEDERATED_TOKEN_FILE`), `managed-identity`
-(`*.client-id` optional) or `default` (the Azure SDK's chain).
+The same file is [`src/main/resources/migrate.properties.template`](src/main/resources/migrate.properties.template).
+
+Secrets aren't in it: each `*-env` key names the environment variable that holds
+the value.
+
+```bash
+export EDEK_SOURCE_DB_PASSWORD='...'
+export EDEK_TARGET_DB_PASSWORD='...'
+export EDEK_SOURCE_CLIENT_SECRET='...'
+export EDEK_TARGET_CLIENT_SECRET='...'
+```
+
+**Sign-in.** Each side needs its own service principal, since A's and B's vaults
+are in different tenants: one in tenant A (`source.*`) and one in tenant B
+(`target.*`). Off Azure, use `client-secret` or `client-certificate`
+(`*.client-certificate-path`, a PEM with the key). `managed-identity` works only
+on an Azure-hosted machine and `workload-identity` only in a Kubernetes pod;
+`default` is the Azure SDK's chain. Postgres uses a user and password on each
+side, not the service principal.
+
+**KEK map.** One `kek-map.<A's KEK>=<B's KEK>` line per KEK name used in A,
+including `source.legacy-kek-name`. `analyze` lists A's KEKs and reports any
+without an entry. Map one to one: two A KEKs may point at one B KEK, but that
+merges them for access, rotation and disabling (design section 11).
 
 Every problem in the file is reported at once, and the tool exits with 2.
 
@@ -66,8 +70,8 @@ Every problem in the file is reported at once, and the tool exits with 2.
 
 | Where | Needs |
 |---|---|
-| HSM-A | **unwrapKey** on A's KEKs |
-| HSM-B | **wrapKey** and **unwrapKey** on B's KEKs |
+| HSM-A | **unwrapKey** on A's KEKs, for the service principal in tenant A |
+| HSM-B | **wrapKey** and **unwrapKey** on B's KEKs, for the service principal in tenant B |
 | postgres-A | `SELECT` on `edek_records` (the tool's connection is read-only) |
 | postgres-B | Create the staging schema and table (or have them created); read and write them; `SELECT`, `INSERT`, `UPDATE` on `edek_records`; `SELECT` on `app_registrations` |
 
@@ -88,6 +92,8 @@ java -jar hsm-edek-migrate.jar <command> --config migrate.properties [--kek <sou
 | `report` | Counts per source KEK, owner and status; the failed rows; whether the scope is ready to promote |
 | `promote` | Copies `verified` rows into B's `edek_records` in one transaction; refused while any row in scope isn't verified |
 | `reset --yes` | Deletes the staging rows in scope |
+| `template` | Prints a settings file with every key explained |
+| `help` | Prints the commands and exit codes |
 
 `--kek` and `--app` limit any command to one source KEK and/or one owner.
 
