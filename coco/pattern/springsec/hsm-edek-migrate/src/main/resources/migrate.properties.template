@@ -1,0 +1,105 @@
+# hsm-edek-migrate settings.
+#
+# Print this file with:  java -jar hsm-edek-migrate.jar template > migrate.properties
+# then fill in every <...> value. Design and runbook: java/docs/EDEK_TENANT_MIGRATION.md.
+#
+# The tool runs on any machine (VM, desktop, laptop) that can reach both Postgres
+# servers (5432), both vault URLs (443) and login.microsoftonline.com.
+#
+# Secrets are never written in this file. Each *-env key names an environment
+# variable that holds the value, for example:
+#   export EDEK_SOURCE_DB_PASSWORD='...'
+#
+# Every problem in the file is reported at once and the tool exits with 2.
+# [required] keys must be set; [optional] keys show their default.
+
+# ---------------------------------------------------------------------------
+# source: tenant A, the environment being moved from. Read only.
+# ---------------------------------------------------------------------------
+
+# [required] A's hsm-core database.
+source.jdbc-url=jdbc:postgresql://<pg-a-host>:5432/<database>?sslmode=require
+# [required] A Postgres user with SELECT on <crypto-schema>.edek_records. The
+# tool's connection to A is read only.
+source.user=<edek_migrate_reader>
+# [required] Environment variable holding that user's password.
+source.password-env=EDEK_SOURCE_DB_PASSWORD
+# [required] A's crypto schema (hsm-core's crypto_schema); lower-case letters,
+# digits and underscores.
+source.crypto-schema=hsm_crypto
+# [required] A's Key Vault or Managed HSM, https:// only.
+source.vault-url=https://<hsm-a>.managedhsm.azure.net
+# [required] A's AZURE_KEK_NAME: the KEK of every row whose kek_name is NULL.
+source.legacy-kek-name=<A_AZURE_KEK_NAME>
+
+# [required] How the tool signs in to A's vault. On a machine outside Azure use
+# client-secret or client-certificate, with a service principal in tenant A that
+# has unwrapKey on A's KEKs.
+#   client-secret       needs tenant-id, client-id, client-secret-env
+#   client-certificate  needs tenant-id, client-id, client-certificate-path
+#   workload-identity   Kubernetes pods only; needs tenant-id, client-id,
+#                       optional token-file (default $AZURE_FEDERATED_TOKEN_FILE)
+#   managed-identity    Azure-hosted machines only; client-id optional
+#   default             the Azure SDK's chain (az login etc.); not recommended
+source.credential=client-secret
+source.tenant-id=<tenant A id>
+source.client-id=<service principal app id in tenant A>
+# For client-secret: environment variable holding the secret.
+source.client-secret-env=EDEK_SOURCE_CLIENT_SECRET
+# For client-certificate instead: a PEM file holding the certificate and its
+# private key (remove client-secret-env above).
+#source.client-certificate-path=/path/to/spn-a.pem
+# For workload-identity only: the federated token file.
+#source.token-file=/var/run/secrets/azure/tokens/azure-identity-token
+
+# ---------------------------------------------------------------------------
+# target: tenant B, the environment being moved to. Holds the staging table and
+# receives the promote.
+# ---------------------------------------------------------------------------
+
+# [required] B's hsm-core database.
+target.jdbc-url=jdbc:postgresql://<pg-b-host>:5432/<database>?sslmode=require
+# [required] A Postgres user that can create (or use) the staging schema; SELECT,
+# INSERT, UPDATE on <crypto-schema>.edek_records; SELECT on
+# <access-schema>.app_registrations.
+target.user=<edek_migrate_writer>
+# [required] Environment variable holding that user's password.
+target.password-env=EDEK_TARGET_DB_PASSWORD
+# [required] B's crypto schema.
+target.crypto-schema=hsm_crypto
+# [required] B's access schema (hsm-core's access_schema), to check owners exist.
+target.access-schema=hsm_access
+# [optional] Schema for the staging table; must differ from target.crypto-schema.
+target.staging-schema=edek_migrate
+# [required] B's Key Vault or Managed HSM, https:// only.
+target.vault-url=https://<hsm-b>.managedhsm.azure.net
+
+# [required] How the tool signs in to B's vault; same modes as source.credential.
+# Use a service principal in tenant B with wrapKey and unwrapKey on B's KEKs.
+target.credential=client-secret
+target.tenant-id=<tenant B id>
+target.client-id=<service principal app id in tenant B>
+target.client-secret-env=EDEK_TARGET_CLIENT_SECRET
+#target.client-certificate-path=/path/to/spn-b.pem
+# For workload-identity only: the federated token file.
+#target.token-file=/var/run/secrets/azure/tokens/azure-identity-token
+
+# ---------------------------------------------------------------------------
+# KEK map: [required] one line per KEK name used in A (kek_name values, plus
+# source.legacy-kek-name), giving B's KEK for it. Run "analyze" to list A's KEKs;
+# it reports any without an entry. Map one to one: two A KEKs may point at one B
+# KEK, but that merges them for access, rotation and disabling (design section 11).
+# Key names: letters, digits and hyphens.
+# ---------------------------------------------------------------------------
+kek-map.<A_AZURE_KEK_NAME>=<B_KEK>
+#kek-map.<ANOTHER_A_KEK>=<B_KEK>
+
+# ---------------------------------------------------------------------------
+# Tuning
+# ---------------------------------------------------------------------------
+
+# [optional] Rows read and committed per page.
+page-size=500
+# [optional] wrap/verify stop after this many failed rows in a row (an HSM or a
+# database is likely down); a rerun continues where it stopped.
+max-consecutive-failures=10
