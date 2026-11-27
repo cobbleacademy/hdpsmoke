@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.hsm</groupId>
+        <artifactId>hsm-bouncy-parent</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>hsm-edek-migrate</artifactId>
+    <packaging>jar</packaging>
+    <name>HSM EDEK Migrate</name>
+    <description>One-off batch tool: moves hsm-core's EDEKs to another tenant by re-wrapping each DEK (java/docs/EDEK_TENANT_MIGRATION.md)</description>
+
+    <dependencies>
+        <!-- Plain Java and JDBC: no Spring, no local crypto provider. Every wrap and
+             unwrap happens in the HSMs; the tool only compares DEK bytes in memory. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-security-keyvault-keys</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- The JDK's own HTTP client for the Azure SDK, not azure-core-http-netty
+             (excluded above), as in hsm-cache-key-rotator: keeps reactor-netty off
+             the classpath. -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
+        </dependency>
+
+        <!-- The Azure SDK logs through SLF4J; logback.xml keeps it at WARN. -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- EdekMigrateContainerTest: A and B as two real Postgres databases, with
+             hsm-core-service's own Flyway migrations (skipped without Docker). -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>hsm-edek-migrate</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+            <!-- An executable jar (java -jar hsm-edek-migrate.jar <command> ...); the
+                 Spring Boot launcher only packages it, the tool doesn't use Spring. -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.hsm.edekmigrate.EdekMigrate</mainClass>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
