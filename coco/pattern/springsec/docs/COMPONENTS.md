@@ -82,6 +82,18 @@ cache. (Formerly `cek-rotation-service`.)
 | **Runs as** | Deployment with no HTTP port, `helm/hsm-cache-key-rotator`. Default interval 4 h. |
 | **Docs** | `CACHING_AND_ROTATION.md` |
 
+### hsm-edek-migrate
+One-off command-line tool that moves core's EDEKs to **another tenant**: it
+unwraps each DEK with the old tenant's KEK and wraps it with the new one's, so
+every DEK, `edek_id` and token stays the same.
+
+| | |
+|---|---|
+| **Does** | `analyze`, `stage`, `wrap`, `verify`, `report`, `promote`, `reset`: builds and checks every row in a staging table in the new database, then promotes it into the new `edek_records` in one transaction. |
+| **Depends on** | Both Postgres databases, both HSMs (unwrap on the old one, wrap and unwrap on the new one) |
+| **Runs as** | A job, once per move: `java -jar hsm-edek-migrate.jar <command> --config <file>`. Not deployed as a service. |
+| **Docs** | `EDEK_TENANT_MIGRATION.md`, `hsm-edek-migrate/README.md` |
+
 ### hsm-file-service
 Read-only service that runs **in a consumer's namespace** and serves decrypted
 files to that consumer's BFF (backend-for-frontend).

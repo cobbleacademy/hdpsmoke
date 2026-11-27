@@ -40,6 +40,15 @@ az keyvault restore start --hsm-name <target-hsm-name> --blob-storage-name <stor
       matches your actual DR region plan (a backup can't be restored
       cross-region or cross-security-domain)
 
+Moving to an HSM in another tenant or security domain can't use backup and
+restore; the EDEKs are re-wrapped instead: see
+[`EDEK_TENANT_MIGRATION.md`](EDEK_TENANT_MIGRATION.md) and the `hsm-edek-migrate` tool.
+
+Expiry is not a disaster. An expired KEK version still unwraps, so every
+decrypt keeps working; only new wraps stop. Disabling or deleting a version
+breaks decrypts of the rows on it. Rotation policy, monitoring and the
+recovery steps are in [`KEK_LIFECYCLE.md`](KEK_LIFECYCLE.md).
+
 ## Tier 0: EDEK store + Access store (Postgres)
 
 The single most consequential backup target in the whole system —

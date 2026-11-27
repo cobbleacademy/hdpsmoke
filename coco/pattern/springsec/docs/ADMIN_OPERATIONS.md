@@ -86,9 +86,9 @@ authority (see `hsm.security.access-rules` in `application.yml`):
 | `DELETE /admin/kek-registry` | `manage_kek_registry` | Remove a `kek_registry` entry |
 | `GET /admin/kek-registry` | `manage_kek_registry` | List all `kek_registry` entries |
 | `POST /admin/rotate-kek` | `rotate` | Trigger routine KEK rotation, grouped by every distinct KEK actually in use (see `CACHING_AND_ROTATION.md`). Optional `?kekName=<name>` sweeps only that KEK (404 if no current EDEK uses it) -- for validating one Key Vault key rotation in isolation |
-| `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule) |
+| `POST /admin/rekey-kek` | `rotate` | Manually move every current EDEK from one KEK to another (compromise response, key decommissioning — not part of any schedule). Both KEKs must be in this instance's one vault; for another tenant see [`EDEK_TENANT_MIGRATION.md`](EDEK_TENANT_MIGRATION.md) |
 | `POST /admin/rekey-kek/revert` | `rotate` | Undo the most recent rekey into a given KEK (single-level undo) |
-| `GET /admin/health` | none (public) | Vault + DB reachability |
+| `GET /admin/health` | none (public) | Vault + DB reachability, KEK expiry (`kek_ok`, `kek_expires_at`, `kek_days_left`; see `KEK_LIFECYCLE.md`) |
 
 `rotate-kek`, `rekey-kek` and `rekey-kek/revert` share one cross-pod lock with
 the scheduled KEK rotation. While any of them is running — on any pod of
@@ -98,6 +98,9 @@ waiting. Retry after the running job's completion audit event. See
 `RUNBOOK.md` → "Rotation jobs: one runner across all pods".
 
 ## Provisioning an app's public key(s) — `POST /admin/apps/keys`
+
+In a new environment, set up the first admin before this call works: see
+"A new environment: setting up the first admin" below.
 
 Replaces the earlier no-admin-endpoint approach (a direct SQL `UPDATE` against
 `app_registrations.public_key_pem`/`signing_public_key_pem`) with a real
@@ -367,6 +370,68 @@ fully-privileged app. Keep it this way rather than "fixing" it by adding a
 create endpoint, unless there's a strong operational reason to automate
 onboarding at higher volume than manual migrations can support.
 
+## A new environment: setting up the first admin
+
+Every admin endpoint needs a caller that hsm-core already knows: its scopes
+come from its own `app_registrations` row (`allowed_scopes`, read by
+`AppRegistryService.getScopes`), and no migration creates an admin app. So in a
+new environment one database write comes before any admin call. After that,
+keys and grants go through the API.
+
+**1. Insert the admin's row**, once per environment. Whether it needs a key
+depends on how the admin signs in:
+
+| The admin signs in with | Its row needs | A key or fingerprint in the row? |
+|---|---|---|
+| **An Entra ID token** (recommended) | `app_id`, `allowed_scopes`, `active` | **None.** The signature is checked against Entra's keys (`JWT_JWKS_URL` or `JWT_PUBLIC_KEY_PEM`), the token's `aud` must be in `JWT_AUDIENCE` and its `iss` in `JWT_ISSUER` |
+| A self-signed JWT | The same, plus its public key | **Yes:** `signing_public_key_pem`, or `public_key_pem` for one keypair |
+| mTLS | The same, plus its certificate's fingerprint | **Yes:** `mtls_cert_fingerprint` (SHA-256, hex) |
+| `DEMO_MODE=true` | Nothing (`demo-token-ops-admin`) | Demo only, never a real environment |
+
+- The `app_id` must equal the token's `app_id` claim, or its `appid` (the
+  Entra client ID) if it has none, and the `X-App-ID` header must equal it too;
+  otherwise hsm-core answers 403 (`JwtAppIdAuthenticationFilter`).
+- Give the admin only the admin scopes it needs. `provision_app_keys` is the one
+  for keys; `manage_apps`, `grant`, `manage_classifications` and
+  `manage_kek_registry` are separate.
+
+With an Entra ID admin:
+
+```sql
+INSERT INTO ${access_schema}.app_registrations (app_id, allowed_scopes, description, active, created_at, updated_at)
+VALUES ('<the admin token''s app_id or appid>', 'provision_app_keys,manage_apps,grant',
+        'Bootstrap admin for <environment>; owner: <team, contact>', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+With a self-signed admin, add `signing_public_key_pem` (the public half of the
+admin's signing key, `openssl pkey -in <key> -pubout`) to the same insert. With
+mTLS, add `mtls_cert_fingerprint`.
+
+As with any onboarding, make this a reviewed change (`APP_ONBOARDING.md`): a
+Flyway migration if the admin's `app_id` is the same in every environment, or a
+one-off script recorded in the environment's change ticket if it isn't (an Entra
+client ID usually differs per environment).
+
+**2. Insert each other app's row** (`APP_ONBOARDING.md` step 1), with no keys:
+leave `public_key_pem`, `signing_public_key_pem` and `mtls_cert_fingerprint` out.
+hsm-core treats an empty string in these columns the same as NULL.
+
+**3. Set each app's keys through the API**, signed in as the admin:
+`POST /admin/apps/keys` (below) and, for mTLS, `POST /admin/apps/mtls-cert`.
+These check each key, write an audit event and clear the cached key, so no key
+is ever inserted by hand after step 1.
+
+- The cache is cleared only on the pod that handled the call. If the app had
+  already called another pod with an older key, restart hsm-core's pods.
+- A new row inserted in steps 1 and 2 is seen at once. But a change in SQL to a
+  row a pod has already read (its scopes or a key) isn't seen by that pod until
+  it restarts: these caches don't expire.
+
+**Check:** a call to `POST /admin/apps/keys` as the admin should return 200, or
+404 for an `app_id` with no row. A 401 means the admin's token was rejected:
+for Entra ID, check `JWT_ISSUER`, `JWT_AUDIENCE` and `JWT_JWKS_URL`. A 403 means
+the `app_id` and `X-App-ID` don't match, or the row lacks `provision_app_keys`.
+
 ## Prefer the admin API over direct SQL for security-relevant changes
 
 Direct SQL against `app_registrations`/`app_grants`/`app_dek_grants` is sometimes
@@ -380,8 +445,8 @@ non-cosmetic reasons:
   the existing admin endpoints (`/admin/apps/status`, `/admin/grants`)
   invalidate that cache on write, so a change takes effect immediately. A
   raw SQL `UPDATE` bypasses that invalidation entirely — the row is correct
-  in the database, but the running service can keep honoring the old value
-  until the cache entry expires. That's the opposite of what you want for
+  in the database, but each pod that already read it keeps honoring the old
+  value until that pod restarts (these caches are plain maps with no expiry). That's the opposite of what you want for
   anything time-sensitive, like cutting off access right after an incident
   or the moment an onboarding/bulk window closes.
 - **No audit trail.** Every admin endpoint fires an audit event
