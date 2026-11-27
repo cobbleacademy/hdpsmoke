@@ -73,6 +73,26 @@ class UnitTest {
     }
 
     @Test
+    void errorTextKeepsTheReasonAndDropsSecrets() {
+        assertEquals("localhost:5432/hsm", Errors.where("jdbc:postgresql://localhost:5432/hsm?sslmode=require"));
+        assertEquals("[\"jdbc:postgresql://h/d\"]", Errors.where("\"jdbc:postgresql://h/d\""), "stray quotes show");
+        assertEquals("No suitable driver found for jdbc:postgresql://h/d?user=x&password=<redacted>",
+                Errors.redact("No suitable driver found for jdbc:postgresql://h/d?user=x&password=hunter2"));
+        assertEquals("{\"value\":\"<redacted>\"} Bearer <redacted>",
+                Errors.redact("{\"value\":\"c2VjcmV0\"} Bearer eyJ0eXAi.abc"));
+        assertEquals("design=ok", Errors.redact("design=ok"));
+        RuntimeException e = new IllegalStateException("wrap failed\nsecond line",
+                new java.net.UnknownHostException("hsm-b.managedhsm.azure.net"));
+        assertEquals("IllegalStateException: wrap failed (cause UnknownHostException: hsm-b.managedhsm.azure.net)",
+                Errors.describe(e));
+        java.sql.SQLException noDriver = new java.sql.SQLException("No suitable driver found for \"jdbc:x\"", "08001");
+        assertTrue(Errors.connectHint("source", noDriver).startsWith("source.jdbc-url must look like"));
+        assertTrue(Errors.connectHint("target", new java.sql.SQLException("x", "08001"))
+                .contains("can't reach the server"));
+        assertTrue(Errors.queryHint("target", new java.sql.SQLException("x", "42501")).contains("target.user"));
+    }
+
+    @Test
     void badArgumentsAreAUsageError(@TempDir Path dir) throws Exception {
         assertEquals(Commands.USAGE, run(new String[]{}));
         assertEquals(Commands.USAGE, run(new String[]{"copy", "--config", "x"}));

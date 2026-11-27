@@ -104,6 +104,31 @@ java -jar hsm-edek-migrate.jar <command> --config migrate.properties [--kek <sou
 | 2 | A usage or settings error |
 | 3 | Finished, with failed rows, problems found, or a refused promote |
 
+## When a command stops
+
+The error names the side, the step and the server's reason, then says what to check:
+
+```
+can't connect to the source database pg-a-host:5432/hsm as edek_migrate_reader: password authentication failed for user "edek_migrate_reader" (SQLState 28P01)
+  check: the server was reached and rejected the user or password: ...
+analyze stopped: target database, checking owners in hsm_access.app_registrations: permission denied for schema hsm_access (SQLState 42501)
+  check: target.user is missing a grant this step needs: ...
+```
+
+| SQLState | Means | Usually |
+|---|---|---|
+| `08001` | This machine can't reach the server | Host or port wrong, the server's firewall rules, VPN, private-endpoint DNS. `nc -vz <host> 5432` from the same machine. `No suitable driver` instead: the `jdbc-url` isn't `jdbc:postgresql://...` |
+| `08004` | The server refused the connection | `sslmode`, or the server doesn't accept this machine |
+| `28P01` | Wrong user or password | The user, or the password in the `*-password-env` variable: export it in single quotes so the shell leaves `$`, `!` and backticks alone |
+| `28000` | User or machine not allowed | The user doesn't exist on this server, or password sign-in is off |
+| `3D000` | No such database | The database name in `jdbc-url` |
+| `42501` | Permission denied | A grant from [Access](#access) is missing |
+| `42P01` / `3F000` | No such table or schema | `*.crypto-schema`, `target.access-schema`; hsm-core's migrations must have run on B |
+
+Vault errors show the Entra or Key Vault reason, for example `AADSTS7000215` (wrong client
+secret) or `403 ... ForbiddenByRbac` (missing role on the KEK). `wrap` and `verify` print
+it once per error type; the staging row keeps only the type.
+
 ## A run, one KEK at a time
 
 ```bash
@@ -123,5 +148,7 @@ The full order, with the rotation jobs turned off first, is section 8 of the des
 
 - Store, log or print a DEK, or anything derived from one. A DEK lives in memory
   for one row and is zeroed afterwards. A failed row records only the error's type.
+  Errors print the server's or vault's reason, never Postgres's "Detail" line (which
+  can quote a row), and anything that looks like a password or token is redacted.
 - Change an `app_id`: it's the AES-GCM AAD (design section 6).
 - Write to A.

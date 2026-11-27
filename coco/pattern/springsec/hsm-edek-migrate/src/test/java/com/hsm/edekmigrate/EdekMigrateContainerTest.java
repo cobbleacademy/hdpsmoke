@@ -4,6 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -11,6 +12,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -60,6 +62,7 @@ class EdekMigrateContainerTest {
     private Connection a;          // the test's own connection to A, for seeding and changes
     private Connection b;
     private String urlA;
+    private String urlB;
     private final List<Connection> toolConnections = new ArrayList<>();
     private FakeKekVault vaultA;
     private FakeKekVault vaultB;
@@ -72,7 +75,8 @@ class EdekMigrateContainerTest {
         int n = DB_SEQ.incrementAndGet();
         urlA = database("a" + n);
         a = connect(urlA);
-        b = connect(database("b" + n));
+        urlB = database("b" + n);
+        b = connect(urlB);
         vaultA = new FakeKekVault().kek(LEGACY, "a-v1", "a-v2").kek("kek-pii", "pii-v1");
         vaultB = new FakeKekVault().kek("b-kek", "b-v1").kek("b-kek-pii", "bpii-v1");
         props = new Properties();
@@ -207,6 +211,7 @@ class EdekMigrateContainerTest {
         vaultA.failAll = true;
         assertEquals(Commands.PROBLEMS, commands().analyze(Scope.ALL, true));
         assertTrue(out().contains("can't unwrap with source KEK"), out());
+        assertTrue(out().contains("IllegalStateException: injected failure"), "the vault's reason is shown: " + out());
         assertEquals(Commands.OK, commands().analyze(Scope.ALL, false), "--no-probe skips the HSMs");
     }
 
@@ -220,7 +225,12 @@ class EdekMigrateContainerTest {
         assertEquals(Commands.PROBLEMS, c.wrap(Scope.ALL), out());
         assertEquals(Map.of("wrapped", 6L, "failed", 1L), statuses());
         assertTrue(out().contains("error=IllegalStateException"), out());
-        assertFalse(out().contains("injected failure"), "the error's message never reaches the output");
+        // The vault's reason is printed once per error type; the staging row keeps only the type.
+        assertTrue(out().contains("wrap reason for IllegalStateException: IllegalStateException: injected failure"),
+                out());
+        assertEquals(1, out().split("injected failure", -1).length - 1, out());
+        assertEquals(1, countB("SELECT COUNT(*) FROM edek_migrate.edek_records WHERE error_type = "
+                + "'IllegalStateException'"));
         c.verify(Scope.ALL);
         assertEquals(Commands.PROBLEMS, c.promote(Scope.ALL), out());
         assertEquals(0, countB("SELECT COUNT(*) FROM hsm_crypto.edek_records"), "nothing promoted");
@@ -334,6 +344,96 @@ class EdekMigrateContainerTest {
     // ---- checks ----
 
     /** Every A row is in B with the same columns, B's KEK, no undo buffer, and the same DEK. */
+    // ---- what the tool prints when a database call fails ----
+
+    @Test
+    void aWrongPasswordNamesTheSideHostAndUser(@TempDir Path dir) throws Exception {
+        String err = runTool(dir, Commands.STOPPED, Map.of("PW", "not-the-password"));
+        assertTrue(err.contains("can't connect to the source database " + hostPortDb(urlA) + " as "
+                + POSTGRES.getUsername() + ": password authentication failed"), err);
+        assertTrue(err.contains("(SQLState 28P01)"), err);
+        assertTrue(err.contains("check: the server was reached and rejected the user or password"), err);
+        assertFalse(err.contains("not-the-password"), err);
+    }
+
+    @Test
+    void anUnreachableServerNamesTheSide(@TempDir Path dir) throws Exception {
+        toolProps(urlA, urlB);
+        props.setProperty("target.jdbc-url", "jdbc:postgresql://localhost:1/b");
+        String err = runTool(dir, Commands.STOPPED, null);
+        assertTrue(err.contains("can't connect to the target database localhost:1/b as "), err);
+        assertTrue(err.contains("(SQLState 08001)"), err);
+        assertTrue(err.contains("check: this machine can't reach the server"), err);
+    }
+
+    @Test
+    void quotedValuesWorkAsInYaml(@TempDir Path dir) throws Exception {
+        toolProps("\"" + urlA + "\"", "'" + urlB + "'");
+        props.setProperty("source.user", "\"" + POSTGRES.getUsername() + "\"");
+        String err = runTool(dir, Commands.OK, null);
+        assertEquals("", err);
+        assertTrue(out().contains("analyze ok"), out());
+    }
+
+    @Test
+    void aMissingGrantNamesTheStepAndTheObject(@TempDir Path dir) throws Exception {
+        String role = "nogrant" + DB_SEQ.incrementAndGet();
+        try (Connection admin = DriverManager.getConnection(urlB, POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement st = admin.createStatement()) {
+            st.execute("CREATE ROLE " + role + " LOGIN PASSWORD 'pw'");
+        }
+        toolProps(urlA, urlB);
+        props.setProperty("target.user", role);
+        props.setProperty("target.password-env", "ROLE_PW");
+        String err = runTool(dir, Commands.STOPPED, Map.of("PW", POSTGRES.getPassword(), "ROLE_PW", "pw"));
+        assertTrue(err.contains("analyze stopped: target database, checking owners in hsm_access.app_registrations: "
+                + "permission denied for schema hsm_access (SQLState 42501)"), err);
+        assertTrue(err.contains("check: target.user is missing a grant"), err);
+    }
+
+    @Test
+    void aWrongSchemaNamesTheTable(@TempDir Path dir) throws Exception {
+        toolProps(urlA, urlB);
+        props.setProperty("source.crypto-schema", "no_such_schema");
+        String err = runTool(dir, Commands.STOPPED, null);
+        assertTrue(err.contains("analyze stopped: source database, counting rows in no_such_schema.edek_records: "
+                + "relation \"no_such_schema.edek_records\" does not exist (SQLState 42P01)"), err);
+        assertTrue(err.contains("check: a table or schema isn't there: check source.crypto-schema"), err);
+        assertFalse(err.contains("Detail"), err);
+    }
+
+    /** The settings for EdekMigrate.run against the test databases; vaults unused (analyze --no-probe). */
+    private void toolProps(String sourceUrl, String targetUrl) {
+        props.setProperty("source.jdbc-url", sourceUrl);
+        props.setProperty("target.jdbc-url", targetUrl);
+        props.setProperty("source.user", POSTGRES.getUsername());
+        props.setProperty("target.user", POSTGRES.getUsername());
+    }
+
+    /** Runs {@code analyze --no-probe} through main's path; returns stderr. env null: the right password. */
+    private String runTool(Path dir, int expected, Map<String, String> env) throws Exception {
+        if (props.getProperty("source.user").equals("u")) {
+            toolProps(urlA, urlB);
+        }
+        Path file = dir.resolve("m.properties");
+        try (var w = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
+            props.store(w, null);
+        }
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+        int code = EdekMigrate.run(new String[]{"analyze", "--config", file.toString(), "--no-probe"},
+                env == null ? Map.of("PW", POSTGRES.getPassword()) : env,
+                new PrintStream(output, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
+        String text = err.toString(StandardCharsets.UTF_8);
+        assertEquals(expected, code, text + out());
+        return text;
+    }
+
+    private static String hostPortDb(String url) {
+        String rest = url.substring("jdbc:postgresql://".length());
+        int q = rest.indexOf('?');
+        return q < 0 ? rest : rest.substring(0, q);
+    }
+
     private void assertBMatchesA() throws Exception {
         assertBMatchesA(Map.of(LEGACY, "b-kek", "kek-pii", "b-kek-pii"));
     }

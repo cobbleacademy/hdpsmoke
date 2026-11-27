@@ -114,6 +114,20 @@ class MigrateConfigTest {
     }
 
     @Test
+    void quotedValuesAreUnquotedAsInYaml() {
+        Properties p = good();
+        p.setProperty("source.jdbc-url", " \"jdbc:postgresql://a:5432/hsm\" ");
+        p.setProperty("source.user", "'reader'");
+        p.setProperty("kek-map.hsm-master-kek", "\"hsm-b-kek\"");
+        MigrateConfig c = MigrateConfig.from(p, ENV);
+        assertEquals("jdbc:postgresql://a:5432/hsm", c.source().jdbcUrl());
+        assertEquals("reader", c.source().user());
+        assertEquals("hsm-b-kek", c.targetKekFor("hsm-master-kek"));
+        assertEquals("\"half", MigrateConfig.unquote("\"half"), "only a matching pair is removed");
+        assertEquals("a'", MigrateConfig.unquote("a'"));
+    }
+
+    @Test
     void kekNamesAreChecked() {
         Properties p = good();
         p.setProperty("kek-map.bad name", "x");

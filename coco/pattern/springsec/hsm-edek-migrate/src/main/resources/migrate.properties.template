@@ -10,6 +10,10 @@
 # variable that holds the value, for example:
 #   export EDEK_SOURCE_DB_PASSWORD='...'
 #
+# Write values without quotes (key=value). This isn't YAML: quotes would be part
+# of the value. One matching pair around a value is removed, so a value copied
+# from hsm-bulk-client's YAML still works.
+#
 # Every problem in the file is reported at once and the tool exits with 2.
 # [required] keys must be set; [optional] keys show their default.
 

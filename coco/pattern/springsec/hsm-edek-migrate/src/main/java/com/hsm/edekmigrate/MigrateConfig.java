@@ -86,7 +86,7 @@ public record MigrateConfig(
         for (String key : p.stringPropertyNames()) {
             if (key.startsWith("kek-map.")) {
                 String from = key.substring("kek-map.".length());
-                String to = p.getProperty(key).trim();
+                String to = unquote(p.getProperty(key));
                 if (!KEK_NAME.matcher(from).matches() || !KEK_NAME.matcher(to).matches()) {
                     problems.add("kek-map entry '" + key + "' is not a valid key name");
                 }
@@ -170,8 +170,24 @@ public record MigrateConfig(
     }
 
     private static String value(Properties p, String key) {
-        String v = p.getProperty(key);
-        return v == null || v.isBlank() ? null : v.trim();
+        String v = unquote(p.getProperty(key));
+        return v == null || v.isBlank() ? null : v;
+    }
+
+    /**
+     * Trims, then drops one matching pair of surrounding quotes. A properties file keeps
+     * quotes as part of the value, but YAML settings (hsm-bulk-client's) are often
+     * written quoted, and a quoted jdbc-url otherwise fails as "No suitable driver".
+     */
+    static String unquote(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        if (t.length() >= 2 && (t.charAt(0) == '"' || t.charAt(0) == '\'') && t.charAt(t.length() - 1) == t.charAt(0)) {
+            t = t.substring(1, t.length() - 1).trim();
+        }
+        return t;
     }
 
     private static String required(Properties p, String key, List<String> problems) {

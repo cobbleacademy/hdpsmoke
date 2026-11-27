@@ -69,8 +69,33 @@ public final class EdekMigrate {
             return Commands.USAGE;
         }
 
-        try (Connection source = connect(config.source()); Connection target = connect(config.target())) {
-            Commands c = new Commands(config, source, target, AzureKekVault.of(config.source()),
+        Connection source = null;
+        Connection target = null;
+        try {
+            try {
+                source = connect(config.source());
+            } catch (SQLException e) {
+                err.println(Errors.connectFailed("source", config.source(), e));
+                return Commands.STOPPED;
+            }
+            try {
+                target = connect(config.target());
+            } catch (SQLException e) {
+                err.println(Errors.connectFailed("target", config.target(), e));
+                return Commands.STOPPED;
+            }
+            return command(a, config, source, target, out, err);
+        } finally {
+            close(target);
+            close(source);
+        }
+    }
+
+    private static int command(Args a, MigrateConfig config, Connection source, Connection target, PrintStream out,
+                               PrintStream err) {
+        Commands c = null;
+        try {
+            c = new Commands(config, source, target, AzureKekVault.of(config.source()),
                     AzureKekVault.of(config.target()), out);
             return switch (a.command()) {
                 case "analyze" -> c.analyze(a.scope(), a.probe());
@@ -83,17 +108,33 @@ public final class EdekMigrate {
                 default -> Commands.USAGE;
             };
         } catch (SQLException e) {
-            err.println(a.command() + " stopped: database error " + Commands.errorType(e) + " SQLState="
-                    + e.getSQLState());
+            String side = c == null ? "target" : c.stepSide();
+            err.println(a.command() + " stopped: " + (c == null ? "setting up" : c.step()) + ": "
+                    + Errors.describe(e));
+            String hint = Errors.queryHint(side, e);
+            if (hint != null) {
+                err.println("  check: " + hint);
+            }
             return Commands.STOPPED;
         } catch (RuntimeException e) {
-            err.println(a.command() + " stopped: " + Commands.errorType(e));
+            err.println(a.command() + " stopped: " + (c == null ? "setting up the vault clients" : c.step()) + ": "
+                    + Errors.describe(e));
             return Commands.STOPPED;
         }
     }
 
     private static Connection connect(MigrateConfig.Side side) throws SQLException {
         return DriverManager.getConnection(side.jdbcUrl(), side.user(), side.password());
+    }
+
+    private static void close(Connection c) {
+        if (c != null) {
+            try {
+                c.close();
+            } catch (SQLException ignored) {
+                // nothing left to do with it
+            }
+        }
     }
 
     static String usage() {

@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +28,8 @@ import java.util.UUID;
  *
  * <p>The DEK exists only inside {@link #wrap} and {@link #verify}, for one row at a
  * time, and is zeroed in a finally block. Nothing about it is logged, stored or put in
- * an error: a failed row records only the error's type.
+ * an error: a failed row records only the error's type, and the terminal gets the
+ * reason the vault or database gave ({@link Errors}).
  */
 public final class Commands {
 
@@ -46,6 +48,14 @@ public final class Commands {
     private final PrintStream out;
     private final SourceStore source;
     private final StagingStore staging;
+    private final String sourceTable;
+    private final String targetTable;
+    private final String stagingTable;
+    private final String appsTable;
+
+    // What the command is doing now, for the error line if a database call fails.
+    private String stepSide = "source";
+    private String step = "starting";
 
     public Commands(MigrateConfig config, Connection sourceDb, Connection targetDb, KekVault sourceVault,
                     KekVault targetVault, PrintStream out) throws SQLException {
@@ -55,7 +65,13 @@ public final class Commands {
         this.sourceVault = sourceVault;
         this.targetVault = targetVault;
         this.out = out;
+        this.sourceTable = config.source().cryptoSchema() + ".edek_records";
+        this.targetTable = config.target().cryptoSchema() + ".edek_records";
+        this.stagingTable = config.stagingSchema() + ".edek_records";
+        this.appsTable = config.targetAccessSchema() + ".app_registrations";
+        at("source", "making the connection read-only");
         sourceDb.setReadOnly(true);
+        at("target", "turning off auto-commit");
         targetDb.setAutoCommit(false);
         this.source = new SourceStore(sourceDb, config.source().cryptoSchema(), config.sourceLegacyKekName());
         this.staging = new StagingStore(targetDb, config.stagingSchema(), config.target().cryptoSchema(),
@@ -67,6 +83,7 @@ public final class Commands {
     /** Reads A and checks B; writes nothing. {@code probe}: also one unwrap per A KEK version and one wrap per B KEK. */
     public int analyze(Scope scope, boolean probe) throws SQLException {
         List<String> problems = new ArrayList<>();
+        at("source", "counting rows in " + sourceTable);
         List<SourceStore.Count> counts = source.counts(scope);
         long total = counts.stream().mapToLong(SourceStore.Count::rows).sum();
         out.println("analyze scope=" + scope + " rows=" + total);
@@ -87,6 +104,7 @@ public final class Commands {
             }
         }
 
+        at("target", "checking owners in " + appsTable);
         Map<String, Boolean> registered = staging.registeredApps(owners);
         for (String app : owners) {
             Boolean active = registered.get(app);
@@ -101,10 +119,12 @@ public final class Commands {
         long nameClashes = 0;
         UUID after = null;
         while (true) {
+            at("source", "reading " + sourceTable);
             List<EdekRow> page = source.page(after, config.pageSize(), scope);
             if (page.isEmpty()) {
                 break;
             }
+            at("target", "checking edek_id and current_dek_name clashes in " + targetTable);
             idClashes += staging.idClashes(page).size();
             nameClashes += staging.currentNameClashes(page).size();
             after = page.get(page.size() - 1).edekId();
@@ -119,6 +139,7 @@ public final class Commands {
         }
 
         if (probe) {
+            at("source", "reading one row per KEK version from " + sourceTable);
             for (EdekRow sample : source.onePerKekVersion(scope)) {
                 String kek = sample.resolvedKekName(config.sourceLegacyKekName());
                 byte[] dek = null;
@@ -126,8 +147,9 @@ public final class Commands {
                     dek = sourceVault.unwrap(Base64.getDecoder().decode(sample.edekBlob()), kek, sample.kekVersion());
                     out.println("probe source unwrap " + kek + "/" + sample.kekVersion() + ": ok");
                 } catch (RuntimeException e) {
-                    out.println("probe source unwrap " + kek + "/" + sample.kekVersion() + ": " + errorType(e));
-                    problems.add("can't unwrap with source KEK " + kek + "/" + sample.kekVersion() + ": " + errorType(e));
+                    String why = Errors.describe(e);
+                    out.println("probe source unwrap " + kek + "/" + sample.kekVersion() + ": " + why);
+                    problems.add("can't unwrap with source KEK " + kek + "/" + sample.kekVersion() + ": " + why);
                 } finally {
                     zero(dek);
                 }
@@ -156,7 +178,7 @@ public final class Commands {
             back = targetVault.unwrap(w.edek(), kek, w.kekVersion());
             return MessageDigest.isEqual(test, back) ? "ok" : "the unwrapped bytes differ";
         } catch (RuntimeException e) {
-            return errorType(e);
+            return Errors.describe(e);
         } finally {
             zero(test);
             zero(back);
@@ -168,6 +190,7 @@ public final class Commands {
     /** Copies A's rows into staging (no HSM call): new rows added, changed rows reset, gone rows marked removed. */
     public int stage(Scope scope) throws SQLException {
         List<String> unmapped = new ArrayList<>();
+        at("source", "counting rows in " + sourceTable);
         for (SourceStore.Count c : source.counts(scope)) {
             if (config.targetKekFor(c.kekName()) == null && !unmapped.contains(c.kekName())) {
                 unmapped.add(c.kekName());
@@ -176,6 +199,7 @@ public final class Commands {
         if (!unmapped.isEmpty()) {
             return finish("stage", List.of("source KEK(s) without a kek-map entry: " + String.join(", ", unmapped)));
         }
+        at("target", "creating the staging table " + stagingTable);
         staging.init();
         targetDb.commit();
 
@@ -185,10 +209,12 @@ public final class Commands {
         int unchanged = 0;
         UUID after = null;
         while (true) {
+            at("source", "reading " + sourceTable);
             List<EdekRow> page = source.page(after, config.pageSize(), scope);
             if (page.isEmpty()) {
                 break;
             }
+            at("target", "writing " + stagingTable);
             StagingStore.StageCounts c = staging.stage(page, batch, config.sourceLegacyKekName(),
                     config::targetKekFor);
             targetDb.commit();
@@ -198,6 +224,7 @@ public final class Commands {
             after = page.get(page.size() - 1).edekId();
             out.println("stage page rows=" + page.size() + " added=" + c.added() + " changed=" + c.changed());
         }
+        at("target", "marking rows gone from the source in " + stagingTable);
         int removed = staging.markRemoved(batch, scope);
         targetDb.commit();
         out.println("stage done batch=" + batch + " scope=" + scope + " added=" + added + " changed=" + changed
@@ -259,7 +286,9 @@ public final class Commands {
         int failed = 0;
         int consecutive = 0;
         UUID after = null;
+        Set<String> explained = new HashSet<>();
         while (true) {
+            at("target", "reading " + stagingTable);
             List<StagingStore.StagedRow> page = staging.page(statuses, after, config.pageSize(), scope);
             if (page.isEmpty()) {
                 break;
@@ -268,10 +297,13 @@ public final class Commands {
             int pageFailed = 0;
             for (StagingStore.StagedRow row : page) {
                 String error;
+                String reason = null;
+                at("target", "updating edek_id=" + row.edekId() + " in " + stagingTable);
                 try {
                     error = work.apply(row, batch);
                 } catch (RuntimeException e) {
                     error = errorType(e);
+                    reason = Errors.describe(e);
                 }
                 if (error == null) {
                     pageDone++;
@@ -282,6 +314,10 @@ public final class Commands {
                     consecutive++;
                     out.println(command + " failed edek_id=" + row.edekId() + " source_kek=" + row.sourceKekName()
                             + " error=" + error);
+                    // The full reason once per error type; the row itself keeps only the type.
+                    if (reason != null && explained.add(error)) {
+                        out.println(command + " reason for " + error + ": " + reason);
+                    }
                     if (consecutive >= config.maxConsecutiveFailures()) {
                         targetDb.commit();
                         out.println(command + " stopped: " + consecutive + " failures in a row (an HSM or database "
@@ -304,6 +340,7 @@ public final class Commands {
 
     /** Counts per source KEK, owner and state; the failed rows; whether the scope is ready to promote. */
     public int report(Scope scope) throws SQLException {
+        at("target", "reading " + stagingTable);
         List<StagingStore.GroupCount> counts = staging.counts(scope);
         Map<String, Map<String, Long>> perKek = new TreeMap<>();
         out.println("report scope=" + scope);
@@ -337,6 +374,7 @@ public final class Commands {
 
     public int promote(Scope scope) throws SQLException {
         StagingStore.PromoteResult r;
+        at("target", "promoting " + stagingTable + " into " + targetTable);
         try {
             r = staging.promote(scope);
         } catch (SQLException e) {
@@ -367,6 +405,7 @@ public final class Commands {
             out.println("reset deletes the staging rows for scope=" + scope + "; add --yes to do it");
             return USAGE;
         }
+        at("target", "deleting rows from " + stagingTable);
         staging.init();
         int n = staging.reset(scope);
         targetDb.commit();
@@ -375,6 +414,21 @@ public final class Commands {
     }
 
     // ---- helpers ----
+
+    private void at(String side, String what) {
+        this.stepSide = side;
+        this.step = what;
+    }
+
+    /** What the command was doing, e.g. {@code "target database, checking owners in hsm_access.app_registrations"}. */
+    public String step() {
+        return stepSide + " database, " + step;
+    }
+
+    /** "source" or "target": the database of {@link #step()}. */
+    public String stepSide() {
+        return stepSide;
+    }
 
     private int finish(String command, List<String> problems) {
         for (String p : new LinkedHashSet<>(problems)) {
