@@ -133,6 +133,35 @@ class EdekMigrateContainerTest {
     }
 
     @Test
+    void twoSourceKeksCanShareOneTargetKek() throws Exception {
+        props.setProperty("kek-map.kek-pii", "b-kek");   // both A KEKs onto one B KEK
+        Commands c = commands();
+        assertEquals(Commands.OK, c.analyze(Scope.ALL, true), out());
+
+        // Still moved and checked per source KEK.
+        Scope pii = new Scope("kek-pii", null);
+        assertEquals(Commands.OK, c.stage(pii), out());
+        assertEquals(Commands.OK, c.wrap(pii), out());
+        assertEquals(Commands.OK, c.verify(pii), out());
+        assertEquals(Commands.OK, c.promote(pii), out());
+        assertEquals(2, countB("SELECT COUNT(*) FROM hsm_crypto.edek_records WHERE kek_name = 'b-kek'"));
+
+        assertEquals(Commands.OK, c.stage(Scope.ALL), out());
+        assertEquals(Commands.OK, c.wrap(Scope.ALL), out());
+        assertEquals(Commands.OK, c.verify(Scope.ALL), out());
+        output.reset();
+        assertEquals(Commands.OK, c.report(Scope.ALL), out());
+        assertTrue(out().contains("kek kek-pii "), "report still groups by source KEK: " + out());
+        assertTrue(out().contains("kek " + LEGACY + " "), out());
+        assertEquals(Commands.OK, c.promote(Scope.ALL), out());
+        assertEquals(Map.of("promoted", 7L), statuses());
+
+        assertEquals(0, countB("SELECT COUNT(*) FROM hsm_crypto.edek_records WHERE kek_name <> 'b-kek'"));
+        assertBMatchesA(Map.of(LEGACY, "b-kek", "kek-pii", "b-kek"));
+        assertNoKeyMaterialIn(out());
+    }
+
+    @Test
     void oneKekAtATime() throws Exception {
         Commands c = commands();
         Scope pii = new Scope("kek-pii", null);
@@ -306,6 +335,11 @@ class EdekMigrateContainerTest {
 
     /** Every A row is in B with the same columns, B's KEK, no undo buffer, and the same DEK. */
     private void assertBMatchesA() throws Exception {
+        assertBMatchesA(Map.of(LEGACY, "b-kek", "kek-pii", "b-kek-pii"));
+    }
+
+    /** {@code bKekFor}: the B KEK each source KEK's rows must end up on. */
+    private void assertBMatchesA(Map<String, String> bKekFor) throws Exception {
         Map<UUID, EdekRow> inA = rows(a);
         Map<UUID, EdekRow> inB = rows(b);
         assertEquals(inA.keySet(), inB.keySet());
@@ -321,8 +355,7 @@ class EdekMigrateContainerTest {
             assertEquals(ra.dataClassification(), rb.dataClassification());
             assertEquals(instant(ra.createdAt()), instant(rb.createdAt()));
             assertEquals(instant(ra.rotatedAt()), instant(rb.rotatedAt()));
-            String expectedKek = ra.resolvedKekName(LEGACY).equals(LEGACY) ? "b-kek" : "b-kek-pii";
-            assertEquals(expectedKek, rb.kekName());
+            assertEquals(bKekFor.get(ra.resolvedKekName(LEGACY)), rb.kekName());
             assertNull(rb.previousKekName());
             assertNull(rb.previousKekVersion());
             assertNull(rb.previousEdekBlob());
@@ -509,8 +542,8 @@ class EdekMigrateContainerTest {
                 .dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("filesystem:" + MIGRATIONS.toAbsolutePath())
                 .schemas("hsm_access")
-                // as hsm-core's own connection-init-sql: V14's DROP INDEX names no schema
-                .initSql("SET search_path TO hsm_crypto, hsm_access")
+                // No search_path: every migration names its schema (V14's DROP INDEX
+                // didn't before), so this also checks they run without one.
                 .placeholders(Map.of("crypto_schema", "hsm_crypto", "access_schema", "hsm_access"))
                 .load()
                 .migrate();

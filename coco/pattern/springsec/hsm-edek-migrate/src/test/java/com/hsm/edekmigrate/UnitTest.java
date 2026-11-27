@@ -88,6 +88,50 @@ class UnitTest {
     }
 
     @Test
+    void theTemplateListsEveryKeyAndLoadsOnceFilledIn() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        assertEquals(Commands.OK, EdekMigrate.run(new String[]{"template"}, Map.of(),
+                new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(new ByteArrayOutputStream())));
+        String template = out.toString(StandardCharsets.UTF_8);
+
+        // Every key the loader reads appears in the template (set or commented out).
+        for (String key : new String[]{"jdbc-url", "user", "password-env", "crypto-schema", "vault-url", "credential",
+                "tenant-id", "client-id", "client-secret-env", "client-certificate-path"}) {
+            assertTrue(template.contains("source." + key + "="), "source." + key);
+            assertTrue(template.contains("target." + key + "="), "target." + key);
+        }
+        for (String key : new String[]{"source.legacy-kek-name=", "target.access-schema=", "target.staging-schema=",
+                "kek-map.", "page-size=", "max-consecutive-failures=", "source.token-file=", "target.token-file=", "workload-identity"}) {
+            assertTrue(template.contains(key), key);
+        }
+
+        // Unfilled, it's refused; with every <...> filled in and the secrets set, it loads.
+        java.util.Properties raw = new java.util.Properties();
+        raw.load(new java.io.StringReader(template));
+        Map<String, String> env = Map.of("EDEK_SOURCE_DB_PASSWORD", "x", "EDEK_TARGET_DB_PASSWORD", "x",
+                "EDEK_SOURCE_CLIENT_SECRET", "x", "EDEK_TARGET_CLIENT_SECRET", "x");
+        assertThrows(MigrateConfig.ConfigException.class, () -> MigrateConfig.from(raw, env));
+        java.util.Properties filled = new java.util.Properties();
+        filled.load(new java.io.StringReader(template.replaceAll("<[^>]+>", "x")));
+        MigrateConfig config = MigrateConfig.from(filled, env);
+        assertEquals("client-secret", config.source().credential().mode());
+        assertEquals("client-secret", config.target().credential().mode());
+        assertEquals(Map.of("x", "x"), config.kekMap());
+        assertEquals("edek_migrate", config.stagingSchema());
+    }
+
+    @Test
+    void helpPrintsTheCommands() {
+        for (String h : new String[]{"help", "--help", "-h"}) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            assertEquals(Commands.OK, EdekMigrate.run(new String[]{h}, Map.of(),
+                    new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(new ByteArrayOutputStream())));
+            String text = out.toString(StandardCharsets.UTF_8);
+            assertTrue(text.contains("template") && text.contains("promote") && text.contains("exit:"), text);
+        }
+    }
+
+    @Test
     void argumentsParse() {
         EdekMigrate.Args a = EdekMigrate.Args.parse(new String[]{"reset", "--config", "m.properties", "--kek", "k1",
                 "--app", "app1", "--yes", "--no-probe"});
