@@ -21,7 +21,7 @@ Job definitions to start from are in [`jobs/`](jobs/).
 |---|---|---|
 | An `app_id` in hsm-core for this job, its keypair and grants | Unwrapping keys and decrypting `decrypt: true` columns | 2 |
 | A secret scope | hsm-core credentials, the surrogate database password | 3 |
-| Three volumes (or folders) | The wheel, the profiles, the output per vendor | 4 |
+| Three volumes (or folders) | The wheel, the profiles, the output per vendor (an external volume to write to your own ADLS container) | 4, 4.1 |
 | The surrogate table in Postgres or Lakebase | Only for profiles that use `surrogate` | 5 |
 | Network egress to hsm-core and the database | Serverless with restricted egress needs both allowed | 6 |
 | The keys, created once | Token key per vendor, the surrogate-table key | 7 |
@@ -167,6 +167,77 @@ with "entry point not found". Two ways to get one:
 
 Upload profiles the same way, to the profiles volume.
 
+### 4.1 Output to your own ADLS container (an external volume)
+
+To have the CSV land in an ADLS Gen2 container that the MFT reads, make the
+output volume an **external volume** on that container. Nothing changes in the
+wheel or the job files except `--output-root`.
+
+`--output-root` must be a `/Volumes/...` path, not an `abfss://` URL. Spark
+writes the staging files, but the driver then builds the CSV with plain file
+operations (`open`, `glob`, `os.replace`, `shutil.rmtree`), which work on a
+volume path only.
+
+| Option | Use it? |
+|---|---|
+| **External volume on your container** (below) | **Yes.** Files are written straight to ADLS; access goes through Unity Catalog grants and its audit log; works on serverless and dedicated |
+| Managed volume (the default `CREATE VOLUME`) | Only if the MFT reads through Databricks: the files sit in Databricks-managed storage under a generated path, not one you choose |
+| `--output-root abfss://…` | Not supported (see above) |
+| Write to a volume, then copy to ADLS (`dbutils.fs.cp`, ADF, AzCopy) | Only if the target can't be an external location: a second copy and one more step that can fail |
+| DBFS mount (`/mnt/…`) or a storage key in the cluster's Spark config | No: deprecated, and not available on serverless or with Unity Catalog access control |
+
+**1. Azure** (storage account admin):
+
+- The storage account is ADLS Gen2 (hierarchical namespace on).
+- Create an **Access Connector for Azure Databricks** (a managed identity) and
+  give it **Storage Blob Data Contributor** on the container.
+- No immutability (WORM) policy on the output folder: the job creates, renames
+  and deletes `<file>.csv.part` and `_deid_tmp/`.
+
+**2. Storage credential** (metastore admin, or `CREATE STORAGE CREDENTIAL`):
+Catalog Explorer → External data → Credentials → Create, with the access
+connector's resource ID. Or with the CLI:
+
+```bash
+databricks storage-credentials create --json '{
+  "name": "deid_adls_cred",
+  "azure_managed_identity": {"access_connector_id": "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Databricks/accessConnectors/<connector>"}
+}'
+```
+
+**3. External location and volume** (SQL):
+
+```sql
+CREATE EXTERNAL LOCATION deid_out_loc
+  URL 'abfss://<container>@<account>.dfs.core.windows.net/deid'
+  WITH (STORAGE CREDENTIAL deid_adls_cred);
+
+CREATE EXTERNAL VOLUME <catalog>.<schema>.deid_out
+  LOCATION 'abfss://<container>@<account>.dfs.core.windows.net/deid/out';
+
+GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.deid_out TO `<job run-as principal>`;
+```
+
+Whoever creates the volume needs `CREATE EXTERNAL VOLUME` on the external location.
+The volume's path can't overlap another table's or volume's.
+
+**4. The job:** only `--output-root` changes; the `libs` and `profiles` volumes stay.
+
+```
+--output-root /Volumes/<catalog>/<schema>/deid_out/<vendor>
+```
+
+The file is then at
+`abfss://<container>@<account>.dfs.core.windows.net/deid/out/<vendor>/<file>.csv`,
+with `<file>.manifest.json` beside it. The MFT rules above still apply: take
+`*.csv` only and skip `_deid_tmp/`.
+
+**5. Network:** if the storage account isn't open to public access, section 6.
+
+**Who can read it:** the container can also be read in Azure, outside Unity
+Catalog. Give Azure access to it only to the MFT's identity: a file with
+surrogates or tokens is still sensitive.
+
 ## 5. The surrogate table (profiles using `surrogate` only)
 
 The same table, from the same DDL, as the Kubernetes job:
@@ -204,6 +275,14 @@ GRANT SELECT, INSERT ON deid_surrogate TO deid_export;
   functions (`DEPLOYMENT.md` §4).
 - **Dedicated clusters:** the workspace's VNet must reach both, as for any
   external dependency.
+- **Output on your own ADLS container (section 4.1) behind a storage firewall:**
+  - Serverless: a network connectivity configuration (account console → Cloud
+    resources → Network connectivity configurations) attached to the workspace,
+    with a private endpoint rule for the storage account (`dfs`), approved on
+    the storage account in Azure. With restricted egress, also allow the storage
+    account in the network policy.
+  - Dedicated clusters: allow the workspace's VNet subnets on the storage
+    account (service endpoint) or use a private endpoint.
 
 ## 7. Create the keys (once)
 
@@ -290,6 +369,10 @@ walks through them in order on a test schema:
 | Connection timeout to hsm-core or the database | Egress | Section 6 |
 | The task fails: entry point `hsm-deid` not found, or `No module named 'hsm_databricks_udf.deid'` | The volume has a broken or old wheel (no `entry_points.txt`, or from before the DEID code) | Rebuild and check it as in section 4 (`wheel OK`), then upload it again |
 | The CSV and manifest are written and `deid_export_completed` is logged, but the task fails with `SystemExit: 0` and "To exit: use 'exit', 'quit', or Ctrl-D" | A wheel built before the exit fix: its `main()` called `sys.exit(0)`, and Databricks runs the entry point in IPython, which reports any `SystemExit` as an exception | The output is complete and usable. Rebuild the wheel (section 4) and upload it again: `main()` now returns on success and raises `SystemExit` only for 1 (failed) or 2 (bad parameter) |
+| `PERMISSION_DENIED` writing to `/Volumes/…/deid_out/…` | The run-as identity has no `WRITE VOLUME` (or `USE CATALOG` / `USE SCHEMA`) on the output volume | The `GRANT` in section 4.1, step 3 |
+| `AuthorizationPermissionMismatch` or `This request is not authorized to perform this operation using this permission` (external volume) | The access connector has no data role on the container | **Storage Blob Data Contributor** on the container (section 4.1, step 1); role changes can take a few minutes |
+| `AuthorizationFailure` or a timeout writing to the external volume | The storage firewall blocks the compute | Section 6 (network connectivity configuration or VNet rule) |
+| `This operation is not permitted as the blob is immutable` | An immutability policy on the output container | Remove it from the output folder (section 4.1, step 1) |
 | `ImportError: psycopg` | The task's environment or libraries miss `psycopg[binary]` | Section 8, step 1 |
 
 A failed run never leaves a `.csv`: the `.part` file and the temporary folder are
