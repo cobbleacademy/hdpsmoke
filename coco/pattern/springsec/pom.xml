@@ -19,6 +19,8 @@
         <module>chassis/hsm-chassis-audit</module>
         <module>hsm-core-service</module>
         <module>hsm-cache-key-rotator</module>
+        <!-- One-off: moves the EDEKs to another tenant (java/docs/EDEK_TENANT_MIGRATION.md). -->
+        <module>hsm-edek-migrate</module>
         <module>hsm-crypto-client</module>
         <module>hsm-file-store</module>
         <module>hsm-bulk-client</module>
