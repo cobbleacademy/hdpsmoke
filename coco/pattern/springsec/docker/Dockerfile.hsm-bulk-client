@@ -18,6 +18,7 @@ WORKDIR /workspace
 COPY pom.xml .
 COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY hsm-cache-key-rotator/pom.xml hsm-cache-key-rotator/pom.xml
+COPY hsm-edek-migrate/pom.xml hsm-edek-migrate/pom.xml
 COPY hsm-crypto-client/pom.xml hsm-crypto-client/pom.xml
 # hsm-crypto-client is built on hsm-crypto-core (chassis), compiled alongside (-am).
 COPY chassis/hsm-crypto-core/src chassis/hsm-crypto-core/src

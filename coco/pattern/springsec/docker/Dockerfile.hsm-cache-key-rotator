@@ -16,6 +16,7 @@ WORKDIR /workspace
 COPY pom.xml .
 COPY hsm-core-service/pom.xml hsm-core-service/pom.xml
 COPY hsm-cache-key-rotator/pom.xml hsm-cache-key-rotator/pom.xml
+COPY hsm-edek-migrate/pom.xml hsm-edek-migrate/pom.xml
 # Maven's reactor needs every module's pom.xml present (parent's <modules> list
 # must resolve) even with -pl/-am limiting what actually gets *built* -- these two
 # don't need their src copied in, only their pom.xml.
