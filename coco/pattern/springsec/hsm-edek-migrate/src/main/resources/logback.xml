@@ -1,0 +1,13 @@
+<configuration>
+    <!-- The tool's own output goes to stdout directly. This only covers libraries
+         (the Azure SDK, the Postgres driver): warnings and errors, to stderr. -->
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSX} %-5level %logger{30} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <root level="WARN">
+        <appender-ref ref="STDERR"/>
+    </root>
+</configuration>
