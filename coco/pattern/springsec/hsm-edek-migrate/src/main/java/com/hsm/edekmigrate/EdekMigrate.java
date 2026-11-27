@@ -1,6 +1,9 @@
 package com.hsm.edekmigrate;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -17,7 +20,10 @@ import java.util.Set;
  *
  * <pre>
  * java -jar hsm-edek-migrate.jar &lt;command&gt; --config migrate.properties [--kek NAME] [--app APP_ID] [--yes] [--no-probe]
+ * java -jar hsm-edek-migrate.jar template &gt; migrate.properties
  * </pre>
+ *
+ * <p>Every setting is explained in {@code src/main/resources/migrate.properties.template}.
  */
 public final class EdekMigrate {
 
@@ -32,6 +38,14 @@ public final class EdekMigrate {
     }
 
     static int run(String[] args, Map<String, String> env, PrintStream out, PrintStream err) {
+        if (args.length == 1 && args[0].equals("template")) {
+            return template(out, err);
+        }
+        if (args.length == 1 && Set.of("help", "--help", "-h").contains(args[0])) {
+            out.println(usage());
+            out.println(HELP);
+            return Commands.OK;
+        }
         Args a;
         try {
             a = Args.parse(args);
@@ -84,7 +98,46 @@ public final class EdekMigrate {
 
     static String usage() {
         return "usage: hsm-edek-migrate <analyze|stage|wrap|verify|report|promote|reset> --config <file> "
-                + "[--kek <source KEK>] [--app <app_id>] [--yes] [--no-probe]";
+                + "[--kek <source KEK>] [--app <app_id>] [--yes] [--no-probe]\n"
+                + "       hsm-edek-migrate template > migrate.properties   (every setting, commented)\n"
+                + "       hsm-edek-migrate help";
+    }
+
+    static final String HELP = """
+
+            commands:
+              analyze [--no-probe]  counts A's rows per KEK, version, status and owner; checks the KEK map,
+                                    owners and clashes in B; probes both vaults. Writes nothing
+              stage                 brings the staging table in line with A. No vault call
+              wrap                  unwraps each staged or failed row with A, wraps it with B
+              verify                unwraps each wrapped row with both vaults and compares the DEKs
+              report                counts per source KEK, owner and status; failed rows; ready or not
+              promote               copies verified rows into B's edek_records in one transaction
+              reset --yes           deletes the staging rows in scope
+              template              prints a settings file with every key explained
+
+            --kek <source KEK> and --app <app_id> limit any command to one source KEK and/or owner.
+
+            exit: 0 done, 1 stopped (rerun continues), 2 usage or settings error,
+                  3 finished with failed rows, problems found, or a refused promote
+
+            Design and runbook: java/docs/EDEK_TENANT_MIGRATION.md""";
+
+    static final String TEMPLATE_RESOURCE = "/migrate.properties.template";
+
+    private static int template(PrintStream out, PrintStream err) {
+        try (InputStream in = EdekMigrate.class.getResourceAsStream(TEMPLATE_RESOURCE)) {
+            if (in == null) {
+                err.println("the settings template is missing from the jar");
+                return Commands.STOPPED;
+            }
+            out.print(new String(in.readAllBytes(), StandardCharsets.UTF_8));
+            out.flush();
+            return Commands.OK;
+        } catch (IOException e) {
+            err.println("can't read the settings template: " + Commands.errorType(e));
+            return Commands.STOPPED;
+        }
     }
 
     record Args(String command, Path config, Scope scope, boolean yes, boolean probe) {

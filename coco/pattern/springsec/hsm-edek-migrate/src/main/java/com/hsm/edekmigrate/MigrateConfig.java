@@ -17,32 +17,9 @@ import java.util.regex.Pattern;
  * The tool's settings, from a properties file. Secrets never sit in the file: it names
  * the environment variables that hold them ({@code *-env} keys).
  *
- * <pre>
- * source.jdbc-url=jdbc:postgresql://pg-a:5432/hsm
- * source.user=edek_migrate_reader
- * source.password-env=EDEK_SOURCE_DB_PASSWORD
- * source.crypto-schema=hsm_crypto
- * source.vault-url=https://hsm-a.managedhsm.azure.net
- * source.legacy-kek-name=hsm-master-kek
- * source.credential=client-secret
- * source.tenant-id=...
- * source.client-id=...
- * source.client-secret-env=EDEK_SOURCE_CLIENT_SECRET
- *
- * target.jdbc-url=jdbc:postgresql://pg-b:5432/hsm
- * target.user=edek_migrate_writer
- * target.password-env=EDEK_TARGET_DB_PASSWORD
- * target.crypto-schema=hsm_crypto
- * target.access-schema=hsm_access
- * target.staging-schema=edek_migrate
- * target.vault-url=https://hsm-b.managedhsm.azure.net
- * target.credential=managed-identity
- * target.client-id=...
- *
- * kek-map.hsm-master-kek=hsm-b-kek
- * page-size=500
- * max-consecutive-failures=10
- * </pre>
+ * <p>Every key, whether it's required, its default and what it means:
+ * {@code src/main/resources/migrate.properties.template}, which
+ * {@code java -jar hsm-edek-migrate.jar template} prints.
  */
 public record MigrateConfig(
         Side source,
