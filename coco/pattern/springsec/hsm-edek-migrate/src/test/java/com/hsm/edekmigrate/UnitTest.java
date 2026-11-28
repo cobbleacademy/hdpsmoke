@@ -162,6 +162,38 @@ class UnitTest {
     }
 
     @Test
+    void kekAndAppTakeListsAndRepeatsAddUp(@TempDir Path dir) throws Exception {
+        EdekMigrate.Args a = EdekMigrate.Args.parse(new String[]{"stage", "--config", "m", "--kek", "k2, k1",
+                "--kek", "k3", "--app", "a1,a2"});
+        assertEquals(java.util.Set.of("k1", "k2", "k3"), a.scope().keks());
+        assertEquals(java.util.Set.of("a1", "a2"), a.scope().apps());
+        assertEquals("kek=k1,k2,k3 app=a1,a2", a.scope().toString());
+        assertThrows(IllegalArgumentException.class,
+                () -> EdekMigrate.Args.parse(new String[]{"stage", "--config", "m", "--kek", "k1,,k2"}));
+
+        UUID one = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID two = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        Path ids = Files.writeString(dir.resolve("ids.txt"), "# trial sample\n" + two + "\n\n  " + one + "  \n" + one
+                + "\n");
+        EdekMigrate.Args b = EdekMigrate.Args.parse(new String[]{"promote", "--config", "m", "--ids", ids.toString(),
+                "--kek", "k1"});
+        assertEquals(java.util.Set.of(one, two), b.scope().ids());
+        assertEquals("kek=k1 ids=2", b.scope().toString());
+
+        Path bad = Files.writeString(dir.resolve("bad.txt"), one + "\nnot-an-id\n");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> EdekMigrate.Args.parse(new String[]{"stage", "--config", "m", "--ids", bad.toString()}));
+        assertTrue(e.getMessage().contains("line 2"), e.getMessage());
+        Path empty = Files.writeString(dir.resolve("empty.txt"), "# nothing\n");
+        assertThrows(IllegalArgumentException.class,
+                () -> EdekMigrate.Args.parse(new String[]{"stage", "--config", "m", "--ids", empty.toString()}));
+        assertThrows(IllegalArgumentException.class, () -> EdekMigrate.Args.parse(new String[]{"stage", "--config",
+                "m", "--ids", ids.toString(), "--ids", ids.toString()}), "one --ids file");
+        assertThrows(IllegalArgumentException.class, () -> EdekMigrate.Args.parse(new String[]{"stage", "--config",
+                "m", "--ids", dir.resolve("none.txt").toString()}));
+    }
+
+    @Test
     void theAzureSdkUsesTheJdkHttpClient() {
         HttpClient client = HttpClient.createDefault();
         assertEquals("com.azure.core.http.jdk.httpclient.JdkHttpClient", client.getClass().getName());

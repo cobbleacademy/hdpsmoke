@@ -344,6 +344,64 @@ class EdekMigrateContainerTest {
     // ---- checks ----
 
     /** Every A row is in B with the same columns, B's KEK, no undo buffer, and the same DEK. */
+    // ---- several KEKs, and a chosen sample of edek_ids ----
+
+    @Test
+    void severalKeksInOneScope() throws Exception {
+        Commands c = commands();
+        Scope both = new Scope(java.util.Set.of(LEGACY, "kek-pii"), java.util.Set.of(), java.util.Set.of());
+        assertEquals(Commands.OK, c.analyze(both, true), out());
+        assertEquals(Commands.OK, c.stage(both), out());
+        assertEquals(Map.of("staged", 7L), statuses());
+        assertEquals(Commands.OK, c.stage(new Scope("kek-pii", null)), out());
+        assertEquals(Map.of("staged", 7L), statuses(), "a narrower stage marks nothing outside it removed");
+    }
+
+    @Test
+    void aTrialPromoteOfASampleThenTheRest() throws Exception {
+        Commands c = commands();
+        List<UUID> all = new ArrayList<>(deks.keySet());
+        Scope sample = new Scope(java.util.Set.of(), java.util.Set.of(), java.util.Set.of(all.get(0), all.get(3)));
+
+        assertEquals(Commands.OK, c.stage(sample), out());
+        assertEquals(Map.of("staged", 2L), statuses(), "stage --ids stages only the sample");
+        assertEquals(Commands.OK, c.stage(Scope.ALL), out());
+        assertEquals(Commands.OK, c.wrap(sample), out());
+        assertEquals(Commands.OK, c.verify(sample), out());
+        assertEquals(Map.of("verified", 2L, "staged", 5L), statuses());
+
+        assertEquals(Commands.PROBLEMS, c.promote(Scope.ALL), "the unverified rest blocks a full promote");
+        assertEquals(Commands.OK, c.report(sample), out());
+        assertTrue(out().contains("id edek_id=" + all.get(0) + " source_kek="), out());
+        assertTrue(out().contains("ready to promote: yes"), out());
+        assertEquals(Commands.OK, c.promote(sample), out());
+        assertTrue(out().contains("updated=0 inserted=2"), out());
+        assertTrue(out().contains("promote the rest before it takes traffic"), out());
+        assertEquals(2, countB("SELECT COUNT(*) FROM hsm_crypto.edek_records"));
+
+        output.reset();
+        runAll(c);
+        assertTrue(out().contains("updated=0 inserted=5"), "the sample isn't promoted twice: " + out());
+        assertBMatchesA();
+    }
+
+    @Test
+    void idsNotInTheSourceOrNotStagedAreReported() throws Exception {
+        Commands c = commands();
+        UUID known = deks.keySet().iterator().next();
+        UUID unknown = UUID.randomUUID();
+        Scope ids = new Scope(java.util.Set.of(), java.util.Set.of(), java.util.Set.of(known, unknown));
+        assertEquals(Commands.PROBLEMS, c.analyze(ids, false), out());
+        assertTrue(out().contains("--ids edek_id=" + unknown + " is not in the source"), out());
+        assertTrue(out().contains("1 of the 2 --ids aren't in the source"), out());
+
+        c.stage(new Scope(java.util.Set.of(), java.util.Set.of(), java.util.Set.of(known)));
+        assertEquals(Commands.OK, c.report(ids), out());
+        assertTrue(out().contains("id edek_id=" + unknown + " not staged"), out());
+        assertTrue(out().contains("id edek_id=" + known + " source_kek="), out());
+        assertTrue(out().contains("ready to promote: no"), out());
+    }
+
     // ---- what the tool prints when a database call fails ----
 
     @Test

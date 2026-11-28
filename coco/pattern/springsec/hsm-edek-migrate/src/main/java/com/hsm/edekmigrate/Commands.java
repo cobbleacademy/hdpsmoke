@@ -39,6 +39,7 @@ public final class Commands {
     public static final int PROBLEMS = 3;
 
     private static final int FAILED_LIST_LIMIT = 200;
+    private static final int LISTED_LIMIT = 10_000;
 
     private final MigrateConfig config;
     private final Connection sourceDb;
@@ -87,6 +88,20 @@ public final class Commands {
         List<SourceStore.Count> counts = source.counts(scope);
         long total = counts.stream().mapToLong(SourceStore.Count::rows).sum();
         out.println("analyze scope=" + scope + " rows=" + total);
+        if (!scope.ids().isEmpty()) {
+            at("source", "looking up the --ids in " + sourceTable);
+            List<UUID> missing = source.missingIds(scope);
+            for (UUID id : missing.subList(0, Math.min(missing.size(), FAILED_LIST_LIMIT))) {
+                out.println("--ids edek_id=" + id + " is not in the source");
+            }
+            if (!missing.isEmpty()) {
+                problems.add(missing.size() + " of the " + scope.ids().size() + " --ids aren't in the source");
+            }
+            long outside = scope.ids().size() - missing.size() - total;
+            if (outside > 0) {
+                out.println("--ids: " + outside + " edek_id(s) are in the source but outside the --kek/--app limits");
+            }
+        }
         out.println(String.format("%-30s %-34s %-9s %-30s %10s", "source KEK", "version", "status", "app_id", "rows"));
         Set<String> keks = new TreeSet<>();
         Set<String> owners = new TreeSet<>();
@@ -365,6 +380,27 @@ public final class Commands {
         if (failed.size() == FAILED_LIST_LIMIT) {
             out.println("(first " + FAILED_LIST_LIMIT + " failed rows shown)");
         }
+        if (!scope.ids().isEmpty()) {
+            List<StagingStore.Listed> listed = staging.listed(scope, LISTED_LIMIT);
+            long notStaged = 0;
+            for (StagingStore.Listed l : listed) {
+                if (l.status() == null) {
+                    notStaged++;
+                    out.println("id edek_id=" + l.edekId() + " not staged (or outside the --kek/--app limits)");
+                } else {
+                    out.println("id edek_id=" + l.edekId() + " source_kek=" + l.sourceKekName() + " app_id="
+                            + l.appId() + " status=" + l.status()
+                            + (l.errorType() == null ? "" : " error=" + l.errorType()));
+                }
+            }
+            if (listed.size() == LISTED_LIMIT) {
+                out.println("(first " + LISTED_LIMIT + " --ids shown)");
+            }
+            if (notStaged > 0) {
+                ready = false;
+                out.println(notStaged + " of the --ids aren't staged: run stage with the same --ids");
+            }
+        }
         targetDb.rollback();
         out.println("ready to promote: " + (ready ? "yes" : "no"));
         return OK;
@@ -395,6 +431,10 @@ public final class Commands {
         targetDb.commit();
         out.println("promote done scope=" + scope + " updated=" + r.updated() + " inserted=" + r.inserted()
                 + "; restart the target's hsm-core pods, then decrypt sample tokens through it");
+        if (!scope.isAll()) {
+            out.println("promote: only this scope is in the target's edek_records; the target can't decrypt tokens "
+                    + "of rows not promoted yet, so promote the rest before it takes traffic");
+        }
         return OK;
     }
 

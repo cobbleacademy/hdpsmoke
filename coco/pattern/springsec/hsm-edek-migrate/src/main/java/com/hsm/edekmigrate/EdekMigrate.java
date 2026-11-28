@@ -9,9 +9,12 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.UUID;
 
 /**
  * Moves hsm-core's EDEKs from one tenant (A) to another (B) by re-wrapping each DEK:
@@ -19,7 +22,7 @@ import java.util.Set;
  * and runbook: java/docs/EDEK_TENANT_MIGRATION.md.
  *
  * <pre>
- * java -jar hsm-edek-migrate.jar &lt;command&gt; --config migrate.properties [--kek NAME] [--app APP_ID] [--yes] [--no-probe]
+ * java -jar hsm-edek-migrate.jar &lt;command&gt; --config migrate.properties [--kek NAME[,NAME]] [--app APP_ID[,APP_ID]] [--ids FILE] [--yes] [--no-probe]
  * java -jar hsm-edek-migrate.jar template &gt; migrate.properties
  * </pre>
  *
@@ -139,7 +142,7 @@ public final class EdekMigrate {
 
     static String usage() {
         return "usage: hsm-edek-migrate <analyze|stage|wrap|verify|report|promote|reset> --config <file> "
-                + "[--kek <source KEK>] [--app <app_id>] [--yes] [--no-probe]\n"
+                + "[--kek <source KEK>[,...]] [--app <app_id>[,...]] [--ids <file>] [--yes] [--no-probe]\n"
                 + "       hsm-edek-migrate template > migrate.properties   (every setting, commented)\n"
                 + "       hsm-edek-migrate help";
     }
@@ -152,12 +155,18 @@ public final class EdekMigrate {
               stage                 brings the staging table in line with A. No vault call
               wrap                  unwraps each staged or failed row with A, wraps it with B
               verify                unwraps each wrapped row with both vaults and compares the DEKs
-              report                counts per source KEK, owner and status; failed rows; ready or not
+              report                counts per source KEK, owner and status; failed rows; ready or not;
+                                    with --ids, also each listed row's status
               promote               copies verified rows into B's edek_records in one transaction
               reset --yes           deletes the staging rows in scope
               template              prints a settings file with every key explained
 
-            --kek <source KEK> and --app <app_id> limit any command to one source KEK and/or owner.
+            limits, for any command (a row must match each one given):
+              --kek <source KEK>[,...]  these source KEKs; repeat the flag to add more
+              --app <app_id>[,...]      these owners; repeat the flag to add more
+              --ids <file>              these edek_ids, one per line (# comments allowed), for a
+                                        trial promote of a sample. B can decrypt only promoted
+                                        rows, so promote the rest before B takes traffic
 
             exit: 0 done, 1 stopped (rerun continues), 2 usage or settings error,
                   3 finished with failed rows, problems found, or a refused promote
@@ -188,8 +197,10 @@ public final class EdekMigrate {
                 throw new IllegalArgumentException(args.length == 0 ? "no command" : "unknown command: " + args[0]);
             }
             Path config = null;
-            String kek = null;
-            String app = null;
+            Set<String> keks = new TreeSet<>();
+            Set<String> apps = new TreeSet<>();
+            Set<UUID> ids = new TreeSet<>();
+            Path idsFile = null;
             boolean yes = false;
             boolean probe = true;
             List<String> rest = List.of(args).subList(1, args.length);
@@ -197,8 +208,15 @@ public final class EdekMigrate {
                 String opt = rest.get(i);
                 switch (opt) {
                     case "--config" -> config = Path.of(value(rest, ++i, opt));
-                    case "--kek" -> kek = value(rest, ++i, opt);
-                    case "--app" -> app = value(rest, ++i, opt);
+                    case "--kek" -> keks.addAll(list(value(rest, ++i, opt), opt));
+                    case "--app" -> apps.addAll(list(value(rest, ++i, opt), opt));
+                    case "--ids" -> {
+                        if (idsFile != null) {
+                            throw new IllegalArgumentException("--ids is given twice; put every edek_id in one file");
+                        }
+                        idsFile = Path.of(value(rest, ++i, opt));
+                        ids.addAll(readIds(idsFile));
+                    }
                     case "--yes" -> yes = true;
                     case "--no-probe" -> probe = false;
                     default -> throw new IllegalArgumentException("unknown option: " + opt);
@@ -207,7 +225,46 @@ public final class EdekMigrate {
             if (config == null) {
                 throw new IllegalArgumentException("--config is required");
             }
-            return new Args(args[0], config, new Scope(kek, app), yes, probe);
+            return new Args(args[0], config, new Scope(keks, apps, ids), yes, probe);
+        }
+
+        /** {@code a,b} or a single name; repeated flags add up. */
+        private static List<String> list(String v, String opt) {
+            List<String> out = new ArrayList<>();
+            for (String part : v.split(",", -1)) {
+                String t = part.trim();
+                if (t.isEmpty()) {
+                    throw new IllegalArgumentException(opt + " has an empty name in '" + v + "'");
+                }
+                out.add(t);
+            }
+            return out;
+        }
+
+        /** One edek_id per line; blank lines and lines starting with # are skipped. */
+        static Set<UUID> readIds(Path file) {
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                throw new IllegalArgumentException("--ids: can't read " + file + ": " + Commands.errorType(e));
+            }
+            Set<UUID> ids = new TreeSet<>();
+            for (int n = 0; n < lines.size(); n++) {
+                String t = lines.get(n).trim();
+                if (t.isEmpty() || t.startsWith("#")) {
+                    continue;
+                }
+                try {
+                    ids.add(UUID.fromString(t));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("--ids: line " + (n + 1) + " of " + file + " isn't an edek_id");
+                }
+            }
+            if (ids.isEmpty()) {
+                throw new IllegalArgumentException("--ids: " + file + " has no edek_ids");
+            }
+            return ids;
         }
 
         private static String value(List<String> rest, int i, String opt) {

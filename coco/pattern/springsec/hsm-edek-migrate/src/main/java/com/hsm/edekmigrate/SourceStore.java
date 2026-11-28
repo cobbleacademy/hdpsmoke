@@ -78,15 +78,35 @@ public final class SourceStore {
         }
     }
 
-    private void appendScope(StringBuilder sql, List<Object> args, Scope scope) {
-        if (scope.kek() != null) {
-            sql.append(" AND COALESCE(kek_name, ?) = ?");
-            args.add(legacyKekName);
-            args.add(scope.kek());
+    /** The --ids that aren't in the source's edek_records at all, in order. */
+    public List<UUID> missingIds(Scope scope) throws SQLException {
+        List<UUID> out = new ArrayList<>();
+        if (scope.ids().isEmpty()) {
+            return out;
         }
-        if (scope.app() != null) {
-            sql.append(" AND app_id = ?");
-            args.add(scope.app());
+        try (PreparedStatement ps = prepare("SELECT id FROM unnest(CAST(? AS uuid[])) AS id WHERE NOT EXISTS "
+                + "(SELECT 1 FROM " + table + " t WHERE t.edek_id = id) ORDER BY id",
+                List.of((Object) scope.idArray())); ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                out.add(rs.getObject(1, UUID.class));
+            }
+        }
+        return out;
+    }
+
+    private void appendScope(StringBuilder sql, List<Object> args, Scope scope) {
+        if (!scope.keks().isEmpty()) {
+            sql.append(" AND COALESCE(kek_name, ?) = ANY(?)");
+            args.add(legacyKekName);
+            args.add(scope.kekArray());
+        }
+        if (!scope.apps().isEmpty()) {
+            sql.append(" AND app_id = ANY(?)");
+            args.add(scope.appArray());
+        }
+        if (!scope.ids().isEmpty()) {
+            sql.append(" AND edek_id = ANY(CAST(? AS uuid[]))");
+            args.add(scope.idArray());
         }
     }
 

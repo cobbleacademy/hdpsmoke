@@ -80,7 +80,7 @@ Remove all of it after the move.
 ## Commands
 
 ```bash
-java -jar hsm-edek-migrate.jar <command> --config migrate.properties [--kek <source KEK>] [--app <app_id>]
+java -jar hsm-edek-migrate.jar <command> --config migrate.properties [--kek <source KEK>[,...]] [--app <app_id>[,...]] [--ids <file>]
 ```
 
 | Command | Does |
@@ -89,13 +89,19 @@ java -jar hsm-edek-migrate.jar <command> --config migrate.properties [--kek <sou
 | `stage` | Brings the staging table in line with A (new rows, changed rows, rows gone from A). No HSM call. Run it again for the cutover pass |
 | `wrap` | Unwraps each `staged` or `failed` row with A and wraps it with B |
 | `verify` | Unwraps each `wrapped` row with both HSMs and compares the DEKs |
-| `report` | Counts per source KEK, owner and status; the failed rows; whether the scope is ready to promote |
+| `report` | Counts per source KEK, owner and status; the failed rows; whether the scope is ready to promote; with `--ids`, each listed row's status |
 | `promote` | Copies `verified` rows into B's `edek_records` in one transaction; refused while any row in scope isn't verified |
 | `reset --yes` | Deletes the staging rows in scope |
 | `template` | Prints a settings file with every key explained |
 | `help` | Prints the commands and exit codes |
 
-`--kek` and `--app` limit any command to one source KEK and/or one owner.
+Limits, for any command; a row must match each one given:
+
+| Option | Limits to |
+|---|---|
+| `--kek a,b` | These source KEKs (a NULL `kek_name` is `source.legacy-kek-name`). Repeat it to add more |
+| `--app x,y` | These owner `app_id`s. Repeat it to add more |
+| `--ids <file>` | These `edek_id`s: one per line, blank lines and `#` comments skipped |
 
 | Exit | Means |
 |---|---|
@@ -140,9 +146,30 @@ java -jar hsm-edek-migrate.jar report  --config m.properties --kek hsm-master-ke
 java -jar hsm-edek-migrate.jar promote --config m.properties --kek hsm-master-kek
 ```
 
+Several KEKs at once: `--kek hsm-master-kek,kek-pii`.
+
 Then restart B's hsm-core pods and decrypt real sample tokens through it. The
 cutover pass is the same commands again (`stage` picks up new and changed rows).
 The full order, with the rotation jobs turned off first, is section 8 of the design.
+
+## A trial promote of chosen rows
+
+```bash
+printf '%s\n' 3f2b...-... 9c41...-... > sample.txt   # edek_ids, one per line
+java -jar hsm-edek-migrate.jar analyze --config m.properties --ids sample.txt   # lists ids not in A
+java -jar hsm-edek-migrate.jar stage   --config m.properties --ids sample.txt
+java -jar hsm-edek-migrate.jar wrap    --config m.properties --ids sample.txt
+java -jar hsm-edek-migrate.jar verify  --config m.properties --ids sample.txt
+java -jar hsm-edek-migrate.jar report  --config m.properties --ids sample.txt   # each row's status
+java -jar hsm-edek-migrate.jar promote --config m.properties --ids sample.txt
+```
+
+Only the listed rows go into B's `edek_records`, and only they block that promote.
+Restart B's pods and decrypt the tokens of those rows through B.
+
+B can decrypt only rows that were promoted: each `edek_id` is its own DEK. Promote
+the rest (the same commands without `--ids`) before any caller moves to B. That
+promote inserts the rest and leaves the sample alone.
 
 ## What it never does
 

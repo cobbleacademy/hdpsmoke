@@ -296,6 +296,31 @@ public final class StagingStore {
         }
     }
 
+    public record Listed(UUID edekId, String sourceKekName, String appId, String status, String errorType) {
+    }
+
+    /**
+     * For {@code report --ids}: each listed edek_id with its staging state, in order;
+     * null fields for an id that isn't staged (or is outside the --kek/--app limits).
+     */
+    public List<Listed> listed(Scope scope, int limit) throws SQLException {
+        StringBuilder sql = new StringBuilder("SELECT id, s.source_kek_name, s.app_id, s.migrate_status, "
+                + "s.error_type FROM unnest(CAST(? AS uuid[])) AS id LEFT JOIN " + staging + " s ON s.edek_id = id");
+        List<Object> args = new ArrayList<>();
+        args.add(scope.idArray());
+        appendScope(sql, args, new Scope(scope.keks(), scope.apps(), Set.of()), "s.");
+        sql.append(" ORDER BY id LIMIT ?");
+        args.add(limit);
+        try (PreparedStatement ps = prepare(sql.toString(), args); ResultSet rs = ps.executeQuery()) {
+            List<Listed> out = new ArrayList<>();
+            while (rs.next()) {
+                out.add(new Listed(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3), rs.getString(4),
+                        rs.getString(5)));
+            }
+            return out;
+        }
+    }
+
     // ---- promote ----
 
     public record PromoteResult(boolean refused, Map<String, Long> blockers, long clashes, int updated,
@@ -469,13 +494,17 @@ public final class StagingStore {
     }
 
     private static void appendScope(StringBuilder sql, List<Object> args, Scope scope, String alias) {
-        if (scope.kek() != null) {
-            sql.append(" AND ").append(alias).append("source_kek_name = ?");
-            args.add(scope.kek());
+        if (!scope.keks().isEmpty()) {
+            sql.append(" AND ").append(alias).append("source_kek_name = ANY(?)");
+            args.add(scope.kekArray());
         }
-        if (scope.app() != null) {
-            sql.append(" AND ").append(alias).append("app_id = ?");
-            args.add(scope.app());
+        if (!scope.apps().isEmpty()) {
+            sql.append(" AND ").append(alias).append("app_id = ANY(?)");
+            args.add(scope.appArray());
+        }
+        if (!scope.ids().isEmpty()) {
+            sql.append(" AND ").append(alias).append("edek_id = ANY(CAST(? AS uuid[]))");
+            args.add(scope.idArray());
         }
     }
 
