@@ -123,13 +123,21 @@ The settings file, with every key explained, is printed by `template`; see
 | `stage` | Brings staging in line with A, with no HSM call: new rows added as `staged`; rows whose `source_row_hash` changed (or that came back) reset to `staged`; rows gone from A marked `removed`. Safe to run any number of times: the first run, and the cutover pass, are the same command. Refuses while a KEK in A has no `kek-map` entry |
 | `wrap` | For each `staged` or `failed` row: unwrap with HSM-A, wrap with HSM-B, store the new `edek_blob` and `kek_version`, set `wrapped` |
 | `verify` | For each `wrapped` row: unwrap the new blob with HSM-B, and again the A blob with HSM-A; compare the two DEKs in memory; set `verified`, or `failed` |
-| `report` | Per KEK (and per `app_id`): counts by `migrate_status`, and the failed `edek_id`s with `error_type` |
+| `report` | Per KEK (and per `app_id`): counts by `migrate_status`, and the failed `edek_id`s with `error_type`; with `--ids`, each listed row's status |
 | `promote` | Copies `verified` rows into B's `edek_records` in one transaction (section 5.5) |
 | `reset --yes` | Empties the staging table (or one KEK's or app's rows of it) |
 | `template` | Prints a settings file with every key explained (`template > migrate.properties`) |
 
-Every command takes `--kek <source KEK>` and `--app <app_id>`, so each KEK can be
-staged, run, checked, reported on and promoted on its own before the next.
+Every command takes three limits, and a row must match each one given:
+
+- `--kek a,b`: source KEKs (a NULL `kek_name` counts as `source.legacy-kek-name`);
+- `--app x,y`: owner `app_id`s;
+- `--ids <file>`: `edek_id`s, one per line (`#` comments allowed).
+
+Repeating `--kek` or `--app` adds to the list. So each KEK, or a few of them, can be
+staged, run, checked, reported on and promoted before the next. `--ids` is for a
+trial promote of a sample (section 5.5). With `--ids`, `analyze` lists the ids that
+aren't in A, and `report` lists the ones that aren't staged.
 
 Exit status: 0 done; 1 stopped by an error (rerun continues); 2 a usage or settings
 error; 3 finished, but with failed rows, problems found, or a refused promote.
@@ -182,6 +190,12 @@ COMMIT;
   fully verified. It also refuses a verified row whose `edek_id` is already in B's
   table but wasn't put there by an earlier promote: that would overwrite
   another row.
+- **Trial promote.** `stage`, `wrap`, `verify` and `promote` with `--ids <file>`
+  handle only the listed rows, and only those block that promote. B can then
+  decrypt tokens of exactly those `edek_id`s, and of no others: each `edek_id`
+  is its own DEK. Use it to test B with a sample before the rest. Promote the
+  rest before any caller moves to B. A later full promote inserts the rest and
+  leaves the sample's rows alone unless they changed in A.
 - After the promote, restart B's hsm-core pods, then decrypt real sample tokens
   from every app through B's normal API. hsm-core stores no ciphertext, so this
   is the only end-to-end test of the data itself.
@@ -240,7 +254,7 @@ vault, not in the tool's settings.
 | 2 | Copy the access tables, with the cleanups and app_id replacements (sections 4, 6, 9) | B |
 | 3 | `analyze` | Tool |
 | 4 | Per KEK: `stage`, `wrap`, `verify`, `report`; fix and rerun until the KEK has no `failed` rows. A keeps serving | Tool |
-| 5 | `promote`; restart B's pods; decrypt real sample tokens of every app through B | B |
+| 5 | Optional trial: `promote --ids <sample>`, restart B's pods, decrypt those tokens through B. Then `promote` the rest; restart B's pods; decrypt real sample tokens of every app through B | B |
 | 6 | **Cutover window:** stop new DEK creation in A (deactivate the callers with `POST /admin/apps/status`, or stop their traffic); `stage` (it picks up new and changed rows), `wrap`, `verify`, `report`, `promote`; the sample tokens again | A, tool, B |
 | 7 | Move the callers to B; turn B's rotation jobs back on | B |
 | 8 | Keep A read-only until a set date; then drop the staging schema, remove the tool's access in both tenants, and decommission A | A, B |
